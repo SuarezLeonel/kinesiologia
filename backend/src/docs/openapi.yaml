@@ -1,0 +1,123 @@
+openapi: 3.0.3
+info:
+  title: API Kinesiología - Sistema de Gestión
+  version: 1.0.0
+  description: API REST para administración de consultorio de kinesiología. Cumple estrictamente con la regla de NO usar GET en endpoints de negocio.
+servers:
+  - url: /api/v1
+    description: Servidor Local
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+paths:
+  /auth/register:
+    post:
+      summary: Registro de nuevo usuario
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, lastName, email, password]
+              properties:
+                name: { type: string, example: "Carlos" }
+                lastName: { type: string, example: "Gómez" }
+                email: { type: string, example: "carlos@kinesio.com" }
+                password: { type: string, example: "Password123!" }
+                phone: { type: string, example: "+5491112345678" }
+      responses:
+        201: { description: Usuario registrado }
+        409: { description: Email duplicado }
+
+  /auth/login:
+    post:
+      summary: Inicio de sesión con emisión de Access y Refresh Token
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, example: "admin@kinesiologia.com" }
+                password: { type: string, example: "Password123!" }
+      responses:
+        200: { description: Login exitoso con tokens }
+        401: { description: Credenciales incorrectas }
+
+  /auth/refresh:
+    post:
+      summary: Rotación y renovación de tokens
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        200: { description: Tokens renovados }
+        401: { description: Token revocado o expirado }
+
+  /patients/search:
+    post:
+      summary: Búsqueda y listado de pacientes con filtros (Consulta de negocio vía POST)
+      tags: [Pacientes]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                search: { type: string }
+                page: { type: integer, default: 1 }
+                limit: { type: integer, default: 20 }
+      responses:
+        200: { description: Listado de pacientes }
+        401: { description: No autorizado }
+
+  /clinical-records/search:
+    post:
+      summary: Búsqueda de historias clínicas por paciente (Acceso restringido a Kinesiólogo y Admin)
+      tags: [Historias Clínicas]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [patientId]
+              properties:
+                patientId: { type: integer }
+      responses:
+        200: { description: Historias clínicas }
+        403: { description: Acceso denegado (ej. Recepcionista) }
+
+  /appointments/search:
+    post:
+      summary: Búsqueda de turnos de agenda
+      tags: [Turnos]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kinesiologistId: { type: integer }
+                startDate: { type: string }
+                endDate: { type: string }
+      responses:
+        200: { description: Turnos agendados }
