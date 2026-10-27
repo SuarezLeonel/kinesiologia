@@ -258,6 +258,20 @@ CREATE TABLE IF NOT EXISTS payment_packages (
   CONSTRAINT fk_pkg_service FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS package_session_transactions (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  package_id INT NOT NULL,
+  session_id INT NULL,
+  change_amount INT NOT NULL, -- +10 por compra, -1 por consumo de sesión, +1 por devolución
+  balance_after INT NOT NULL,
+  reason VARCHAR(100) NOT NULL,
+  recorded_by INT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_pst_pkg FOREIGN KEY (package_id) REFERENCES payment_packages(id) ON DELETE CASCADE,
+  CONSTRAINT fk_pst_session FOREIGN KEY (session_id) REFERENCES treatment_sessions(id) ON DELETE SET NULL,
+  CONSTRAINT fk_pst_user FOREIGN KEY (recorded_by) REFERENCES users(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS payments (
   id INT AUTO_INCREMENT PRIMARY KEY,
   patient_id INT NOT NULL,
