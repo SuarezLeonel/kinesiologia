@@ -1,51 +1,24 @@
 import { Router } from 'express';
-import { query } from '../../config/database.js';
+import { exercisesController } from './controller.js';
 import { authenticateToken, authorizeRoles } from '../../middlewares/auth.js';
-import { sendSuccess } from '../../utils/response.js';
 import { validate } from '../../middlewares/validate.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
-import { z } from 'zod';
+import {
+  exerciseSearchSchema,
+  exerciseDetailSchema,
+  exerciseCreateSchema,
+  exerciseUpdateSchema
+} from './schema.js';
 
 export const exercisesRouter = Router();
+
 exercisesRouter.use(authenticateToken);
 
-const exerciseSearchSchema = z.object({
-  body: z.object({
-    category: z.string().optional(),
-    search: z.string().optional()
-  })
-});
-
-const exerciseCreateSchema = z.object({
-  body: z.object({
-    name: z.string().min(2),
-    category: z.string().min(2),
-    description: z.string().min(2),
-    instructions: z.string().min(2),
-    defaultSets: z.number().int().positive().optional(),
-    defaultRepetitions: z.number().int().positive().optional(),
-    mediaUrl: z.string().url().optional()
-  })
-});
-
 // REGLA HTTP ESTRICTA: Solo POST para consultas de catálogo
-exercisesRouter.post('/search', validate(exerciseSearchSchema), asyncHandler(async (req, res) => {
-  const { category, search } = req.body;
-  const conditions = ['is_active = 1'];
-  const params = [];
-  if (category) { conditions.push('category = ?'); params.push(category); }
-  if (search) { conditions.push('(name LIKE ? OR description LIKE ?)'); params.push(`%${search}%`, `%${search}%`); }
-  const where = `WHERE ${conditions.join(' AND ')}`;
-  const rows = await query(`SELECT * FROM exercises ${where} ORDER BY name ASC`, params);
-  return sendSuccess(res, rows);
-}));
+exercisesRouter.post('/search', validate(exerciseSearchSchema), asyncHandler((req, res, next) => exercisesController.search(req, res, next)));
+exercisesRouter.post('/detail', validate(exerciseDetailSchema), asyncHandler((req, res, next) => exercisesController.detail(req, res, next)));
 
-// Crear ejercicio: Solo Kinesiólogos y Administradores
-exercisesRouter.post('/', authorizeRoles('admin', 'kinesiologist'), validate(exerciseCreateSchema), asyncHandler(async (req, res) => {
-  const { name, category, description, instructions, defaultSets, defaultRepetitions, mediaUrl } = req.body;
-  const result = await query(`
-    INSERT INTO exercises (name, category, description, instructions, default_sets, default_repetitions, media_url, is_active)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
-  `, [name, category, description, instructions, defaultSets || null, defaultRepetitions || null, mediaUrl || null]);
-  return sendSuccess(res, { id: result.insertId, ...req.body }, 'Ejercicio registrado', 201);
-}));
+// Crear y editar ejercicio: Kinesiólogos y Administradores
+exercisesRouter.post('/', authorizeRoles('admin', 'kinesiologist'), validate(exerciseCreateSchema), asyncHandler((req, res, next) => exercisesController.create(req, res, next)));
+exercisesRouter.patch('/:id', authorizeRoles('admin', 'kinesiologist'), validate(exerciseUpdateSchema), asyncHandler((req, res, next) => exercisesController.update(req, res, next)));
+exercisesRouter.delete('/:id', authorizeRoles('admin', 'kinesiologist'), asyncHandler((req, res, next) => exercisesController.delete(req, res, next)));

@@ -18,6 +18,7 @@ import { treatmentsRouter } from './modules/treatments/routes.js';
 import { dashboardRouter } from './modules/dashboard/routes.js';
 import { exercisesRouter } from './modules/exercises/routes.js';
 import { paymentsRouter } from './modules/payments/routes.js';
+import { servicesRouter } from './modules/services/routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -92,6 +93,7 @@ app.use(`${config.apiPrefix}/treatments`, treatmentsRouter);
 app.use(`${config.apiPrefix}/dashboard`, dashboardRouter);
 app.use(`${config.apiPrefix}/exercises`, exercisesRouter);
 app.use(`${config.apiPrefix}/payments`, paymentsRouter);
+app.use(`${config.apiPrefix}/services`, servicesRouter);
 
 // Manejo centralizado de 404
 app.use((req, res) => {

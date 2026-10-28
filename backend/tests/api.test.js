@@ -192,3 +192,68 @@ test('10. Autorización de recurso: Paciente inexistente al crear historia clín
   assert.strictEqual(res.status, 404);
   assert.strictEqual(res.body.error.code, 'NOT_FOUND');
 });
+
+test('11. Prestaciones y Tarifas: Consulta de catálogo mediante POST /services/search', async () => {
+  const recepToken = jwt.sign(
+    { type: 'access', userId: 3, role: 'receptionist', email: 'mariana.recep@kinesiologia.com' },
+    config.jwt.accessSecret,
+    { expiresIn: '15m' }
+  );
+
+  const res = await request(app)
+    .post('/api/v1/services/search')
+    .set('Authorization', `Bearer ${recepToken}`)
+    .send({});
+
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(res.body.success, true);
+  assert.ok(Array.isArray(res.body.data));
+  assert.ok(res.body.data.length >= 3, 'Debe devolver los servicios activos iniciales');
+});
+
+test('12. Idempotencia de pagos: Recibo duplicado rechaza con 409 Conflict', async () => {
+  const adminToken = jwt.sign(
+    { type: 'access', userId: 1, role: 'admin', email: 'admin@kinesiologia.com' },
+    config.jwt.accessSecret,
+    { expiresIn: '15m' }
+  );
+
+  const uniqueReceipt = `REC-${Date.now()}`;
+  const paymentPayload = {
+    patientId: 1,
+    amount: 15000,
+    paymentMethod: 'cash',
+    receiptNumber: uniqueReceipt
+  };
+
+  const res1 = await request(app)
+    .post('/api/v1/payments')
+    .set('Authorization', `Bearer ${adminToken}`)
+    .send(paymentPayload);
+
+  assert.strictEqual(res1.status, 201);
+
+  // Reintento con el mismo recibo
+  const res2 = await request(app)
+    .post('/api/v1/payments')
+    .set('Authorization', `Bearer ${adminToken}`)
+    .send(paymentPayload);
+
+  assert.strictEqual(res2.status, 409);
+});
+
+test('13. Dashboard modular: Oculta datos financieros al kinesiólogo', async () => {
+  const kineToken = jwt.sign(
+    { type: 'access', userId: 2, role: 'kinesiologist', email: 'carlos.kine@kinesiologia.com' },
+    config.jwt.accessSecret,
+    { expiresIn: '15m' }
+  );
+
+  const res = await request(app)
+    .post('/api/v1/dashboard/summary')
+    .set('Authorization', `Bearer ${kineToken}`)
+    .send({});
+
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(res.body.data.financial, null, 'El kinesiólogo no debe tener acceso al resumen financiero');
+});

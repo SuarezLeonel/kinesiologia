@@ -1,4 +1,5 @@
 import { query, executeTransaction } from '../../config/database.js';
+import { ConflictError } from '../../utils/errors.js';
 
 export class AppointmentsRepository {
   async search({ kinesiologistId, patientId, startDate, endDate, status, page = 1, limit = 50 }) {
@@ -66,6 +67,19 @@ export class AppointmentsRepository {
 
   async create(data) {
     return await executeTransaction(async (conn) => {
+      // Bloqueo y verificación atómica de superposición
+      const [overlaps] = await conn.execute(`
+        SELECT id FROM appointments
+        WHERE kinesiologist_id = ?
+          AND status NOT IN ('cancelled')
+          AND ((start_time < ? AND end_time > ?) OR (start_time >= ? AND start_time < ?))
+        FOR UPDATE
+      `, [data.kinesiologistId, data.endTime, data.startTime, data.startTime, data.endTime]);
+
+      if (overlaps.length > 0) {
+        throw new ConflictError('El profesional ya tiene un turno agendado en ese horario');
+      }
+
       const [result] = await conn.execute(`
         INSERT INTO appointments (patient_id, kinesiologist_id, service_id, start_time, end_time, status, notes, created_by)
         VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
@@ -82,11 +96,34 @@ export class AppointmentsRepository {
 
   async updateWithHistory(id, fields, userId) {
     return await executeTransaction(async (conn) => {
-      const [current] = await conn.execute('SELECT status, start_time FROM appointments WHERE id = ?', [id]);
+      const [current] = await conn.execute(
+        'SELECT kinesiologist_id, status, start_time, end_time FROM appointments WHERE id = ? FOR UPDATE',
+        [id]
+      );
       if (current.length === 0) return null;
 
-      const previousStatus = current[0].status;
-      const previousStartTime = current[0].start_time;
+      const app = current[0];
+      const previousStatus = app.status;
+      const previousStartTime = app.start_time;
+
+      const targetStart = fields.startTime || app.start_time;
+      const targetEnd = fields.endTime || app.end_time;
+
+      // Si se altera horario o estado activo, verificar superposición de forma atómica
+      if (fields.startTime || fields.endTime) {
+        const [overlaps] = await conn.execute(`
+          SELECT id FROM appointments
+          WHERE kinesiologist_id = ?
+            AND id != ?
+            AND status NOT IN ('cancelled')
+            AND ((start_time < ? AND end_time > ?) OR (start_time >= ? AND start_time < ?))
+          FOR UPDATE
+        `, [app.kinesiologist_id, id, targetEnd, targetStart, targetStart, targetEnd]);
+
+        if (overlaps.length > 0) {
+          throw new ConflictError('El nuevo horario genera una superposición con otro turno del profesional');
+        }
+      }
 
       const updates = [];
       const params = [];
