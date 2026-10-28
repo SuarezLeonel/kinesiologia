@@ -1,29 +1,33 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
-  TouchableOpacity
+  RefreshControl,
+  TouchableOpacity,
+  TextInput,
+  ScrollView
 } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { MaterialIcons } from '@expo/vector-icons';
 import { apiClient } from '../api/client';
-import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../theme/ThemeContext';
+import { useAuth } from '../context/AuthContext';
 import { spacing, radii, typography } from '../theme/tokens';
 import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper } from '../components/ui';
 import { LoadingState, ErrorState, EmptyState, AccessDeniedState } from '../components/FeedbackStates';
 
 const clinicalRecordSchema = z.object({
-  patient_id: z.coerce.number().positive('El ID de paciente debe ser mayor a 0'),
-  reason_for_consultation: z.string().min(3, 'El motivo debe tener al menos 3 caracteres'),
-  subjective_assessment: z.string().min(3, 'La evaluación subjetiva es obligatoria'),
-  objective_assessment: z.string().min(3, 'La evaluación objetiva es obligatoria'),
-  diagnosis: z.string().min(3, 'El diagnóstico es obligatorio'),
-  treatment_plan: z.string().min(3, 'El plan terapéutico es obligatorio'),
-  pain_scale_initial: z.coerce.number().min(0, 'Mínimo 0').max(10, 'Máximo 10').optional()
+  patient_id: z.coerce.number().positive('Debe seleccionar un paciente'),
+  reason_for_consultation: z.string().min(3, 'Ingrese el motivo de consulta'),
+  subjective_assessment: z.string().min(3, 'Ingrese la evaluación subjetiva'),
+  objective_assessment: z.string().min(3, 'Ingrese la evaluación objetiva'),
+  diagnosis: z.string().min(3, 'Ingrese el diagnóstico kinésico'),
+  treatment_plan: z.string().optional(),
+  pain_scale_initial: z.coerce.number().min(0).max(10).default(5)
 });
 
 type ClinicalRecordFormData = z.infer<typeof clinicalRecordSchema>;
@@ -31,12 +35,18 @@ type ClinicalRecordFormData = z.infer<typeof clinicalRecordSchema>;
 export const ClinicalRecordsScreen = () => {
   const { isReceptionist } = useAuth();
   const { theme } = useAppTheme();
-  const [patientId, setPatientId] = useState('1');
+  const [searchTerm, setSearchTerm] = useState('');
   const [records, setRecords] = useState<any[]>([]);
+  const [patients, setPatients] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Selector de pacientes en el modal
+  const [patientSearch, setPatientSearch] = useState('');
+  const [showPatientPicker, setShowPatientPicker] = useState(false);
 
   const {
     control,
@@ -48,7 +58,7 @@ export const ClinicalRecordsScreen = () => {
   } = useForm<ClinicalRecordFormData>({
     resolver: zodResolver(clinicalRecordSchema) as any,
     defaultValues: {
-      patient_id: 1,
+      patient_id: 0,
       reason_for_consultation: '',
       subjective_assessment: '',
       objective_assessment: '',
@@ -59,41 +69,79 @@ export const ClinicalRecordsScreen = () => {
   });
 
   const selectedPain = watch('pain_scale_initial');
+  const selectedPatientId = watch('patient_id');
 
-  const fetchRecords = async () => {
-    if (isReceptionist || !patientId) return;
+  const selectedPatient = useMemo(
+    () => patients.find((p) => p.id === Number(selectedPatientId)),
+    [patients, selectedPatientId]
+  );
+
+  const filteredPatients = useMemo(() => {
+    if (!patientSearch.trim()) return patients;
+    const q = patientSearch.toLowerCase().trim();
+    return patients.filter((p) => {
+      const fullName = `${p.last_name || ''} ${p.first_name || ''}`.toLowerCase();
+      const dni = String(p.dni || '');
+      return fullName.includes(q) || dni.includes(q);
+    });
+  }, [patients, patientSearch]);
+
+  const fetchRecords = async (query = '') => {
+    if (isReceptionist) return;
     try {
-      setLoading(true);
       setError(null);
-      // REGLA HTTP ESTRICTA: POST /clinical-records/search
+      // REGLA HTTP ESTRICTA: POST para consultas
       const response = await apiClient.post('/clinical-records/search', {
-        patientId: Number(patientId)
+        search: query || undefined,
+        limit: 50
       });
       if (response.data?.success) {
-        setRecords(response.data.data);
+        setRecords(response.data.data || []);
       }
     } catch (err: any) {
       setError(err.response?.data?.error?.message || 'Error al obtener historias clínicas');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
+  const fetchPatientsList = async () => {
+    try {
+      const res = await apiClient.post('/patients/search', { page: 1, limit: 100 });
+      if (res.data?.success) {
+        const list = res.data.data || [];
+        setPatients(list);
+        if (list.length > 0 && (!selectedPatientId || selectedPatientId === 0)) {
+          setValue('patient_id', list[0].id, { shouldValidate: true });
+        }
+      }
+    } catch (e) {}
+  };
+
+  // Búsqueda en tiempo real mientras escribe con debounce de 250ms
+  useEffect(() => {
+    if (isReceptionist) return;
+    const timeout = setTimeout(() => {
+      fetchRecords(searchTerm);
+    }, 250);
+    return () => clearTimeout(timeout);
+  }, [searchTerm, isReceptionist]);
+
   useEffect(() => {
     if (!isReceptionist) {
-      fetchRecords();
+      fetchPatientsList();
     }
   }, [isReceptionist]);
 
   const onCreateRecord = async (data: ClinicalRecordFormData) => {
     setFormError(null);
     try {
-      const response = await apiClient.post('/clinical-records/create', data);
+      const response = await apiClient.post('/clinical-records', data);
       if (response.data?.success) {
         setModalVisible(false);
         reset();
-        setPatientId(String(data.patient_id));
-        fetchRecords();
+        fetchRecords(searchTerm);
       }
     } catch (err: any) {
       setFormError(err.response?.data?.error?.message || 'Error al guardar nota clínica');
@@ -112,6 +160,9 @@ export const ClinicalRecordsScreen = () => {
     return 'error';
   };
 
+  if (loading && !refreshing) return <LoadingState message="Cargando historias clínicas..." />;
+  if (error) return <ErrorState message={error} onRetry={() => fetchRecords(searchTerm)} />;
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <ScreenHeader
@@ -123,8 +174,10 @@ export const ClinicalRecordsScreen = () => {
             size="sm"
             onPress={() => {
               setFormError(null);
+              fetchPatientsList();
+              const defaultPid = patients.length > 0 ? patients[0].id : 0;
               reset({
-                patient_id: Number(patientId) || 1,
+                patient_id: defaultPid,
                 reason_for_consultation: '',
                 subjective_assessment: '',
                 objective_assessment: '',
@@ -132,130 +185,114 @@ export const ClinicalRecordsScreen = () => {
                 treatment_plan: '',
                 pain_scale_initial: 5
               });
+              setShowPatientPicker(false);
+              setPatientSearch('');
               setModalVisible(true);
             }}
           />
         }
       />
 
-      {/* Buscador de paciente por ID */}
+      {/* Buscador en tiempo real */}
       <View style={styles.searchRow}>
         <View style={styles.searchInputContainer}>
           <Input
-            placeholder="Ingrese ID del Paciente (ej: 1)..."
-            value={patientId}
-            onChangeText={setPatientId}
-            keyboardType="numeric"
+            placeholder="Buscar por paciente, DNI o diagnóstico kinésico..."
+            value={searchTerm}
+            onChangeText={setSearchTerm}
             containerStyle={{ marginBottom: 0 }}
           />
         </View>
         <Button
-          title="Ver Ficha"
+          title="Buscar"
           variant="secondary"
           size="md"
-          onPress={fetchRecords}
+          onPress={() => fetchRecords(searchTerm)}
           style={{ marginLeft: spacing.sm }}
         />
       </View>
 
-      {loading ? (
-        <LoadingState message="Consultando registros clínicos..." />
-      ) : error ? (
-        <ErrorState message={error} onRetry={fetchRecords} />
-      ) : (
-        <FlatList
-          data={records}
-          keyExtractor={(item) => item.id.toString()}
-          ListEmptyComponent={
-            <EmptyState
-              title="Sin registros clínicos"
-              subtitle={`No hay evoluciones registradas para el paciente #${patientId}.`}
-              action={{
-                label: 'Agregar nota de evolución',
-                onPress: () => setModalVisible(true)
-              }}
-            />
-          }
-          renderItem={({ item }) => {
-            const pain = item.pain_scale_initial ?? item.reported_pain_level;
-            const dateStr = item.created_at
-              ? new Date(item.created_at).toLocaleDateString('es-AR', {
-                  day: '2-digit',
-                  month: '2-digit',
-                  year: 'numeric'
-                })
-              : '';
+      <FlatList
+        data={records}
+        keyExtractor={(item) => item.id.toString()}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              fetchRecords(searchTerm);
+            }}
+            tintColor={theme.primary}
+          />
+        }
+        ListEmptyComponent={
+          <EmptyState
+            title="Sin historias clínicas registradas"
+            subtitle="No se encontraron notas clínicas que coincidan con la búsqueda."
+          />
+        }
+        renderItem={({ item }) => {
+          const dateStr = item.created_at
+            ? new Date(item.created_at).toLocaleDateString('es-AR', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+              })
+            : '';
 
-            return (
-              <Card elevated style={styles.recordCard} padding="lg">
-                <View style={styles.recordHeader}>
-                  <View style={styles.titleCol}>
-                    <Text style={[styles.diagnosisText, { color: theme.text }]}>
-                      {item.diagnosis || 'Consulta Kinésica'}
-                    </Text>
-                    <Text style={[styles.dateText, { color: theme.textSecondary }]}>
-                      {dateStr} • Por {item.kinesiologist_first_name || item.author_name || 'Lic.'} {item.kinesiologist_last_name || item.author_last_name || ''}
-                    </Text>
-                  </View>
+          const patientLabel = item.patient_last_name
+            ? `${item.patient_last_name}, ${item.patient_first_name} (DNI ${item.patient_dni})`
+            : `Paciente #${item.patient_id}`;
 
-                  {pain !== null && pain !== undefined && (
-                    <Badge
-                      label={`EVA ${pain}/10`}
-                      variant={getPainBadgeVariant(pain)}
-                      size="sm"
-                    />
-                  )}
+          return (
+            <Card elevated style={styles.recordCard} padding="lg">
+              <View style={styles.cardHeader}>
+                <View style={styles.headerInfo}>
+                  <Text style={[styles.diagnosisTitle, { color: theme.text }]}>
+                    {item.diagnosis || 'Evaluación General'}
+                  </Text>
+                  <Text style={[styles.patientLabel, { color: theme.primary }]}>
+                    {patientLabel}
+                  </Text>
                 </View>
+                <Badge
+                  label={`Dolor: ${item.reported_pain_level ?? 0}/10`}
+                  variant={getPainBadgeVariant(item.reported_pain_level)}
+                  size="sm"
+                />
+              </View>
 
-                <View style={[styles.divider, { backgroundColor: theme.borderSubtle }]} />
+              <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
-                {item.reason_for_consultation && (
-                  <View style={styles.sectionRow}>
-                    <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>Motivo:</Text>
-                    <Text style={[styles.sectionValue, { color: theme.text }]}>
-                      {item.reason_for_consultation}
-                    </Text>
-                  </View>
-                )}
+              <View style={styles.sectionBlock}>
+                <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>
+                  Motivo de Consulta:
+                </Text>
+                <Text style={[styles.sectionContent, { color: theme.text }]}>
+                  {item.consultation_reason || 'Sin motivo especificado'}
+                </Text>
+              </View>
 
-                {item.subjective_assessment && (
-                  <View style={styles.sectionRow}>
-                    <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>Subjetivo:</Text>
-                    <Text style={[styles.sectionValue, { color: theme.text }]}>
-                      {item.subjective_assessment}
-                    </Text>
-                  </View>
-                )}
+              <View style={styles.cardFooter}>
+                <Text style={[styles.authorText, { color: theme.textMuted }]}>
+                  Profesional: Lic. {item.author_name} {item.author_last_name}
+                </Text>
+                <Text style={[styles.dateText, { color: theme.textMuted }]}>
+                  {dateStr}
+                </Text>
+              </View>
+            </Card>
+          );
+        }}
+        contentContainerStyle={{ paddingBottom: spacing.xxl }}
+      />
 
-                {item.objective_assessment && (
-                  <View style={styles.sectionRow}>
-                    <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>Objetivo:</Text>
-                    <Text style={[styles.sectionValue, { color: theme.text }]}>
-                      {item.objective_assessment}
-                    </Text>
-                  </View>
-                )}
-
-                {item.treatment_plan && (
-                  <View style={[styles.planBox, { backgroundColor: theme.surfaceSubtle }]}>
-                    <Text style={[styles.planTitle, { color: theme.primary }]}>Plan y Tratamiento:</Text>
-                    <Text style={[styles.planValue, { color: theme.text }]}>
-                      {item.treatment_plan}
-                    </Text>
-                  </View>
-                )}
-              </Card>
-            );
-          }}
-        />
-      )}
-
-      {/* Modal de Creación de Nota Clínica */}
+      {/* Modal de Nueva Nota Clínica */}
       <ModalWrapper
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
-        title="Nueva Nota de Evolución"
-        subtitle="Complete la anamnesis, examen físico y prescripción de tratamiento"
+        title="Nueva Historia Clínica"
+        subtitle="Registro de evaluación kinésica y diagnóstico"
         footer={
           <>
             <Button
@@ -265,7 +302,7 @@ export const ClinicalRecordsScreen = () => {
               onPress={() => setModalVisible(false)}
             />
             <Button
-              title="Guardar Nota"
+              title="Guardar Nota Clínica"
               size="md"
               loading={isSubmitting}
               onPress={() => handleSubmit(onCreateRecord)()}
@@ -279,21 +316,122 @@ export const ClinicalRecordsScreen = () => {
           </View>
         )}
 
-        <Controller
-          control={control}
-          name="patient_id"
-          render={({ field: { onChange, value } }) => (
-            <Input
-              label="ID Paciente"
-              value={String(value || '')}
-              onChangeText={onChange}
-              keyboardType="numeric"
-              placeholder="1"
-              error={formErrors.patient_id?.message}
-              required
-            />
+        {/* SELECTOR DE PACIENTE */}
+        <View style={styles.fieldContainer}>
+          <Text style={[styles.fieldLabel, { color: theme.text }]}>
+            Paciente <Text style={{ color: theme.error }}>*</Text>
+          </Text>
+
+          <TouchableOpacity
+            style={[
+              styles.pickerTrigger,
+              {
+                backgroundColor: theme.surface,
+                borderColor: formErrors.patient_id ? theme.error : theme.border
+              }
+            ]}
+            onPress={() => setShowPatientPicker(!showPatientPicker)}
+            accessibilityRole="button"
+          >
+            <View style={styles.pickerTriggerContent}>
+              <MaterialIcons name="person" size={20} color={theme.primary} style={{ marginRight: spacing.sm }} />
+              <View style={{ flex: 1 }}>
+                {selectedPatient ? (
+                  <View>
+                    <Text style={[styles.pickerSelectedText, { color: theme.text }]}>
+                      {selectedPatient.last_name}, {selectedPatient.first_name}
+                    </Text>
+                    <Text style={[styles.pickerSelectedSub, { color: theme.textSecondary }]}>
+                      DNI: {selectedPatient.dni}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={[styles.pickerPlaceholder, { color: theme.textMuted }]}>
+                    {patients.length === 0 ? 'Cargando pacientes...' : 'Seleccione un paciente de la lista...'}
+                  </Text>
+                )}
+              </View>
+              <MaterialIcons
+                name={showPatientPicker ? 'expand-less' : 'expand-more'}
+                size={22}
+                color={theme.textSecondary}
+              />
+            </View>
+          </TouchableOpacity>
+
+          {formErrors.patient_id && (
+            <Text style={[styles.fieldError, { color: theme.error }]}>
+              {formErrors.patient_id.message}
+            </Text>
           )}
-        />
+
+          {showPatientPicker && (
+            <View style={[styles.dropdownContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <View style={[styles.searchBox, { borderBottomColor: theme.border }]}>
+                <MaterialIcons name="search" size={18} color={theme.textSecondary} style={{ marginRight: spacing.xs }} />
+                <TextInput
+                  placeholder="Buscar por nombre, apellido o DNI..."
+                  placeholderTextColor={theme.textMuted}
+                  value={patientSearch}
+                  onChangeText={setPatientSearch}
+                  style={[styles.searchInput, { color: theme.text }]}
+                  autoFocus
+                />
+                {patientSearch ? (
+                  <TouchableOpacity onPress={() => setPatientSearch('')}>
+                    <MaterialIcons name="close" size={16} color={theme.textMuted} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+
+              <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                {filteredPatients.length === 0 ? (
+                  <View style={styles.dropdownEmpty}>
+                    <Text style={[styles.dropdownEmptyText, { color: theme.textMuted }]}>
+                      No se encontraron pacientes que coincidan
+                    </Text>
+                  </View>
+                ) : (
+                  filteredPatients.map((p) => {
+                    const isSelected = p.id === Number(selectedPatientId);
+                    return (
+                      <TouchableOpacity
+                        key={p.id}
+                        style={[
+                          styles.patientRow,
+                          { borderBottomColor: theme.border + '30' },
+                          isSelected && { backgroundColor: theme.primaryLight + '40' }
+                        ]}
+                        onPress={() => {
+                          setValue('patient_id', p.id, { shouldValidate: true });
+                          setShowPatientPicker(false);
+                          setPatientSearch('');
+                        }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={[
+                              styles.patientRowName,
+                              { color: isSelected ? theme.primary : theme.text }
+                            ]}
+                          >
+                            {p.last_name}, {p.first_name}
+                          </Text>
+                          <Text style={[styles.patientRowDni, { color: theme.textSecondary }]}>
+                            DNI: {p.dni}
+                          </Text>
+                        </View>
+                        {isSelected && (
+                          <MaterialIcons name="check" size={18} color={theme.primary} />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
+              </ScrollView>
+            </View>
+          )}
+        </View>
 
         <Controller
           control={control}
@@ -350,7 +488,7 @@ export const ClinicalRecordsScreen = () => {
               label="Evaluación Objetiva (Examen Físico)"
               value={value}
               onChangeText={onChange}
-              placeholder="Movilidad articular, fuerza muscular, palpación y pruebas ortopédicas"
+              placeholder="Palpación, rango articular (ROM), fuerza muscular"
               multiline
               numberOfLines={3}
               error={formErrors.objective_assessment?.message}
@@ -359,29 +497,11 @@ export const ClinicalRecordsScreen = () => {
           )}
         />
 
-        <Controller
-          control={control}
-          name="treatment_plan"
-          render={({ field: { onChange, value } }) => (
-            <Input
-              label="Plan Terapéutico y Ejercicios"
-              value={value}
-              onChangeText={onChange}
-              placeholder="Terapia manual, electroanalgesia, protocolo excéntrico"
-              multiline
-              numberOfLines={3}
-              error={formErrors.treatment_plan?.message}
-              required
-            />
-          )}
-        />
-
-        {/* Selector Visual de Escala EVA (0 a 10) */}
-        <View style={styles.painSelectorContainer}>
+        <View style={styles.painContainer}>
           <Text style={[styles.fieldLabel, { color: theme.text }]}>
-            Escala Analógica Visual del Dolor (EVA: {selectedPain ?? 5}/10)
+            Escala Analógica Visual de Dolor (EVA): {selectedPain}/10
           </Text>
-          <View style={styles.painChipsRow}>
+          <View style={styles.painButtonsRow}>
             {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
               const isSelected = selectedPain === num;
               return (
@@ -389,17 +509,18 @@ export const ClinicalRecordsScreen = () => {
                   key={num}
                   onPress={() => setValue('pain_scale_initial', num)}
                   style={[
-                    styles.painChip,
+                    styles.painCircle,
                     {
-                      backgroundColor: isSelected ? theme.primary : theme.surfaceSubtle,
+                      backgroundColor: isSelected ? theme.primary : theme.surface,
                       borderColor: isSelected ? theme.primary : theme.border
                     }
                   ]}
+                  accessibilityRole="button"
                 >
                   <Text
                     style={[
-                      styles.painChipText,
-                      { color: isSelected ? theme.primaryContrast : theme.text }
+                      styles.painCircleText,
+                      { color: isSelected ? '#FFFFFF' : theme.text }
                     ]}
                   >
                     {num}
@@ -409,6 +530,21 @@ export const ClinicalRecordsScreen = () => {
             })}
           </View>
         </View>
+
+        <Controller
+          control={control}
+          name="treatment_plan"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="Plan de Tratamiento y Objetivos (opcional)"
+              value={value || ''}
+              onChangeText={onChange}
+              placeholder="Frecuencia semanal, técnicas de fisioterapia, protocolo de ejercicios"
+              multiline
+              numberOfLines={2}
+            />
+          )}
+        />
       </ModalWrapper>
     </View>
   );
@@ -421,8 +557,8 @@ const styles = StyleSheet.create({
   },
   searchRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.lg
+    marginBottom: spacing.md,
+    alignItems: 'center'
   },
   searchInputContainer: {
     flex: 1
@@ -430,52 +566,53 @@ const styles = StyleSheet.create({
   recordCard: {
     marginBottom: spacing.md
   },
-  recordHeader: {
+  cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start'
   },
-  titleCol: {
-    flex: 1,
-    paddingRight: spacing.sm
+  headerInfo: {
+    flex: 1
   },
-  diagnosisText: {
+  diagnosisTitle: {
     fontSize: typography.fontSize.md,
-    fontWeight: typography.fontWeight.bold
+    fontWeight: typography.fontWeight.semibold
   },
-  dateText: {
+  patientLabel: {
     fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium,
     marginTop: 2
   },
   divider: {
     height: 1,
-    marginVertical: spacing.md
+    marginVertical: spacing.sm
   },
-  sectionRow: {
-    marginBottom: spacing.sm
+  sectionBlock: {
+    marginBottom: spacing.xs
   },
-  sectionLabel: {
+  sectionTitle: {
     fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.semibold,
-    marginBottom: 1
-  },
-  sectionValue: {
-    fontSize: typography.fontSize.sm,
-    lineHeight: typography.fontSize.sm * typography.lineHeight.normal
-  },
-  planBox: {
-    padding: spacing.md,
-    borderRadius: radii.md,
-    marginTop: spacing.xs
-  },
-  planTitle: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.bold,
     marginBottom: 2
   },
-  planValue: {
+  sectionContent: {
     fontSize: typography.fontSize.sm,
-    lineHeight: typography.fontSize.sm * typography.lineHeight.normal
+    lineHeight: 18
+  },
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.06)',
+    paddingTop: spacing.xs,
+    marginTop: spacing.sm
+  },
+  authorText: {
+    fontSize: typography.fontSize.xs
+  },
+  dateText: {
+    fontSize: typography.fontSize.xs
   },
   modalError: {
     padding: spacing.md,
@@ -487,7 +624,7 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.medium
   },
-  painSelectorContainer: {
+  fieldContainer: {
     marginBottom: spacing.md
   },
   fieldLabel: {
@@ -495,21 +632,99 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.medium,
     marginBottom: spacing.xs + 2
   },
-  painChipsRow: {
+  fieldError: {
+    fontSize: typography.fontSize.xs,
+    marginTop: spacing.xs,
+    fontWeight: typography.fontWeight.medium
+  },
+  pickerTrigger: {
+    borderRadius: radii.md,
+    borderWidth: 1,
+    padding: spacing.md,
+    minHeight: 52,
+    justifyContent: 'center'
+  },
+  pickerTriggerContent: {
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  pickerSelectedText: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.semibold
+  },
+  pickerSelectedSub: {
+    fontSize: typography.fontSize.xs,
+    marginTop: 2
+  },
+  pickerPlaceholder: {
+    fontSize: typography.fontSize.base
+  },
+  dropdownContainer: {
+    marginTop: spacing.xs,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3
+  },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: typography.fontSize.sm,
+    paddingVertical: 4
+  },
+  dropdownScroll: {
+    maxHeight: 180
+  },
+  dropdownEmpty: {
+    padding: spacing.md,
+    alignItems: 'center'
+  },
+  dropdownEmptyText: {
+    fontSize: typography.fontSize.xs
+  },
+  patientRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    borderBottomWidth: 1
+  },
+  patientRowName: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold
+  },
+  patientRowDni: {
+    fontSize: typography.fontSize.xs,
+    marginTop: 1
+  },
+  painContainer: {
+    marginBottom: spacing.md
+  },
+  painButtonsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 4
+    gap: spacing.xs,
+    marginTop: spacing.xs
   },
-  painChip: {
+  painCircle: {
     width: 32,
     height: 32,
-    borderRadius: radii.sm,
+    borderRadius: radii.full,
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center'
   },
-  painChipText: {
+  painCircleText: {
     fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.bold
   }

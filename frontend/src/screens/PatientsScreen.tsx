@@ -79,11 +79,13 @@ export const PatientsScreen = () => {
   };
 
   useEffect(() => {
-    fetchPatients();
-  }, []);
+    const timeout = setTimeout(() => {
+      fetchPatients(searchTerm);
+    }, 250);
+    return () => clearTimeout(timeout);
+  }, [searchTerm]);
 
   const handleSearch = () => {
-    setLoading(true);
     fetchPatients(searchTerm);
   };
 

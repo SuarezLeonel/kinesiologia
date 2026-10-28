@@ -74,11 +74,13 @@ export const ExercisesScreen = () => {
   };
 
   useEffect(() => {
-    fetchExercises();
-  }, []);
+    const timeout = setTimeout(() => {
+      fetchExercises(searchTerm);
+    }, 250);
+    return () => clearTimeout(timeout);
+  }, [searchTerm]);
 
   const handleSearch = () => {
-    setLoading(true);
     fetchExercises(searchTerm);
   };
 

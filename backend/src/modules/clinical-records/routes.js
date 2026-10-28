@@ -20,4 +20,5 @@ clinicalRecordsRouter.use(authorizeRoles('admin', 'kinesiologist'));
 clinicalRecordsRouter.post('/search', authorizePermission('clinical_records:read'), validate(clinicalRecordSearchSchema), asyncHandler((req, res, next) => clinicalRecordsController.search(req, res, next)));
 clinicalRecordsRouter.post('/detail', authorizePermission('clinical_records:read'), validate(clinicalRecordDetailSchema), asyncHandler((req, res, next) => clinicalRecordsController.detail(req, res, next)));
 clinicalRecordsRouter.post('/', authorizePermission('clinical_records:write'), validate(clinicalRecordCreateSchema), asyncHandler((req, res, next) => clinicalRecordsController.create(req, res, next)));
+clinicalRecordsRouter.post('/create', authorizePermission('clinical_records:write'), validate(clinicalRecordCreateSchema), asyncHandler((req, res, next) => clinicalRecordsController.create(req, res, next)));
 clinicalRecordsRouter.patch('/:id', authorizePermission('clinical_records:write'), validate(clinicalRecordUpdateSchema), asyncHandler((req, res, next) => clinicalRecordsController.update(req, res, next)));

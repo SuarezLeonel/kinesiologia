@@ -1,18 +1,33 @@
 import { query, executeTransaction } from '../../config/database.js';
 
 export class ClinicalRecordsRepository {
-  async searchByPatient({ patientId, page = 1, limit = 20 }) {
+  async searchByPatient({ patientId, search, page = 1, limit = 50 }) {
     const offset = (page - 1) * limit;
-    const sql = `
+    let sql = `
       SELECT cr.id, cr.patient_id, cr.author_id, u.name as author_name, u.last_name as author_last_name,
+             p.first_name as patient_first_name, p.last_name as patient_last_name, p.dni as patient_dni,
              cr.consultation_reason, cr.diagnosis, cr.reported_pain_level, cr.created_at, cr.updated_at
       FROM clinical_records cr
       JOIN users u ON cr.author_id = u.id
-      WHERE cr.patient_id = ?
-      ORDER BY cr.created_at DESC
-      LIMIT ? OFFSET ?
+      JOIN patients p ON cr.patient_id = p.id
     `;
-    return await query(sql, [patientId, limit, offset]);
+    const params = [];
+    const where = [];
+    if (patientId) {
+      where.push('cr.patient_id = ?');
+      params.push(patientId);
+    }
+    if (search && search.trim()) {
+      where.push('(p.first_name LIKE ? OR p.last_name LIKE ? OR p.dni LIKE ? OR cr.diagnosis LIKE ? OR cr.consultation_reason LIKE ?)');
+      const s = `%${search.trim()}%`;
+      params.push(s, s, s, s, s);
+    }
+    if (where.length > 0) {
+      sql += ' WHERE ' + where.join(' AND ');
+    }
+    sql += ' ORDER BY cr.created_at DESC LIMIT ? OFFSET ?';
+    params.push(limit, offset);
+    return await query(sql, params);
   }
 
   async findById(id) {
