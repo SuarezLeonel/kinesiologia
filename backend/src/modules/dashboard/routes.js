@@ -4,6 +4,7 @@ import { authenticateToken, authorizeRoles } from '../../middlewares/auth.js';
 import { sendSuccess } from '../../utils/response.js';
 import { z } from 'zod';
 import { validate } from '../../middlewares/validate.js';
+import { asyncHandler } from '../../utils/asyncHandler.js';
 
 export const dashboardRouter = Router();
 
@@ -16,7 +17,7 @@ const dashboardSummarySchema = z.object({
 });
 
 // Regla HTTP: POST para obtener resumen del dashboard
-dashboardRouter.post('/summary', validate(dashboardSummarySchema), async (req, res, next) => {
+dashboardRouter.post('/summary', validate(dashboardSummarySchema), asyncHandler(async (req, res, next) => {
   try {
     const targetDate = req.body.date || new Date().toISOString().slice(0, 10);
     const userRole = req.user.role;
@@ -58,4 +59,4 @@ dashboardRouter.post('/summary', validate(dashboardSummarySchema), async (req, r
   } catch (error) {
     next(error);
   }
-});
+}));

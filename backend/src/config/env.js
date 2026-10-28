@@ -14,6 +14,8 @@ if (nodeEnv === 'production' && (!process.env.CORS_ORIGIN || process.env.CORS_OR
   throw new Error('En producción CORS_ORIGIN debe definirse con los orígenes permitidos (no se admite "*").');
 }
 
+import crypto from 'crypto';
+
 export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   nodeEnv,
@@ -32,6 +34,10 @@ export const config = {
     accessSecret: requireSecret('JWT_ACCESS_SECRET'),
     accessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m',
     refreshSecret: requireSecret('JWT_REFRESH_SECRET'),
-    refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d'
+    refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
+    resetSecret: (process.env.JWT_RESET_SECRET && process.env.JWT_RESET_SECRET.length >= 32)
+      ? process.env.JWT_RESET_SECRET
+      : crypto.createHash('sha256').update((process.env.JWT_ACCESS_SECRET || '') + ':reset:dedicated').digest('hex'),
+    resetExpiresIn: process.env.JWT_RESET_EXPIRES_IN || '15m'
   }
 };

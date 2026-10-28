@@ -20,7 +20,17 @@ export class AuthRepository {
       WHERE u.id = ?
       LIMIT 1
     `, [id]);
-    return rows[0] || null;
+    if (!rows[0]) return null;
+
+    const user = rows[0];
+    const permRows = await query(`
+      SELECT p.code
+      FROM role_permissions rp
+      JOIN permissions p ON rp.permission_id = p.id
+      WHERE rp.role_id = ?
+    `, [user.role_id]);
+    user.permissions = permRows.map(p => p.code);
+    return user;
   }
 
   async findRoleByName(name) {
@@ -67,6 +77,31 @@ export class AuthRepository {
       SET revoked_at = CURRENT_TIMESTAMP
       WHERE user_id = ? AND revoked_at IS NULL
     `, [userId]);
+  }
+
+  async savePasswordResetToken({ userId, tokenHash, expiresAt }) {
+    await query(`
+      INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+      VALUES (?, ?, ?)
+    `, [userId, tokenHash, expiresAt]);
+  }
+
+  async findPasswordResetToken(tokenHash) {
+    const rows = await query(`
+      SELECT id, user_id, token_hash, expires_at, used_at
+      FROM password_reset_tokens
+      WHERE token_hash = ?
+      LIMIT 1
+    `, [tokenHash]);
+    return rows[0] || null;
+  }
+
+  async markPasswordResetTokenUsed(tokenHash) {
+    await query(`
+      UPDATE password_reset_tokens
+      SET used_at = CURRENT_TIMESTAMP
+      WHERE token_hash = ?
+    `, [tokenHash]);
   }
 }
 

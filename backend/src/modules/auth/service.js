@@ -100,22 +100,47 @@ export class AuthService {
     if (!user) {
       return { sent: true };
     }
-    // Generar token seguro firmado temporal (15m)
-    const resetToken = jwt.sign({ userId: user.id, purpose: 'reset-password' }, config.jwt.accessSecret, { expiresIn: '15m' });
-    // En producción se enviaría email; aquí se retorna token para validación en pruebas
+
+    // Generar token criptográfico firmado con secreto dedicado para reseteo
+    const resetToken = jwt.sign(
+      { type: 'password_reset', userId: user.id },
+      config.jwt.resetSecret,
+      { expiresIn: config.jwt.resetExpiresIn, jwtid: crypto.randomUUID() }
+    );
+
+    const tokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
+    const expiresAt = new Date(jwt.decode(resetToken).exp * 1000);
+
+    await authRepository.savePasswordResetToken({
+      userId: user.id,
+      tokenHash,
+      expiresAt
+    });
+
+    // En producción se enviaría email; en desarrollo se retorna el token para pruebas
     return { sent: true, resetToken: config.nodeEnv === 'development' ? resetToken : undefined };
   }
 
-  async resetPassword({ token, newPassword }) {
+  async resetPassword({ token, newPassword, ipAddress = null }) {
     let payload;
     try {
-      payload = jwt.verify(token, config.jwt.accessSecret);
-      if (payload.purpose !== 'reset-password') {
+      payload = jwt.verify(token, config.jwt.resetSecret);
+      if (payload.type !== 'password_reset' || !payload.userId) {
         throw new Error();
       }
     } catch (err) {
       throw new UnauthorizedError('Token de restablecimiento inválido o expirado');
     }
+
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const stored = await authRepository.findPasswordResetToken(tokenHash);
+
+    if (!stored || stored.used_at || new Date(stored.expires_at) < new Date()) {
+      throw new UnauthorizedError('El token de restablecimiento ya ha sido utilizado o ha expirado');
+    }
+
+    // Invalidar token de un solo uso
+    await authRepository.markPasswordResetTokenUsed(tokenHash);
 
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(newPassword, salt);
@@ -124,7 +149,18 @@ export class AuthService {
     const { query } = await import('../../config/database.js');
     await query('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, payload.userId]);
     await authRepository.revokeAllUserRefreshTokens(payload.userId);
-    return { success: true };
+
+    // Registrar en auditoría
+    const { logAudit } = await import('../../utils/auditLogger.js');
+    await logAudit({
+      userId: payload.userId,
+      action: 'PASSWORD_RESET',
+      entityType: 'user',
+      entityId: payload.userId,
+      ipAddress
+    });
+
+    return { success: true, message: 'Contraseña actualizada con éxito' };
   }
 
   async socialAuth({ provider, idToken }) {

@@ -34,7 +34,8 @@ export async function authenticateToken(req, res, next) {
       id: user.id,
       roleId: user.role_id,
       role: user.role_name,
-      email: user.email
+      email: user.email,
+      permissions: user.permissions || []
     };
 
     next();
@@ -52,5 +53,18 @@ export function authorizeRoles(...allowedRoles) {
       return next(new ForbiddenError('No posee los permisos necesarios para realizar esta acción'));
     }
     next();
+  };
+}
+
+export function authorizePermission(permissionCode) {
+  return (req, res, next) => {
+    if (!req.user) {
+      return next(new UnauthorizedError('No autenticado'));
+    }
+    // El rol admin siempre tiene autorización total
+    if (req.user.role === 'admin' || (req.user.permissions && req.user.permissions.includes(permissionCode))) {
+      return next();
+    }
+    return next(new ForbiddenError(`Permiso requerido no concedido: ${permissionCode}`));
   };
 }

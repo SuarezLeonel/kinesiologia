@@ -138,3 +138,57 @@ test('7. Control de acceso: Kinesiólogo bloqueado en módulo de cobros administ
 
   assert.strictEqual(res.status, 403);
 });
+
+test('8. Reseteo de contraseña: un solo uso e invalidación ante reintento (401)', async () => {
+  // 1. Solicitar reseteo
+  const forgotRes = await request(app)
+    .post('/api/v1/auth/forgot-password')
+    .send({ email: 'carlos.kine@kinesiologia.com' });
+
+  assert.strictEqual(forgotRes.status, 200);
+  const resetToken = forgotRes.body.data?.resetToken || forgotRes.body.resetToken;
+  assert.ok(resetToken, 'Debe devolver un resetToken en entorno de desarrollo/test');
+
+  // 2. Usar token para cambiar contraseña
+  const resetRes = await request(app)
+    .post('/api/v1/auth/reset-password')
+    .send({ token: resetToken, newPassword: 'Password123!' });
+
+  assert.strictEqual(resetRes.status, 200);
+
+  // 3. Reintento con el MISMO token: debe ser rechazado inmediatamente (token de un solo uso)
+  const replayRes = await request(app)
+    .post('/api/v1/auth/reset-password')
+    .send({ token: resetToken, newPassword: 'Password123!' });
+
+  assert.strictEqual(replayRes.status, 401);
+});
+
+test('9. Trazabilidad: acciones sensibles escriben registros en audit_logs', async () => {
+  const { query } = await import('../src/config/database.js');
+  const rows = await query("SELECT action, entity_type FROM audit_logs WHERE action = 'PASSWORD_RESET' ORDER BY id DESC LIMIT 1");
+  assert.ok(rows.length > 0, 'Debe existir al menos un registro de auditoría para PASSWORD_RESET');
+  assert.strictEqual(rows[0].action, 'PASSWORD_RESET');
+  assert.strictEqual(rows[0].entity_type, 'user');
+});
+
+test('10. Autorización de recurso: Paciente inexistente al crear historia clínica responde 404 (no 500)', async () => {
+  const kineToken = jwt.sign(
+    { type: 'access', userId: 2, role: 'kinesiologist', email: 'carlos.kine@kinesiologia.com' },
+    config.jwt.accessSecret,
+    { expiresIn: '15m' }
+  );
+
+  const res = await request(app)
+    .post('/api/v1/clinical-records')
+    .set('Authorization', `Bearer ${kineToken}`)
+    .send({
+      patientId: 999999,
+      consultationReason: 'Dolor lumbar agudo',
+      initialEvaluation: 'Evaluación inicial',
+      diagnosis: 'Lumbalgia mecánica'
+    });
+
+  assert.strictEqual(res.status, 404);
+  assert.strictEqual(res.body.error.code, 'NOT_FOUND');
+});

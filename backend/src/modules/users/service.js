@@ -1,6 +1,7 @@
 import { usersRepository } from './repository.js';
 import { authRepository } from '../auth/repository.js';
 import { NotFoundError, ConflictError } from '../../utils/errors.js';
+import { logAudit } from '../../utils/auditLogger.js';
 import bcrypt from 'bcryptjs';
 
 export class UsersService {
@@ -16,7 +17,7 @@ export class UsersService {
     return user;
   }
 
-  async createUser({ roleId, name, lastName, email, password, phone }) {
+  async createUser({ roleId, name, lastName, email, password, phone }, currentUser = null) {
     const existing = await authRepository.findUserByEmail(email);
     if (existing) {
       throw new ConflictError('El email ya está registrado');
@@ -24,18 +25,44 @@ export class UsersService {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
     const id = await authRepository.createUser({ roleId, name, lastName, email, passwordHash, phone });
+
+    await logAudit({
+      userId: currentUser?.id,
+      action: 'USER_CREATED',
+      entityType: 'user',
+      entityId: id,
+      details: { roleId, email, name, lastName }
+    });
+
     return await usersRepository.findById(id);
   }
 
-  async updateUser(id, fields) {
+  async updateUser(id, fields, currentUser = null) {
     await this.getUserDetail(id);
     await usersRepository.updateUser(id, fields);
+
+    await logAudit({
+      userId: currentUser?.id,
+      action: 'USER_UPDATED',
+      entityType: 'user',
+      entityId: id,
+      details: fields
+    });
+
     return await usersRepository.findById(id);
   }
 
-  async deleteUser(id) {
+  async deleteUser(id, currentUser = null) {
     await this.getUserDetail(id);
     await usersRepository.softDelete(id);
+
+    await logAudit({
+      userId: currentUser?.id,
+      action: 'USER_DEACTIVATED',
+      entityType: 'user',
+      entityId: id
+    });
+
     return { success: true };
   }
 }
