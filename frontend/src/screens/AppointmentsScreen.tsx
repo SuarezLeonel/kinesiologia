@@ -3,10 +3,8 @@ import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   RefreshControl,
   TouchableOpacity,
-  TextInput,
   ScrollView
 } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
@@ -17,7 +15,7 @@ import { apiClient } from '../api/client';
 import { useAppTheme } from '../theme/ThemeContext';
 import { spacing, radii, typography } from '../theme/tokens';
 import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper, BadgeVariant } from '../components/ui';
-import { LoadingState, ErrorState, EmptyState } from '../components/FeedbackStates';
+import { LoadingState, ErrorState } from '../components/FeedbackStates';
 
 const appointmentSchema = z.object({
   patient_id: z.coerce.number().positive('Debe seleccionar un paciente'),
@@ -31,6 +29,49 @@ const appointmentSchema = z.object({
 type AppointmentFormData = z.infer<typeof appointmentSchema>;
 type StatusFilter = 'all' | 'pending' | 'confirmed' | 'attended' | 'cancelled';
 
+const DAY_NAMES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
+const MONTH_NAMES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+];
+
+function getMonday(d: Date): Date {
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function formatDateISO(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getAppointmentDate(item: any): Date | null {
+  const raw = item.start_time || item.scheduled_at;
+  if (!raw) return null;
+  const d = new Date(raw);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function getAppointmentDateStr(item: any): string {
+  const d = getAppointmentDate(item);
+  if (!d) return '';
+  return formatDateISO(d);
+}
+
+function getAppointmentTimeStr(item: any): string {
+  const d = getAppointmentDate(item);
+  if (!d) return '10:00';
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+}
+
 export const AppointmentsScreen = () => {
   const { theme } = useAppTheme();
   const [appointments, setAppointments] = useState<any[]>([]);
@@ -42,6 +83,7 @@ export const AppointmentsScreen = () => {
   const [formError, setFormError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [updatingId, setUpdatingId] = useState<number | null>(null);
+  const [currentWeekMonday, setCurrentWeekMonday] = useState<Date>(() => getMonday(new Date()));
 
   // Estado para el selector desplegable de pacientes
   const [patientSearch, setPatientSearch] = useState('');
@@ -88,7 +130,7 @@ export const AppointmentsScreen = () => {
       // REGLA HTTP ESTRICTA: POST para consultas
       const response = await apiClient.post('/appointments/search', {
         page: 1,
-        limit: 50
+        limit: 100
       });
       if (response.data?.success) {
         setAppointments(response.data.data);
@@ -118,6 +160,24 @@ export const AppointmentsScreen = () => {
     fetchAppointments();
     fetchPatientsList();
   }, []);
+
+  const openCreateModal = (targetDateStr?: string) => {
+    setFormError(null);
+    fetchPatientsList();
+    const defaultPid = patients.length > 0 ? patients[0].id : 0;
+    const initialDate = targetDateStr || formatDateISO(new Date());
+    reset({
+      patient_id: defaultPid,
+      kinesiologist_id: 2,
+      service_id: 1,
+      scheduled_at: `${initialDate} 10:00:00`,
+      duration_minutes: 45,
+      reason: 'Sesión de kinesiología y rehabilitación'
+    });
+    setShowPatientPicker(false);
+    setPatientSearch('');
+    setModalVisible(true);
+  };
 
   const onCreateAppointment = async (data: AppointmentFormData) => {
     setFormError(null);
@@ -149,6 +209,90 @@ export const AppointmentsScreen = () => {
     }
   };
 
+  // Cálculo de los 5 días de la semana (Lunes a Viernes)
+  const weekDays = useMemo(() => {
+    const todayStr = formatDateISO(new Date());
+    return [0, 1, 2, 3, 4].map((offset) => {
+      const d = new Date(currentWeekMonday);
+      d.setDate(d.getDate() + offset);
+      const dateStr = formatDateISO(d);
+      return {
+        dayIndex: offset,
+        dayName: DAY_NAMES[offset],
+        dayNumber: d.getDate(),
+        monthName: MONTH_NAMES[d.getMonth()],
+        dateStr,
+        date: d,
+        isToday: dateStr === todayStr
+      };
+    });
+  }, [currentWeekMonday]);
+
+  const weekTitle = useMemo(() => {
+    const first = weekDays[0];
+    const last = weekDays[4];
+    if (!first || !last) return '';
+    if (first.monthName === last.monthName) {
+      return `${first.dayNumber} al ${last.dayNumber} de ${first.monthName} ${first.date.getFullYear()}`;
+    }
+    return `${first.dayNumber} de ${first.monthName} al ${last.dayNumber} de ${last.monthName} ${first.date.getFullYear()}`;
+  }, [weekDays]);
+
+  const isCurrentWeek = useMemo(() => {
+    return formatDateISO(currentWeekMonday) === formatDateISO(getMonday(new Date()));
+  }, [currentWeekMonday]);
+
+  const goToPrevWeek = () => {
+    const d = new Date(currentWeekMonday);
+    d.setDate(d.getDate() - 7);
+    setCurrentWeekMonday(d);
+  };
+
+  const goToNextWeek = () => {
+    const d = new Date(currentWeekMonday);
+    d.setDate(d.getDate() + 7);
+    setCurrentWeekMonday(d);
+  };
+
+  const goToCurrentWeek = () => {
+    setCurrentWeekMonday(getMonday(new Date()));
+  };
+
+  // Conteo de turnos de la semana para los chips de filtro
+  const weekStats = useMemo(() => {
+    const weekSet = new Set(weekDays.map((d) => d.dateStr));
+    const appointmentsInWeek = appointments.filter((item) => {
+      const dStr = getAppointmentDateStr(item);
+      return weekSet.has(dStr);
+    });
+
+    const counts = {
+      all: appointmentsInWeek.length,
+      pending: 0,
+      confirmed: 0,
+      attended: 0,
+      cancelled: 0
+    };
+
+    appointmentsInWeek.forEach((item) => {
+      const s = String(item.status || '').toLowerCase();
+      if (s === 'pending' || s === 'scheduled') counts.pending++;
+      else if (s === 'confirmed') counts.confirmed++;
+      else if (s === 'attended' || s === 'completed') counts.attended++;
+      else if (s === 'cancelled' || s === 'absent' || s === 'no_show') counts.cancelled++;
+    });
+
+    return counts;
+  }, [appointments, weekDays]);
+
+  const filterTabs: { key: StatusFilter; label: string; count: number }[] = [
+    { key: 'all', label: 'Todos', count: weekStats.all },
+    { key: 'pending', label: 'Programados', count: weekStats.pending },
+    { key: 'confirmed', label: 'Confirmados', count: weekStats.confirmed },
+    { key: 'attended', label: 'Atendidos', count: weekStats.attended },
+    { key: 'cancelled', label: 'Cancelados', count: weekStats.cancelled }
+  ];
+
   const filteredAppointments = useMemo(() => {
     if (statusFilter === 'all') return appointments;
     return appointments.filter((item) => {
@@ -168,6 +312,31 @@ export const AppointmentsScreen = () => {
       return s === statusFilter;
     });
   }, [appointments, statusFilter]);
+
+  // Turnos agrupados por cada uno de los 5 días y ordenados por hora
+  const appointmentsByDay = useMemo(() => {
+    const map: Record<string, any[]> = {};
+    weekDays.forEach((d) => {
+      map[d.dateStr] = [];
+    });
+
+    filteredAppointments.forEach((item) => {
+      const dStr = getAppointmentDateStr(item);
+      if (map[dStr]) {
+        map[dStr].push(item);
+      }
+    });
+
+    Object.keys(map).forEach((key) => {
+      map[key].sort((a, b) => {
+        const timeA = new Date(a.start_time || a.scheduled_at).getTime();
+        const timeB = new Date(b.start_time || b.scheduled_at).getTime();
+        return timeA - timeB;
+      });
+    });
+
+    return map;
+  }, [weekDays, filteredAppointments]);
 
   const getStatusBadge = (status: string): { label: string; variant: BadgeVariant } => {
     const s = String(status || '').toLowerCase();
@@ -193,38 +362,15 @@ export const AppointmentsScreen = () => {
   if (loading && !refreshing) return <LoadingState message="Cargando agenda de turnos..." />;
   if (error) return <ErrorState message={error} onRetry={fetchAppointments} />;
 
-  const filterTabs: { key: StatusFilter; label: string }[] = [
-    { key: 'all', label: 'Todos' },
-    { key: 'pending', label: 'Programados' },
-    { key: 'confirmed', label: 'Confirmados' },
-    { key: 'attended', label: 'Atendidos' },
-    { key: 'cancelled', label: 'Cancelados' }
-  ];
-
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <ScreenHeader
         title="Agenda de Turnos"
-        subtitle="Programación de sesiones y disponibilidad horaria"
+        subtitle="Cuadro semanal de Lunes a Viernes con distribución por horarios"
         action={
           <Button
             title="+ Agendar Turno"
-            onPress={() => {
-              setFormError(null);
-              fetchPatientsList();
-              const defaultPid = patients.length > 0 ? patients[0].id : 0;
-              reset({
-                patient_id: defaultPid,
-                kinesiologist_id: 2,
-                service_id: 1,
-                scheduled_at: new Date(Date.now() + 86400000).toISOString().slice(0, 10) + ' 10:00:00',
-                duration_minutes: 45,
-                reason: 'Sesión de kinesiología y rehabilitación'
-              });
-              setShowPatientPicker(false);
-              setPatientSearch('');
-              setModalVisible(true);
-            }}
+            onPress={() => openCreateModal()}
             size="sm"
           />
         }
@@ -253,16 +399,54 @@ export const AppointmentsScreen = () => {
                   { color: isActive ? '#FFFFFF' : theme.textSecondary }
                 ]}
               >
-                {tab.label}
+                {tab.label} ({tab.count})
               </Text>
             </TouchableOpacity>
           );
         })}
       </View>
 
-      <FlatList
-        data={filteredAppointments}
-        keyExtractor={(item) => item.id.toString()}
+      {/* Barra de navegación de la semana */}
+      <View style={[styles.weekNavContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+        <TouchableOpacity
+          style={styles.navButton}
+          onPress={goToPrevWeek}
+          accessibilityLabel="Semana anterior"
+        >
+          <MaterialIcons name="chevron-left" size={22} color={theme.text} />
+          <Text style={[styles.navButtonText, { color: theme.text }]}>Semana anterior</Text>
+        </TouchableOpacity>
+
+        <View style={styles.weekInfoCenter}>
+          <View style={styles.weekTitleRow}>
+            <MaterialIcons name="calendar-today" size={18} color={theme.primary} />
+            <Text style={[styles.weekTitleText, { color: theme.text }]}>
+              {weekTitle}
+            </Text>
+          </View>
+          {!isCurrentWeek && (
+            <TouchableOpacity
+              style={[styles.todayButton, { backgroundColor: theme.primarySoft || '#E8F5E9', borderColor: theme.primary }]}
+              onPress={goToCurrentWeek}
+            >
+              <Text style={[styles.todayButtonText, { color: theme.primary }]}>Volver a esta semana</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <TouchableOpacity
+          style={styles.navButton}
+          onPress={goToNextWeek}
+          accessibilityLabel="Semana siguiente"
+        >
+          <Text style={[styles.navButtonText, { color: theme.text }]}>Semana siguiente</Text>
+          <MaterialIcons name="chevron-right" size={22} color={theme.text} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Cuadro de 5 días (Lunes a Viernes) */}
+      <ScrollView
+        style={styles.gridOuterScroll}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -273,120 +457,215 @@ export const AppointmentsScreen = () => {
             tintColor={theme.primary}
           />
         }
-        ListEmptyComponent={
-          <EmptyState
-            title="Sin turnos encontrados"
-            subtitle="No se registran turnos para el filtro seleccionado o el calendario está vacío."
-          />
-        }
-        renderItem={({ item }) => {
-          const badge = getStatusBadge(item.status);
-          const patientName = item.patient_name
-            ? `${item.patient_last_name || ''}, ${item.patient_name}`
-            : (item.patient_last_name && item.patient_first_name)
-              ? `${item.patient_last_name}, ${item.patient_first_name}`
-              : `Paciente #${item.patient_id}`;
-          const statusRaw = String(item.status || '').toLowerCase();
-          const isUpdating = updatingId === item.id;
+      >
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={true}
+          contentContainerStyle={styles.columnsContainer}
+        >
+          {weekDays.map((day) => {
+            const dayAppointments = appointmentsByDay[day.dateStr] || [];
+            const isToday = day.isToday;
 
-          return (
-            <Card elevated style={styles.appointmentCard} padding="lg">
-              <View style={styles.cardHeader}>
-                <View style={styles.timeBadgeContainer}>
-                  <Text style={[styles.timeText, { color: theme.text }]}>
-                    {item.start_time?.slice(11, 16) || item.scheduled_at?.slice(11, 16) || '10:00'} hs
-                  </Text>
-                  <Text style={[styles.durationText, { color: theme.textSecondary }]}>
-                    {item.duration_minutes || 45} min
-                  </Text>
-                </View>
-                <Badge label={badge.label} variant={badge.variant} size="sm" />
-              </View>
-
-              <View style={[styles.divider, { backgroundColor: theme.border }]} />
-
-              <View style={styles.cardBody}>
-                <Text style={[styles.patientName, { color: theme.text }]}>
-                  {patientName}
-                </Text>
-                <Text style={[styles.serviceText, { color: theme.primary }]}>
-                  {item.service_name || 'Sesión de Kinesiología y Fisioterapia'}
-                </Text>
-                {item.reason || item.notes ? (
-                  <Text style={[styles.reasonText, { color: theme.textSecondary }]}>
-                    Motivo: {item.reason || item.notes}
-                  </Text>
-                ) : null}
-                <Text style={[styles.kineText, { color: theme.textMuted }]}>
-                  Atiende: {item.kinesiologist_last_name ? `Lic. ${item.kinesiologist_last_name}, ${item.kinesiologist_name || ''}` : (item.kinesiologist_name || 'Lic. Carlos Gómez')}
-                </Text>
-              </View>
-
-              {/* Botones de acción según el estado */}
-              <View style={[styles.cardActions, { borderTopColor: theme.border }]}>
-                {statusRaw === 'pending' || statusRaw === 'scheduled' ? (
-                  <View style={styles.actionsGroup}>
-                    <TouchableOpacity
-                      style={[styles.actionBtn, { backgroundColor: theme.primary }]}
-                      onPress={() => onUpdateStatus(item.id, 'confirmed')}
-                      disabled={isUpdating}
-                    >
-                      <MaterialIcons name="check-circle" size={16} color="#FFFFFF" />
-                      <Text style={styles.actionBtnText}>{isUpdating ? 'Actualizando...' : 'Confirmar'}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.actionBtnSecondary, { borderColor: theme.border }]}
-                      onPress={() => onUpdateStatus(item.id, 'cancelled')}
-                      disabled={isUpdating}
-                    >
-                      <MaterialIcons name="cancel" size={16} color={theme.textMuted} />
-                      <Text style={[styles.actionBtnSecondaryText, { color: theme.textSecondary }]}>Cancelar</Text>
-                    </TouchableOpacity>
-                  </View>
-                ) : statusRaw === 'confirmed' ? (
-                  <View style={styles.actionsGroup}>
-                    <TouchableOpacity
-                      style={[styles.actionBtn, { backgroundColor: '#10B981' }]}
-                      onPress={() => onUpdateStatus(item.id, 'attended')}
-                      disabled={isUpdating}
-                    >
-                      <MaterialIcons name="done-all" size={16} color="#FFFFFF" />
-                      <Text style={styles.actionBtnText}>{isUpdating ? 'Actualizando...' : 'Atendido'}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.actionBtnSecondary, { borderColor: theme.border }]}
-                      onPress={() => onUpdateStatus(item.id, 'cancelled')}
-                      disabled={isUpdating}
-                    >
-                      <MaterialIcons name="cancel" size={16} color={theme.textMuted} />
-                      <Text style={[styles.actionBtnSecondaryText, { color: theme.textSecondary }]}>Cancelar</Text>
-                    </TouchableOpacity>
-                  </View>
-                ) : statusRaw === 'cancelled' || statusRaw === 'absent' ? (
-                  <View style={styles.actionsGroup}>
-                    <TouchableOpacity
-                      style={[styles.actionBtnSecondary, { borderColor: theme.primary }]}
-                      onPress={() => onUpdateStatus(item.id, 'pending')}
-                      disabled={isUpdating}
-                    >
-                      <MaterialIcons name="restore" size={16} color={theme.primary} />
-                      <Text style={[styles.actionBtnSecondaryText, { color: theme.primary }]}>
-                        {isUpdating ? 'Reactivando...' : 'Reactivar Turno'}
+            return (
+              <View
+                key={day.dateStr}
+                style={[
+                  styles.dayColumn,
+                  {
+                    backgroundColor: theme.surface,
+                    borderColor: isToday ? theme.primary : theme.border,
+                    borderWidth: isToday ? 2 : 1
+                  }
+                ]}
+              >
+                {/* Cabecera del día */}
+                <View
+                  style={[
+                    styles.dayColumnHeader,
+                    {
+                      backgroundColor: isToday ? (theme.primarySoft || '#E8F5E9') : theme.surfaceSubtle,
+                      borderBottomColor: theme.border
+                    }
+                  ]}
+                >
+                  <View style={styles.dayHeaderTop}>
+                    <View style={styles.dayTitleRow}>
+                      <Text
+                        style={[
+                          styles.dayNameText,
+                          { color: isToday ? theme.primary : theme.text }
+                        ]}
+                      >
+                        {day.dayName.toUpperCase()}
                       </Text>
+                      {isToday && (
+                        <View style={[styles.todayBadge, { backgroundColor: theme.primary }]}>
+                          <Text style={styles.todayBadgeText}>HOY</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    <TouchableOpacity
+                      style={[styles.quickAddButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                      onPress={() => openCreateModal(day.dateStr)}
+                      accessibilityLabel={`Agendar turno para ${day.dayName}`}
+                    >
+                      <MaterialIcons name="add" size={16} color={theme.primary} />
                     </TouchableOpacity>
                   </View>
-                ) : (
-                  <View style={styles.completedRow}>
-                    <MaterialIcons name="check-circle" size={16} color="#10B981" />
-                    <Text style={[styles.completedText, { color: '#10B981' }]}>Sesión completada y atendida</Text>
+
+                  <View style={styles.dayHeaderBottom}>
+                    <Text style={[styles.dayDateText, { color: theme.textSecondary }]}>
+                      {day.dayNumber} {day.monthName.slice(0, 3)}
+                    </Text>
+                    <View style={[styles.countBadge, { backgroundColor: dayAppointments.length > 0 ? theme.primaryLight + '50' : theme.surface }]}>
+                      <Text
+                        style={[
+                          styles.countBadgeText,
+                          { color: dayAppointments.length > 0 ? theme.primary : theme.textMuted }
+                        ]}
+                      >
+                        {dayAppointments.length} {dayAppointments.length === 1 ? 'turno' : 'turnos'}
+                      </Text>
+                    </View>
                   </View>
-                )}
+                </View>
+
+                {/* Lista de turnos del día */}
+                <View style={styles.dayColumnBody}>
+                  {dayAppointments.length === 0 ? (
+                    <View style={styles.dayEmptyContainer}>
+                      <MaterialIcons name="event-available" size={32} color={theme.textMuted} />
+                      <Text style={[styles.dayEmptyText, { color: theme.textSecondary }]}>
+                        Sin turnos
+                      </Text>
+                      <TouchableOpacity
+                        style={[styles.dayEmptyAddBtn, { borderColor: theme.border }]}
+                        onPress={() => openCreateModal(day.dateStr)}
+                      >
+                        <MaterialIcons name="add" size={14} color={theme.primary} />
+                        <Text style={[styles.dayEmptyAddText, { color: theme.primary }]}>Agendar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    dayAppointments.map((item) => {
+                      const badge = getStatusBadge(item.status);
+                      const patientName = item.patient_name
+                        ? `${item.patient_last_name || ''}, ${item.patient_name}`
+                        : (item.patient_last_name && item.patient_first_name)
+                          ? `${item.patient_last_name}, ${item.patient_first_name}`
+                          : `Paciente #${item.patient_id}`;
+                      const statusRaw = String(item.status || '').toLowerCase();
+                      const isUpdating = updatingId === item.id;
+                      const timeStr = getAppointmentTimeStr(item);
+
+                      return (
+                        <View
+                          key={item.id}
+                          style={[
+                            styles.appointmentItemCard,
+                            {
+                              backgroundColor: theme.surfaceElevated || theme.surface,
+                              borderColor: theme.border
+                            }
+                          ]}
+                        >
+                          <View style={styles.itemHeader}>
+                            <View style={styles.itemTimeRow}>
+                              <MaterialIcons name="schedule" size={14} color={theme.primary} />
+                              <Text style={[styles.itemTimeText, { color: theme.text }]}>
+                                {timeStr} hs
+                              </Text>
+                              <Text style={[styles.itemDurationText, { color: theme.textSecondary }]}>
+                                {item.duration_minutes || 45}m
+                              </Text>
+                            </View>
+                            <Badge label={badge.label} variant={badge.variant} size="sm" />
+                          </View>
+
+                          <Text style={[styles.itemPatientName, { color: theme.text }]} numberOfLines={1}>
+                            {patientName}
+                          </Text>
+
+                          <Text style={[styles.itemServiceName, { color: theme.primary }]} numberOfLines={1}>
+                            {item.service_name || 'Sesión de Kinesiología'}
+                          </Text>
+
+                          {item.notes || item.reason ? (
+                            <Text style={[styles.itemReasonText, { color: theme.textSecondary }]} numberOfLines={2}>
+                              {item.notes || item.reason}
+                            </Text>
+                          ) : null}
+
+                          <Text style={[styles.itemKineText, { color: theme.textMuted }]} numberOfLines={1}>
+                            {item.kinesiologist_last_name ? `Lic. ${item.kinesiologist_last_name}` : 'Lic. Gómez'}
+                          </Text>
+
+                          {/* Acciones de cambio de estado */}
+                          <View style={[styles.itemActionsRow, { borderTopColor: theme.border + '50' }]}>
+                            {statusRaw === 'pending' || statusRaw === 'scheduled' ? (
+                              <View style={styles.actionBtnGroup}>
+                                <TouchableOpacity
+                                  style={[styles.gridActionBtn, { backgroundColor: theme.primary }]}
+                                  onPress={() => onUpdateStatus(item.id, 'confirmed')}
+                                  disabled={isUpdating}
+                                >
+                                  <MaterialIcons name="check" size={14} color="#FFFFFF" />
+                                  <Text style={styles.gridActionBtnText}>Confirmar</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={[styles.gridActionBtnSec, { borderColor: theme.border }]}
+                                  onPress={() => onUpdateStatus(item.id, 'cancelled')}
+                                  disabled={isUpdating}
+                                >
+                                  <MaterialIcons name="close" size={14} color={theme.textMuted} />
+                                </TouchableOpacity>
+                              </View>
+                            ) : statusRaw === 'confirmed' ? (
+                              <View style={styles.actionBtnGroup}>
+                                <TouchableOpacity
+                                  style={[styles.gridActionBtn, { backgroundColor: '#10B981' }]}
+                                  onPress={() => onUpdateStatus(item.id, 'attended')}
+                                  disabled={isUpdating}
+                                >
+                                  <MaterialIcons name="done-all" size={14} color="#FFFFFF" />
+                                  <Text style={styles.gridActionBtnText}>Atendido</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={[styles.gridActionBtnSec, { borderColor: theme.border }]}
+                                  onPress={() => onUpdateStatus(item.id, 'cancelled')}
+                                  disabled={isUpdating}
+                                >
+                                  <MaterialIcons name="close" size={14} color={theme.textMuted} />
+                                </TouchableOpacity>
+                              </View>
+                            ) : statusRaw === 'cancelled' || statusRaw === 'absent' ? (
+                              <TouchableOpacity
+                                style={[styles.gridActionBtnSec, { borderColor: theme.primary, width: '100%', justifyContent: 'center' }]}
+                                onPress={() => onUpdateStatus(item.id, 'pending')}
+                                disabled={isUpdating}
+                              >
+                                <MaterialIcons name="restore" size={14} color={theme.primary} />
+                                <Text style={[styles.gridActionBtnSecText, { color: theme.primary }]}>Reactivar</Text>
+                              </TouchableOpacity>
+                            ) : (
+                              <View style={styles.itemCompletedRow}>
+                                <MaterialIcons name="check-circle" size={14} color="#10B981" />
+                                <Text style={styles.itemCompletedText}>Completado</Text>
+                              </View>
+                            )}
+                          </View>
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
               </View>
-            </Card>
-          );
-        }}
-        contentContainerStyle={{ paddingBottom: spacing.xxl }}
-      />
+            );
+          })}
+        </ScrollView>
+      </ScrollView>
 
       {/* Modal para Agendar Turno */}
       <ModalWrapper
@@ -412,12 +691,12 @@ export const AppointmentsScreen = () => {
         }
       >
         {formError && (
-          <View style={[styles.modalError, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
+          <View style={[styles.modalError, { backgroundColor: theme.error + '15', borderColor: theme.error }]}>
             <Text style={[styles.modalErrorText, { color: theme.error }]}>{formError}</Text>
           </View>
         )}
 
-        {/* SELECTOR INTERACTIVO DE PACIENTES */}
+        {/* SELECTOR DESPLEGABLE INTERACTIVO DE PACIENTES */}
         <View style={styles.fieldContainer}>
           <Text style={[styles.fieldLabel, { color: theme.text }]}>
             Paciente <Text style={{ color: theme.error }}>*</Text>
@@ -428,69 +707,54 @@ export const AppointmentsScreen = () => {
               styles.pickerTrigger,
               {
                 backgroundColor: theme.surface,
-                borderColor: formErrors.patient_id ? theme.error : theme.border
+                borderColor: showPatientPicker ? theme.primary : theme.border
               }
             ]}
             onPress={() => setShowPatientPicker(!showPatientPicker)}
-            accessibilityRole="button"
           >
             <View style={styles.pickerTriggerContent}>
               <MaterialIcons name="person" size={20} color={theme.primary} style={{ marginRight: spacing.sm }} />
               <View style={{ flex: 1 }}>
                 {selectedPatient ? (
-                  <View>
+                  <>
                     <Text style={[styles.pickerSelectedText, { color: theme.text }]}>
                       {selectedPatient.last_name}, {selectedPatient.first_name}
                     </Text>
                     <Text style={[styles.pickerSelectedSub, { color: theme.textSecondary }]}>
-                      DNI: {selectedPatient.dni} {selectedPatient.phone ? `• Tel: ${selectedPatient.phone}` : ''}
+                      DNI: {selectedPatient.dni}
                     </Text>
-                  </View>
+                  </>
                 ) : (
                   <Text style={[styles.pickerPlaceholder, { color: theme.textMuted }]}>
-                    {patients.length === 0 ? 'Cargando pacientes...' : 'Seleccione un paciente de la lista...'}
+                    Seleccionar paciente...
                   </Text>
                 )}
               </View>
               <MaterialIcons
-                name={showPatientPicker ? 'expand-less' : 'expand-more'}
-                size={22}
+                name={showPatientPicker ? 'arrow-drop-up' : 'arrow-drop-down'}
+                size={24}
                 color={theme.textSecondary}
               />
             </View>
           </TouchableOpacity>
 
-          {formErrors.patient_id && (
-            <Text style={[styles.fieldError, { color: theme.error }]}>
-              {formErrors.patient_id.message}
-            </Text>
-          )}
-
-          {/* Menú desplegable con búsqueda */}
           {showPatientPicker && (
             <View style={[styles.dropdownContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               <View style={[styles.searchBox, { borderBottomColor: theme.border }]}>
-                <MaterialIcons name="search" size={18} color={theme.textSecondary} style={{ marginRight: spacing.xs }} />
-                <TextInput
+                <MaterialIcons name="search" size={18} color={theme.textMuted} style={{ marginRight: spacing.xs }} />
+                <Input
                   placeholder="Buscar por nombre, apellido o DNI..."
-                  placeholderTextColor={theme.textMuted}
                   value={patientSearch}
                   onChangeText={setPatientSearch}
-                  style={[styles.searchInput, { color: theme.text }]}
-                  autoFocus
+                  containerStyle={{ marginBottom: 0, flex: 1 }}
                 />
-                {patientSearch ? (
-                  <TouchableOpacity onPress={() => setPatientSearch('')}>
-                    <MaterialIcons name="close" size={16} color={theme.textMuted} />
-                  </TouchableOpacity>
-                ) : null}
               </View>
 
               <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
                 {filteredPatients.length === 0 ? (
                   <View style={styles.dropdownEmpty}>
                     <Text style={[styles.dropdownEmptyText, { color: theme.textMuted }]}>
-                      No se encontraron pacientes que coincidan
+                      No se encontraron pacientes
                     </Text>
                   </View>
                 ) : (
@@ -616,7 +880,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.xs + 2,
-    marginBottom: spacing.lg
+    marginBottom: spacing.md
   },
   filterChip: {
     paddingHorizontal: spacing.md,
@@ -628,92 +892,242 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.medium
   },
-  appointmentCard: {
+  weekNavContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
     marginBottom: spacing.md
   },
-  cardHeader: {
+  navButton: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center'
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radii.sm
   },
-  timeBadgeContainer: {
+  navButtonText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium
+  },
+  weekInfoCenter: {
+    alignItems: 'center',
+    gap: spacing.xs
+  },
+  weekTitleRow: {
     flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: spacing.sm
+    alignItems: 'center',
+    gap: spacing.xs + 2
   },
-  timeText: {
-    fontSize: typography.fontSize.base,
+  weekTitleText: {
+    fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.bold
   },
-  durationText: {
-    fontSize: typography.fontSize.xs
-  },
-  divider: {
-    height: 1,
-    marginVertical: spacing.sm
-  },
-  cardBody: {
-    gap: 3
-  },
-  patientName: {
-    fontSize: typography.fontSize.md,
-    fontWeight: typography.fontWeight.semibold
-  },
-  serviceText: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.medium
-  },
-  reasonText: {
-    fontSize: typography.fontSize.xs,
-    marginTop: 2
-  },
-  kineText: {
-    fontSize: typography.fontSize.tiny,
-    marginTop: 4
-  },
-  cardActions: {
-    marginTop: spacing.md,
-    paddingTop: spacing.sm + 2,
-    borderTopWidth: 1
-  },
-  actionsGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm
-  },
-  actionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs + 2,
-    borderRadius: radii.md
-  },
-  actionBtnText: {
-    color: '#FFFFFF',
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.semibold
-  },
-  actionBtnSecondary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs + 2,
-    borderRadius: radii.md,
+  todayButton: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radii.full,
     borderWidth: 1
   },
-  actionBtnSecondaryText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.medium
+  todayButtonText: {
+    fontSize: typography.fontSize.tiny,
+    fontWeight: typography.fontWeight.semibold
   },
-  completedRow: {
+  gridOuterScroll: {
+    flex: 1
+  },
+  columnsContainer: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    paddingBottom: spacing.xxxl
+  },
+  dayColumn: {
+    width: 270,
+    borderRadius: radii.lg,
+    overflow: 'hidden'
+  },
+  dayColumnHeader: {
+    padding: spacing.md,
+    borderBottomWidth: 1
+  },
+  dayHeaderTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs
+  },
+  dayTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs
   },
-  completedText: {
+  dayNameText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold,
+    letterSpacing: 0.5
+  },
+  todayBadge: {
+    paddingHorizontal: spacing.xs + 2,
+    paddingVertical: 1,
+    borderRadius: radii.xs
+  },
+  todayBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: typography.fontWeight.bold
+  },
+  quickAddButton: {
+    width: 24,
+    height: 24,
+    borderRadius: radii.full,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  dayHeaderBottom: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between'
+  },
+  dayDateText: {
     fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium
+  },
+  countBadge: {
+    paddingHorizontal: spacing.xs + 2,
+    paddingVertical: 2,
+    borderRadius: radii.full
+  },
+  countBadgeText: {
+    fontSize: typography.fontSize.tiny,
+    fontWeight: typography.fontWeight.semibold
+  },
+  dayColumnBody: {
+    padding: spacing.sm,
+    gap: spacing.sm,
+    minHeight: 280
+  },
+  dayEmptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.xxl,
+    gap: spacing.xs
+  },
+  dayEmptyText: {
+    fontSize: typography.fontSize.xs
+  },
+  dayEmptyAddBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    marginTop: spacing.xs
+  },
+  dayEmptyAddText: {
+    fontSize: typography.fontSize.tiny,
+    fontWeight: typography.fontWeight.semibold
+  },
+  appointmentItemCard: {
+    borderRadius: radii.md,
+    borderWidth: 1,
+    padding: spacing.sm + 2,
+    gap: spacing.xs - 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1
+  },
+  itemHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2
+  },
+  itemTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4
+  },
+  itemTimeText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold
+  },
+  itemDurationText: {
+    fontSize: typography.fontSize.tiny
+  },
+  itemPatientName: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold
+  },
+  itemServiceName: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium
+  },
+  itemReasonText: {
+    fontSize: typography.fontSize.tiny,
+    lineHeight: 14
+  },
+  itemKineText: {
+    fontSize: typography.fontSize.tiny,
+    marginTop: 1
+  },
+  itemActionsRow: {
+    marginTop: spacing.xs,
+    paddingTop: spacing.xs,
+    borderTopWidth: 1
+  },
+  actionBtnGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs
+  },
+  gridActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    paddingVertical: 4,
+    paddingHorizontal: spacing.xs,
+    borderRadius: radii.sm
+  },
+  gridActionBtnText: {
+    color: '#FFFFFF',
+    fontSize: typography.fontSize.tiny,
+    fontWeight: typography.fontWeight.semibold
+  },
+  gridActionBtnSec: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    paddingVertical: 4,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radii.sm,
+    borderWidth: 1
+  },
+  gridActionBtnSecText: {
+    fontSize: typography.fontSize.tiny,
+    fontWeight: typography.fontWeight.medium
+  },
+  itemCompletedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 2
+  },
+  itemCompletedText: {
+    color: '#10B981',
+    fontSize: typography.fontSize.tiny,
     fontWeight: typography.fontWeight.medium
   },
   modalError: {
@@ -733,11 +1147,6 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.medium,
     marginBottom: spacing.xs + 2
-  },
-  fieldError: {
-    fontSize: typography.fontSize.xs,
-    marginTop: spacing.xs,
-    fontWeight: typography.fontWeight.medium
   },
   pickerTrigger: {
     borderRadius: radii.md,
@@ -778,11 +1187,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderBottomWidth: 1
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: typography.fontSize.sm,
-    paddingVertical: 4
   },
   dropdownScroll: {
     maxHeight: 180
