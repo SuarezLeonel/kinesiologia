@@ -3,11 +3,13 @@ import {
   View,
   Text,
   TextInput,
+  TouchableOpacity,
   StyleSheet,
   TextInputProps,
   StyleProp,
   ViewStyle
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useAppTheme } from '../../theme/ThemeContext';
 import { spacing, radii, typography, controlHeights } from '../../theme/tokens';
 
@@ -16,6 +18,8 @@ interface InputProps extends TextInputProps {
   error?: string;
   helperText?: string;
   required?: boolean;
+  isPassword?: boolean;
+  rightAction?: React.ReactNode;
   containerStyle?: StyleProp<ViewStyle>;
 }
 
@@ -24,16 +28,20 @@ export const Input: React.FC<InputProps> = ({
   error,
   helperText,
   required = false,
+  isPassword = false,
+  rightAction,
   containerStyle,
   style,
   onFocus,
   onBlur,
   multiline,
   numberOfLines,
+  secureTextEntry,
   ...rest
 }) => {
   const { theme } = useAppTheme();
   const [isFocused, setIsFocused] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleFocus = (e: any) => {
     setIsFocused(true);
@@ -62,26 +70,52 @@ export const Input: React.FC<InputProps> = ({
         </View>
       )}
 
-      <TextInput
+      <View
         style={[
-          styles.input,
+          styles.inputWrapper,
           {
             backgroundColor: theme.surface,
-            borderColor,
-            color: theme.text,
-            height: multiline ? (numberOfLines ? numberOfLines * 24 + 16 : 80) : controlHeights.md,
-            textAlignVertical: multiline ? 'top' : 'center',
-            paddingTop: multiline ? spacing.sm + 2 : undefined
-          },
-          style
+            borderColor
+          }
         ]}
-        placeholderTextColor={theme.textMuted}
-        onFocus={handleFocus}
-        onBlur={handleBlur}
-        multiline={multiline}
-        numberOfLines={numberOfLines}
-        {...rest}
-      />
+      >
+        <TextInput
+          style={[
+            styles.input,
+            {
+              color: theme.text,
+              height: multiline ? (numberOfLines ? numberOfLines * 24 + 16 : 80) : controlHeights.md,
+              textAlignVertical: multiline ? 'top' : 'center',
+              paddingTop: multiline ? spacing.sm + 2 : undefined
+            },
+            style
+          ]}
+          placeholderTextColor={theme.textMuted}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          multiline={multiline}
+          numberOfLines={numberOfLines}
+          secureTextEntry={isPassword ? !showPassword : secureTextEntry}
+          {...rest}
+        />
+
+        {isPassword && (
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={() => setShowPassword(!showPassword)}
+            accessibilityLabel={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+            accessibilityRole="button"
+          >
+            <MaterialIcons
+              name={showPassword ? 'visibility-off' : 'visibility'}
+              size={20}
+              color={theme.textSecondary}
+            />
+          </TouchableOpacity>
+        )}
+
+        {rightAction && <View style={styles.iconButton}>{rightAction}</View>}
+      </View>
 
       {error ? (
         <Text style={[styles.errorText, { color: theme.error }]}>{error}</Text>
@@ -104,11 +138,23 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.medium,
     letterSpacing: 0.1
   },
-  input: {
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderRadius: radii.md,
     borderWidth: 1,
+    overflow: 'hidden'
+  },
+  input: {
+    flex: 1,
     paddingHorizontal: spacing.md,
     fontSize: typography.fontSize.base
+  },
+  iconButton: {
+    paddingHorizontal: spacing.md,
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center'
   },
   errorText: {
     fontSize: typography.fontSize.xs,

@@ -98,7 +98,7 @@ export const LoginScreen = () => {
                 onChangeText={onChange}
                 onBlur={onBlur}
                 error={errors.password?.message}
-                secureTextEntry
+                isPassword
                 required
               />
             )}
