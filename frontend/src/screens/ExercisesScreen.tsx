@@ -80,10 +80,6 @@ export const ExercisesScreen = () => {
     return () => clearTimeout(timeout);
   }, [searchTerm]);
 
-  const handleSearch = () => {
-    fetchExercises(searchTerm);
-  };
-
   const onCreateExercise = async (data: ExerciseFormData) => {
     setFormError(null);
     try {
@@ -148,22 +144,22 @@ export const ExercisesScreen = () => {
         }
       />
 
+      {/* Buscador en tiempo real */}
       <View style={styles.searchRow}>
-        <View style={styles.searchInputContainer}>
-          <Input
-            placeholder="Buscar por nombre, zona muscular o categoría..."
-            value={searchTerm}
-            onChangeText={setSearchTerm}
-            onSubmitEditing={handleSearch}
-            containerStyle={{ marginBottom: 0 }}
-          />
-        </View>
-        <Button
-          title="Buscar"
-          variant="secondary"
-          size="md"
-          onPress={handleSearch}
-          style={{ marginLeft: spacing.sm }}
+        <Input
+          placeholder="Buscar por nombre, zona muscular o categoría..."
+          value={searchTerm}
+          onChangeText={setSearchTerm}
+          containerStyle={{ marginBottom: 0, flex: 1 }}
+          rightAction={
+            searchTerm ? (
+              <TouchableOpacity onPress={() => setSearchTerm('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <MaterialIcons name="close" size={20} color={theme.textMuted} />
+              </TouchableOpacity>
+            ) : (
+              <MaterialIcons name="search" size={20} color={theme.textMuted} />
+            )
+          }
         />
       </View>
 

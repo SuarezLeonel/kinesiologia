@@ -195,20 +195,20 @@ export const ClinicalRecordsScreen = () => {
 
       {/* Buscador en tiempo real */}
       <View style={styles.searchRow}>
-        <View style={styles.searchInputContainer}>
-          <Input
-            placeholder="Buscar por paciente, DNI o diagnóstico kinésico..."
-            value={searchTerm}
-            onChangeText={setSearchTerm}
-            containerStyle={{ marginBottom: 0 }}
-          />
-        </View>
-        <Button
-          title="Buscar"
-          variant="secondary"
-          size="md"
-          onPress={() => fetchRecords(searchTerm)}
-          style={{ marginLeft: spacing.sm }}
+        <Input
+          placeholder="Buscar por paciente, DNI o diagnóstico kinésico..."
+          value={searchTerm}
+          onChangeText={setSearchTerm}
+          containerStyle={{ marginBottom: 0, flex: 1 }}
+          rightAction={
+            searchTerm ? (
+              <TouchableOpacity onPress={() => setSearchTerm('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <MaterialIcons name="close" size={20} color={theme.textMuted} />
+              </TouchableOpacity>
+            ) : (
+              <MaterialIcons name="search" size={20} color={theme.textMuted} />
+            )
+          }
         />
       </View>
 

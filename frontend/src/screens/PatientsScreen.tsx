@@ -10,6 +10,7 @@ import {
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { MaterialIcons } from '@expo/vector-icons';
 import { apiClient } from '../api/client';
 import { useAppTheme } from '../theme/ThemeContext';
 import { spacing, radii, typography } from '../theme/tokens';
@@ -85,10 +86,6 @@ export const PatientsScreen = () => {
     return () => clearTimeout(timeout);
   }, [searchTerm]);
 
-  const handleSearch = () => {
-    fetchPatients(searchTerm);
-  };
-
   const onCreatePatient = async (data: PatientFormData) => {
     setFormError(null);
     try {
@@ -133,23 +130,22 @@ export const PatientsScreen = () => {
         }
       />
 
-      {/* Buscador */}
+      {/* Buscador en tiempo real */}
       <View style={styles.searchRow}>
-        <View style={styles.searchInputContainer}>
-          <Input
-            placeholder="Buscar por DNI, nombre o apellido..."
-            value={searchTerm}
-            onChangeText={setSearchTerm}
-            onSubmitEditing={handleSearch}
-            containerStyle={{ marginBottom: 0 }}
-          />
-        </View>
-        <Button
-          title="Buscar"
-          variant="secondary"
-          size="md"
-          onPress={handleSearch}
-          style={{ marginLeft: spacing.sm }}
+        <Input
+          placeholder="Buscar por DNI, nombre o apellido..."
+          value={searchTerm}
+          onChangeText={setSearchTerm}
+          containerStyle={{ marginBottom: 0, flex: 1 }}
+          rightAction={
+            searchTerm ? (
+              <TouchableOpacity onPress={() => setSearchTerm('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <MaterialIcons name="close" size={20} color={theme.textMuted} />
+              </TouchableOpacity>
+            ) : (
+              <MaterialIcons name="search" size={20} color={theme.textMuted} />
+            )
+          }
         />
       </View>
 
