@@ -16,6 +16,8 @@ import { appointmentsRouter } from './modules/appointments/routes.js';
 import { clinicalRecordsRouter } from './modules/clinical-records/routes.js';
 import { treatmentsRouter } from './modules/treatments/routes.js';
 import { dashboardRouter } from './modules/dashboard/routes.js';
+import { exercisesRouter } from './modules/exercises/routes.js';
+import { paymentsRouter } from './modules/payments/routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -85,6 +87,8 @@ app.use(`${config.apiPrefix}/appointments`, appointmentsRouter);
 app.use(`${config.apiPrefix}/clinical-records`, clinicalRecordsRouter);
 app.use(`${config.apiPrefix}/treatments`, treatmentsRouter);
 app.use(`${config.apiPrefix}/dashboard`, dashboardRouter);
+app.use(`${config.apiPrefix}/exercises`, exercisesRouter);
+app.use(`${config.apiPrefix}/payments`, paymentsRouter);
 
 // Manejo centralizado de 404
 app.use((req, res) => {

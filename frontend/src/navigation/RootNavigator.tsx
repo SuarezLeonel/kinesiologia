@@ -11,6 +11,8 @@ import { DashboardScreen } from '../screens/DashboardScreen';
 import { PatientsScreen } from '../screens/PatientsScreen';
 import { AppointmentsScreen } from '../screens/AppointmentsScreen';
 import { ClinicalRecordsScreen } from '../screens/ClinicalRecordsScreen';
+import { ExercisesScreen } from '../screens/ExercisesScreen';
+import { PaymentsScreen } from '../screens/PaymentsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 
 const Stack = createNativeStackNavigator();
@@ -33,9 +35,14 @@ const MainTabs = () => {
       <Tab.Screen name="Dashboard" component={DashboardScreen} options={{ title: 'Inicio' }} />
       <Tab.Screen name="Appointments" component={AppointmentsScreen} options={{ title: 'Agenda' }} />
       <Tab.Screen name="Patients" component={PatientsScreen} options={{ title: 'Pacientes' }} />
-      {/* Historias clínicas solo visibles en la barra si no es recepcionista */}
+      {/* Historias clínicas solo para kinesiólogos y administradores */}
       {user?.role !== 'receptionist' && (
         <Tab.Screen name="ClinicalRecords" component={ClinicalRecordsScreen} options={{ title: 'Historias' }} />
+      )}
+      <Tab.Screen name="Exercises" component={ExercisesScreen} options={{ title: 'Ejercicios' }} />
+      {/* Pagos administrativos visibles para Admin y Recepcionista */}
+      {user?.role !== 'kinesiologist' && (
+        <Tab.Screen name="Payments" component={PaymentsScreen} options={{ title: 'Pagos' }} />
       )}
       <Tab.Screen name="Settings" component={SettingsScreen} options={{ title: 'Ajustes' }} />
     </Tab.Navigator>

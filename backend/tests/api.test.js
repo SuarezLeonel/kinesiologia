@@ -71,3 +71,26 @@ test('5. Formato consistente de error 404 para rutas inexistentes', async () => 
   assert.strictEqual(res.body.success, false);
   assert.strictEqual(res.body.error.code, 'ROUTE_NOT_FOUND');
 });
+
+test('6. Ejercicios y Pagos: Bloqueo de solicitudes GET (405 Method Not Allowed)', async () => {
+  const exGet = await request(app).get('/api/v1/exercises/search');
+  assert.strictEqual(exGet.status, 405);
+
+  const payGet = await request(app).get('/api/v1/payments/search');
+  assert.strictEqual(payGet.status, 405);
+});
+
+test('7. Control de acceso: Kinesiólogo bloqueado en módulo de cobros administrativos (403)', async () => {
+  const kineToken = jwt.sign(
+    { userId: 2, role: 'kinesiologist', email: 'carlos.kine@kinesiologia.com' },
+    config.jwt.accessSecret,
+    { expiresIn: '15m' }
+  );
+
+  const res = await request(app)
+    .post('/api/v1/payments/search')
+    .set('Authorization', `Bearer ${kineToken}`)
+    .send({});
+
+  assert.strictEqual(res.status, 403);
+});
