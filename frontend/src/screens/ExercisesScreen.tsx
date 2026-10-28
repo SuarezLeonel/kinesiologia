@@ -389,20 +389,19 @@ export const ExercisesScreen = () => {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1
+    flex: 1,
+    padding: spacing.xl
   },
   searchRow: {
     flexDirection: 'row',
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
-    alignItems: 'center'
+    alignItems: 'center',
+    marginBottom: spacing.lg
   },
   searchInputContainer: {
     flex: 1
   },
   listContent: {
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xl
+    paddingBottom: spacing.xxl
   },
   exerciseCard: {
     marginBottom: spacing.md
