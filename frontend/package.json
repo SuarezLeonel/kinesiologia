@@ -4,6 +4,7 @@
   "main": "index.ts",
   "dependencies": {
     "@expo/metro-runtime": "^58.0.15",
+    "@expo/vector-icons": "^15.0.2",
     "@hookform/resolvers": "^6.0.1",
     "@react-navigation/bottom-tabs": "^7.21.0",
     "@react-navigation/native": "^7.5.1",
@@ -11,6 +12,7 @@
     "axios": "^1.21.0",
     "expo": "~58.0.20",
     "expo-constants": "^58.0.13",
+    "expo-font": "~58.0.10",
     "expo-secure-store": "^58.0.2",
     "expo-status-bar": "~58.0.4",
     "react": "19.3.0",

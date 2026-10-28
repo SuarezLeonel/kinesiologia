@@ -2,6 +2,7 @@ import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { typography, spacing } from '../theme/tokens';
@@ -25,25 +26,37 @@ const MainTabs = () => {
 
   return (
     <Tab.Navigator
-      screenOptions={{
+      screenOptions={({ route }) => ({
         headerShown: false,
         tabBarPosition: 'top',
+        tabBarIcon: ({ color, size }) => {
+          let iconName: React.ComponentProps<typeof MaterialIcons>['name'] = 'space-dashboard';
+          if (route.name === 'Dashboard') iconName = 'space-dashboard';
+          else if (route.name === 'Appointments') iconName = 'event';
+          else if (route.name === 'Patients') iconName = 'people-outline';
+          else if (route.name === 'ClinicalRecords') iconName = 'medical-services';
+          else if (route.name === 'Exercises') iconName = 'fitness-center';
+          else if (route.name === 'Payments') iconName = 'payments';
+          else if (route.name === 'Settings') iconName = 'tune';
+
+          return <MaterialIcons name={iconName} size={18} color={color} />;
+        },
         tabBarStyle: {
           backgroundColor: theme.surface,
           borderBottomColor: theme.border,
           borderBottomWidth: 1,
           borderTopWidth: 0,
-          height: 52,
+          height: 56,
           paddingVertical: spacing.xs
         },
         tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.textSecondary,
         tabBarLabelStyle: {
-          fontSize: typography.fontSize.sm,
+          fontSize: typography.fontSize.xs,
           fontWeight: typography.fontWeight.semibold,
           letterSpacing: 0.1
         }
-      }}
+      })}
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} options={{ title: 'Inicio' }} />
       <Tab.Screen name="Appointments" component={AppointmentsScreen} options={{ title: 'Agenda' }} />
