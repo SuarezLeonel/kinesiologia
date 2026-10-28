@@ -1,22 +1,68 @@
 openapi: 3.0.3
 info:
-  title: API Kinesiología - Sistema de Gestión
+  title: API Kinesiología - Sistema Integral de Gestión
   version: 1.0.0
-  description: API REST para administración de consultorio de kinesiología. Cumple estrictamente con la regla de NO usar GET en endpoints de negocio.
+  description: |
+    API REST para la administración integral de un consultorio de kinesiología y fisioterapia.
+    Cumple con:
+    - **Regla estricta HTTP:** Cero uso de HTTP GET en endpoints de negocio. Todas las consultas se realizan vía POST con filtros o identificadores en el cuerpo.
+    - **Seguridad fail-closed:** Autorización por roles y permisos evaluada directamente en base de datos.
+    - **Roles mínimos:** Administrador (admin), Kinesiólogo (kinesiologo), Recepcionista (recepcionista).
 servers:
   - url: /api/v1
-    description: Servidor Local
+    description: Entorno local / producción
+
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: Token JWT de acceso emitido en `/auth/login` o renovado en `/auth/refresh`.
+
+  schemas:
+    StandardSuccess:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+
+    StandardError:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: VALIDATION_ERROR
+            message:
+              type: string
+              example: Los datos proporcionados no son válidos
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
+
 paths:
+  # ============================================================
+  # MÓDULO AUTH
+  # ============================================================
   /auth/register:
     post:
-      summary: Registro de nuevo usuario
-      tags: [Auth]
+      summary: Registro de nuevo usuario (inactivo por defecto)
+      tags: [Autenticación]
       requestBody:
         required: true
         content:
@@ -25,19 +71,25 @@ paths:
               type: object
               required: [name, lastName, email, password]
               properties:
-                name: { type: string, example: "Carlos" }
-                lastName: { type: string, example: "Gómez" }
-                email: { type: string, example: "carlos@kinesio.com" }
-                password: { type: string, example: "Password123!" }
-                phone: { type: string, example: "+5491112345678" }
+                name: { type: string, example: "Juan" }
+                lastName: { type: string, example: "Pérez" }
+                email: { type: string, format: email, example: "juan@consultorio.com" }
+                password: { type: string, minLength: 8, example: "ClaveSegura123!" }
+                phone: { type: string, example: "+5491144556677" }
       responses:
-        201: { description: Usuario registrado }
-        409: { description: Email duplicado }
+        201:
+          description: Registro exitoso, pendiente de activación
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardSuccess'
+        409:
+          description: El correo ya se encuentra registrado
 
   /auth/login:
     post:
-      summary: Inicio de sesión con emisión de Access y Refresh Token
-      tags: [Auth]
+      summary: Inicio de sesión con credenciales
+      tags: [Autenticación]
       requestBody:
         required: true
         content:
@@ -46,16 +98,22 @@ paths:
               type: object
               required: [email, password]
               properties:
-                email: { type: string, example: "admin@kinesiologia.com" }
-                password: { type: string, example: "Password123!" }
+                email: { type: string, format: email, example: "admin@kinesiologia.com" }
+                password: { type: string, example: "Admin2026!kinesio" }
       responses:
-        200: { description: Login exitoso con tokens }
-        401: { description: Credenciales incorrectas }
+        200:
+          description: Login exitoso, entrega Access Token y Refresh Token con jti
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardSuccess'
+        401:
+          description: Credenciales incorrectas o usuario inactivo
 
   /auth/refresh:
     post:
-      summary: Rotación y renovación de tokens
-      tags: [Auth]
+      summary: Rotación y renovación atómica de Refresh Token
+      tags: [Autenticación]
       requestBody:
         required: true
         content:
@@ -66,12 +124,70 @@ paths:
               properties:
                 refreshToken: { type: string }
       responses:
-        200: { description: Tokens renovados }
-        401: { description: Token revocado o expirado }
+        200:
+          description: Nuevo par de tokens generado
+        401:
+          description: Refresh token revocado o expirado
 
+  /auth/logout:
+    post:
+      summary: Revocación de sesión activa
+      tags: [Autenticación]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken: { type: string }
+      responses:
+        200:
+          description: Sesión revocada con éxito
+
+  /auth/forgot-password:
+    post:
+      summary: Solicitud de restablecimiento de contraseña
+      tags: [Autenticación]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        200:
+          description: Respuesta unificada para mitigar enumeración de cuentas
+
+  /auth/reset-password:
+    post:
+      summary: Restablecimiento de contraseña con token criptográfico single-use
+      tags: [Autenticación]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, newPassword]
+              properties:
+                token: { type: string }
+                newPassword: { type: string, minLength: 8 }
+      responses:
+        200:
+          description: Contraseña actualizada y sesiones previas revocadas
+        401:
+          description: Token de restablecimiento ya usado o inválido
+
+  # ============================================================
+  # MÓDULO PACIENTES
+  # ============================================================
   /patients/search:
     post:
-      summary: Búsqueda y listado de pacientes con filtros (Consulta de negocio vía POST)
+      summary: Búsqueda y listado paginado de pacientes (POST)
       tags: [Pacientes]
       security: [{ bearerAuth: [] }]
       requestBody:
@@ -80,17 +196,19 @@ paths:
             schema:
               type: object
               properties:
-                search: { type: string }
+                search: { type: string, description: "Búsqueda por DNI, nombre o apellido" }
                 page: { type: integer, default: 1 }
                 limit: { type: integer, default: 20 }
       responses:
-        200: { description: Listado de pacientes }
-        401: { description: No autorizado }
+        200:
+          description: Listado paginado de pacientes
+        401:
+          description: No autenticado
 
-  /clinical-records/search:
+  /patients/detail:
     post:
-      summary: Búsqueda de historias clínicas por paciente (Acceso restringido a Kinesiólogo y Admin)
-      tags: [Historias Clínicas]
+      summary: Detalle completo de un paciente por ID (POST)
+      tags: [Pacientes]
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -98,16 +216,48 @@ paths:
           application/json:
             schema:
               type: object
-              required: [patientId]
+              required: [id]
               properties:
-                patientId: { type: integer }
+                id: { type: integer, example: 1 }
       responses:
-        200: { description: Historias clínicas }
-        403: { description: Acceso denegado (ej. Recepcionista) }
+        200:
+          description: Datos del paciente
+        404:
+          description: Paciente no encontrado
 
+  /patients:
+    post:
+      summary: Alta de nuevo paciente
+      tags: [Pacientes]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dni, first_name, last_name, birth_date, phone]
+              properties:
+                dni: { type: string, example: "38999888" }
+                first_name: { type: string, example: "Mariana" }
+                last_name: { type: string, example: "Ríos" }
+                birth_date: { type: string, format: date, example: "1992-05-14" }
+                phone: { type: string, example: "+5491133445566" }
+                email: { type: string, format: email, example: "mariana@correo.com" }
+                insurance_provider: { type: string, example: "OSDE" }
+                insurance_number: { type: string, example: "310-9876543-01" }
+      responses:
+        201:
+          description: Paciente registrado
+        409:
+          description: DNI ya registrado en el consultorio
+
+  # ============================================================
+  # MÓDULO TURNOS / AGENDA
+  # ============================================================
   /appointments/search:
     post:
-      summary: Búsqueda de turnos de agenda
+      summary: Consulta de turnos con filtros de rango de fechas y profesional (POST)
       tags: [Turnos]
       security: [{ bearerAuth: [] }]
       requestBody:
@@ -117,7 +267,319 @@ paths:
               type: object
               properties:
                 kinesiologistId: { type: integer }
+                startDate: { type: string, example: "2026-10-28 00:00:00" }
+                endDate: { type: string, example: "2026-10-28 23:59:59" }
+                status: { type: string, enum: [scheduled, confirmed, in_progress, completed, cancelled, no_show] }
+      responses:
+        200:
+          description: Lista de turnos agendados
+
+  /appointments/detail:
+    post:
+      summary: Detalle de turno por ID (POST)
+      tags: [Turnos]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: integer }
+      responses:
+        200:
+          description: Detalle del turno
+
+  /appointments/create:
+    post:
+      summary: Reserva atómica de turno previniendo solapamiento (FOR UPDATE)
+      tags: [Turnos]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [patient_id, kinesiologist_id, scheduled_at, duration_minutes]
+              properties:
+                patient_id: { type: integer, example: 1 }
+                kinesiologist_id: { type: integer, example: 2 }
+                service_id: { type: integer, example: 1 }
+                scheduled_at: { type: string, example: "2026-10-29 10:00:00" }
+                duration_minutes: { type: integer, example: 45 }
+                reason: { type: string, example: "Evaluación inicial de hombro" }
+      responses:
+        201:
+          description: Turno agendado exitosamente
+        409:
+          description: Conflicto de horario (el kinesiólogo ya tiene un turno en esa franja)
+
+  /appointments/update-status:
+    post:
+      summary: Cambio de estado de turno (POST)
+      tags: [Turnos]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, status]
+              properties:
+                id: { type: integer }
+                status: { type: string, enum: [scheduled, confirmed, in_progress, completed, cancelled, no_show] }
+                cancellation_reason: { type: string }
+      responses:
+        200:
+          description: Estado actualizado
+
+  # ============================================================
+  # MÓDULO HISTORIAS CLÍNICAS (Restringido a Kinesiólogo y Admin)
+  # ============================================================
+  /clinical-records/search:
+    post:
+      summary: Búsqueda de registros clínicos por paciente (POST)
+      tags: [Historias Clínicas]
+      security: [{ bearerAuth: [] }]
+      description: Acceso denegado estrictamente a Recepcionista (403 Forbidden).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [patientId]
+              properties:
+                patientId: { type: integer, example: 1 }
+      responses:
+        200:
+          description: Historial clínico del paciente
+        403:
+          description: No autorizado para acceder a datos clínicos protegidos
+
+  /clinical-records/create:
+    post:
+      summary: Creación de entrada en historia clínica con validación de paciente
+      tags: [Historias Clínicas]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [patient_id, reason_for_consultation, subjective_assessment, objective_assessment, diagnosis, treatment_plan]
+              properties:
+                patient_id: { type: integer, example: 1 }
+                appointment_id: { type: integer, nullable: true }
+                reason_for_consultation: { type: string, example: "Dolor en región lumbar" }
+                subjective_assessment: { type: string, example: "Refiere dolor 6/10 EVA al flexionarse" }
+                objective_assessment: { type: string, example: "Restricción de movilidad en L4-L5" }
+                diagnosis: { type: string, example: "Lumbalgia mecánica subaguda" }
+                treatment_plan: { type: string, example: "Terapia manual, electroanalgesia y ejercicios excéntricos" }
+                pain_scale_initial: { type: integer, minimum: 0, maximum: 10, example: 6 }
+                pain_scale_final: { type: integer, minimum: 0, maximum: 10, example: 3 }
+      responses:
+        201:
+          description: Registro clínico guardado
+        404:
+          description: Paciente no encontrado
+
+  # ============================================================
+  # MÓDULO PLANES DE TRATAMIENTO
+  # ============================================================
+  /treatments/search:
+    post:
+      summary: Consulta de planes de tratamiento (POST)
+      tags: [Tratamientos]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                patient_id: { type: integer }
+                status: { type: string, enum: [planned, in_progress, completed, abandoned] }
+      responses:
+        200:
+          description: Listado de tratamientos
+
+  /treatments/create:
+    post:
+      summary: Creación de plan de tratamiento (Kinesiólogo y Admin)
+      tags: [Tratamientos]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [patient_id, title, target_sessions]
+              properties:
+                patient_id: { type: integer }
+                title: { type: string, example: "Rehabilitación de manguito rotador" }
+                diagnosis: { type: string, example: "Tendinopatía supraespinoso" }
+                target_sessions: { type: integer, example: 10 }
+                start_date: { type: string, format: date, example: "2026-10-28" }
+      responses:
+        201:
+          description: Plan de tratamiento creado
+
+  # ============================================================
+  # MÓDULO EJERCICIOS
+  # ============================================================
+  /exercises/search:
+    post:
+      summary: Catálogo de ejercicios terapéuticos (POST)
+      tags: [Ejercicios]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                category: { type: string, example: "rehabilitacion" }
+                target_body_part: { type: string, example: "hombro" }
+      responses:
+        200:
+          description: Catálogo de ejercicios disponibles
+
+  /exercises/create:
+    post:
+      summary: Alta de nuevo ejercicio terapéutico
+      tags: [Ejercicios]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, category, target_body_part]
+              properties:
+                name: { type: string, example: "Rotación externa con banda elástica" }
+                category: { type: string, enum: [movilidad, fuerza, estiramiento, propiocepcion, respiratorio, rehabilitacion] }
+                target_body_part: { type: string, enum: [cervical, hombro, codo, muñeca, dorsal, lumbar, cadera, rodilla, tobillo, general] }
+                difficulty: { type: string, enum: [bajo, moderado, avanzado] }
+                instructions: { type: string }
+      responses:
+        201:
+          description: Ejercicio dado de alta
+
+  # ============================================================
+  # MÓDULO PRESTACIONES Y TARIFAS (SERVICES)
+  # ============================================================
+  /services/search:
+    post:
+      summary: Catálogo de prestaciones y tarifas del consultorio (POST)
+      tags: [Prestaciones]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_active: { type: boolean, default: true }
+      responses:
+        200:
+          description: Lista de prestaciones y precios activos
+
+  /services/create:
+    post:
+      summary: Alta de nueva prestación (Exclusivo Administrador)
+      tags: [Prestaciones]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, base_price]
+              properties:
+                name: { type: string, example: "Sesión de RPG (Reeducación Postural Global)" }
+                description: { type: string }
+                duration_minutes: { type: integer, default: 45 }
+                base_price: { type: number, example: 18000.00 }
+      responses:
+        201:
+          description: Prestación creada
+
+  # ============================================================
+  # MÓDULO PAGOS Y FACTURACIÓN (Restringido a Recepcionista y Admin)
+  # ============================================================
+  /payments/search:
+    post:
+      summary: Búsqueda y arqueo de cobros registrados (POST)
+      tags: [Pagos]
+      security: [{ bearerAuth: [] }]
+      description: Acceso denegado a Kinesiólogo sin rol administrativo (403 Forbidden).
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                patient_id: { type: integer }
+                payment_method: { type: string, enum: [cash, debit_card, credit_card, bank_transfer, insurance, qr_mercadopago] }
                 startDate: { type: string }
                 endDate: { type: string }
       responses:
-        200: { description: Turnos agendados }
+        200:
+          description: Listado de cobros
+        403:
+          description: Acceso restringido a personal administrativo
+
+  /payments/create:
+    post:
+      summary: Registro de cobro con control de idempotencia por número de recibo
+      tags: [Pagos]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [patient_id, amount, payment_method]
+              properties:
+                patient_id: { type: integer, example: 1 }
+                appointment_id: { type: integer, nullable: true }
+                amount: { type: number, minimum: 0.01, example: 12500.00 }
+                payment_method: { type: string, enum: [cash, debit_card, credit_card, bank_transfer, insurance, qr_mercadopago] }
+                receipt_number: { type: string, example: "REC-2026-10-001" }
+                notes: { type: string }
+      responses:
+        201:
+          description: Cobro asentado
+        409:
+          description: Recibo duplicado (violación de idempotencia)
+
+  # ============================================================
+  # MÓDULO DASHBOARD
+  # ============================================================
+  /dashboard/metrics:
+    post:
+      summary: Métricas operativas según el rol del usuario conectado (POST)
+      tags: [Dashboard]
+      security: [{ bearerAuth: [] }]
+      description: Al kinesiólogo no se le exponen datos de facturación ni recaudación.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                startDate: { type: string }
+                endDate: { type: string }
+      responses:
+        200:
+          description: Métricas contextualizadas por rol
