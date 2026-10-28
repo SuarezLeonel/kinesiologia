@@ -4,18 +4,16 @@ import {
   Text,
   StyleSheet,
   FlatList,
-  TextInput,
-  TouchableOpacity,
   RefreshControl,
-  Modal,
-  ScrollView,
-  ActivityIndicator
+  TouchableOpacity
 } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { apiClient } from '../api/client';
 import { useAppTheme } from '../theme/ThemeContext';
+import { spacing, radii, typography } from '../theme/tokens';
+import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper } from '../components/ui';
 import { LoadingState, ErrorState, EmptyState } from '../components/FeedbackStates';
 
 const patientSchema = z.object({
@@ -47,7 +45,7 @@ export const PatientsScreen = () => {
     reset,
     formState: { errors: formErrors, isSubmitting }
   } = useForm<PatientFormData>({
-    resolver: zodResolver(patientSchema),
+    resolver: zodResolver(patientSchema) as any,
     defaultValues: {
       dni: '',
       first_name: '',
@@ -114,252 +112,348 @@ export const PatientsScreen = () => {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={styles.topBar}>
-        <View style={styles.searchContainer}>
-          <TextInput
-            style={[styles.searchInput, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }]}
-            placeholder="Buscar por nombre, apellido o DNI..."
-            placeholderTextColor={theme.textSecondary}
+      <ScreenHeader
+        title="Padrón de Pacientes"
+        subtitle="Registro clínico, datos de contacto y cobertura médica"
+        action={
+          <Button
+            title="+ Nuevo Paciente"
+            size="sm"
+            onPress={() => {
+              setFormError(null);
+              reset();
+              setModalVisible(true);
+            }}
+          />
+        }
+      />
+
+      {/* Buscador */}
+      <View style={styles.searchRow}>
+        <View style={styles.searchInputContainer}>
+          <Input
+            placeholder="Buscar por DNI, nombre o apellido..."
             value={searchTerm}
             onChangeText={setSearchTerm}
             onSubmitEditing={handleSearch}
+            containerStyle={{ marginBottom: 0 }}
           />
-          <TouchableOpacity style={[styles.searchBtn, { backgroundColor: theme.primary }]} onPress={handleSearch}>
-            <Text style={styles.searchBtnText}>Buscar</Text>
-          </TouchableOpacity>
         </View>
-
-        <TouchableOpacity
-          style={[styles.createBtn, { backgroundColor: theme.success }]}
-          onPress={() => {
-            setFormError(null);
-            reset();
-            setModalVisible(true);
-          }}
-        >
-          <Text style={styles.createBtnText}>+ Nuevo Paciente</Text>
-        </TouchableOpacity>
+        <Button
+          title="Buscar"
+          variant="secondary"
+          size="md"
+          onPress={handleSearch}
+          style={{ marginLeft: spacing.sm }}
+        />
       </View>
 
       <FlatList
         data={patients}
         keyExtractor={(item) => item.id.toString()}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchPatients(searchTerm); }} />}
-        ListEmptyComponent={<EmptyState title="No se encontraron pacientes" subtitle="Prueba con otro criterio de búsqueda" />}
-        renderItem={({ item }) => (
-          <View style={[styles.patientCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Text style={[styles.patientName, { color: theme.text }]}>{item.last_name}, {item.first_name}</Text>
-            <Text style={[styles.patientDetail, { color: theme.textSecondary }]}>
-              DNI: {item.dni} | Tel: {item.phone}
-            </Text>
-            {item.insurance_provider && (
-              <Text style={[styles.insuranceDetail, { color: theme.textSecondary }]}>
-                Obra Social: {item.insurance_provider} ({item.insurance_number || 'S/N'})
-              </Text>
-            )}
-            {item.kinesiologist_name && (
-              <Text style={[styles.kineTag, { color: theme.primary }]}>
-                Kinesiólogo asignado: {item.kinesiologist_name} {item.kinesiologist_last_name}
-              </Text>
-            )}
-          </View>
-        )}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              fetchPatients(searchTerm);
+            }}
+            tintColor={theme.primary}
+          />
+        }
+        ListEmptyComponent={
+          <EmptyState
+            title="No se encontraron pacientes"
+            subtitle="Intenta con otro término o da de alta un nuevo registro."
+            action={{
+              label: 'Registrar paciente',
+              onPress: () => setModalVisible(true)
+            }}
+          />
+        }
+        renderItem={({ item }) => {
+          const initials = `${item.first_name?.[0] || ''}${item.last_name?.[0] || ''}`.toUpperCase();
+
+          return (
+            <Card elevated style={styles.patientCard} padding="md">
+              <View style={styles.cardHeader}>
+                <View style={styles.nameSection}>
+                  <View style={[styles.avatar, { backgroundColor: theme.primaryLight, borderColor: theme.primary + '30' }]}>
+                    <Text style={[styles.avatarText, { color: theme.primary }]}>{initials || 'P'}</Text>
+                  </View>
+                  <View style={styles.infoCol}>
+                    <Text style={[styles.patientName, { color: theme.text }]}>
+                      {item.last_name}, {item.first_name}
+                    </Text>
+                    <Text style={[styles.metaText, { color: theme.textSecondary }]}>
+                      DNI {item.dni} • Tel: {item.phone}
+                    </Text>
+                  </View>
+                </View>
+
+                {item.insurance_provider ? (
+                  <Badge
+                    label={item.insurance_provider}
+                    variant="neutral"
+                    size="sm"
+                  />
+                ) : (
+                  <Badge label="Particular" variant="neutral" size="sm" />
+                )}
+              </View>
+
+              {(item.email || item.insurance_number || item.kinesiologist_name) && (
+                <>
+                  <View style={[styles.divider, { backgroundColor: theme.borderSubtle }]} />
+                  <View style={styles.extraDetails}>
+                    {item.email ? (
+                      <Text style={[styles.subText, { color: theme.textMuted }]}>
+                        {item.email}
+                      </Text>
+                    ) : null}
+                    {item.insurance_number ? (
+                      <Text style={[styles.subText, { color: theme.textMuted }]}>
+                        Afiliado: {item.insurance_number}
+                      </Text>
+                    ) : null}
+                    {item.kinesiologist_name ? (
+                      <Text style={[styles.kineText, { color: theme.primary }]}>
+                        Kinesiólogo: {item.kinesiologist_name} {item.kinesiologist_last_name || ''}
+                      </Text>
+                    ) : null}
+                  </View>
+                </>
+              )}
+            </Card>
+          );
+        }}
       />
 
       {/* Modal de Alta de Paciente */}
-      <Modal visible={modalVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Registrar Paciente</Text>
-
-            {formError && (
-              <View style={[styles.errorBanner, { backgroundColor: theme.error + '20', borderColor: theme.error }]}>
-                <Text style={[styles.errorBannerText, { color: theme.error }]}>{formError}</Text>
-              </View>
-            )}
-
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>DNI / Documento</Text>
-              <Controller
-                control={control}
-                name="dni"
-                render={({ field: { onChange, value } }) => (
-                  <TextInput
-                    style={[styles.input, { borderColor: formErrors.dni ? theme.error : theme.border, color: theme.text }]}
-                    value={value}
-                    onChangeText={onChange}
-                    keyboardType="numeric"
-                    placeholder="Ej. 38450123"
-                    placeholderTextColor={theme.textSecondary}
-                  />
-                )}
-              />
-              {formErrors.dni && <Text style={[styles.fieldError, { color: theme.error }]}>{formErrors.dni.message}</Text>}
-
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>Nombre</Text>
-              <Controller
-                control={control}
-                name="first_name"
-                render={({ field: { onChange, value } }) => (
-                  <TextInput
-                    style={[styles.input, { borderColor: formErrors.first_name ? theme.error : theme.border, color: theme.text }]}
-                    value={value}
-                    onChangeText={onChange}
-                    placeholder="Ej. Martín"
-                    placeholderTextColor={theme.textSecondary}
-                  />
-                )}
-              />
-              {formErrors.first_name && <Text style={[styles.fieldError, { color: theme.error }]}>{formErrors.first_name.message}</Text>}
-
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>Apellido</Text>
-              <Controller
-                control={control}
-                name="last_name"
-                render={({ field: { onChange, value } }) => (
-                  <TextInput
-                    style={[styles.input, { borderColor: formErrors.last_name ? theme.error : theme.border, color: theme.text }]}
-                    value={value}
-                    onChangeText={onChange}
-                    placeholder="Ej. Gómez"
-                    placeholderTextColor={theme.textSecondary}
-                  />
-                )}
-              />
-              {formErrors.last_name && <Text style={[styles.fieldError, { color: theme.error }]}>{formErrors.last_name.message}</Text>}
-
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>Fecha de Nacimiento (AAAA-MM-DD)</Text>
-              <Controller
-                control={control}
-                name="birth_date"
-                render={({ field: { onChange, value } }) => (
-                  <TextInput
-                    style={[styles.input, { borderColor: formErrors.birth_date ? theme.error : theme.border, color: theme.text }]}
-                    value={value}
-                    onChangeText={onChange}
-                    placeholder="1990-05-15"
-                    placeholderTextColor={theme.textSecondary}
-                  />
-                )}
-              />
-              {formErrors.birth_date && <Text style={[styles.fieldError, { color: theme.error }]}>{formErrors.birth_date.message}</Text>}
-
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>Teléfono</Text>
-              <Controller
-                control={control}
-                name="phone"
-                render={({ field: { onChange, value } }) => (
-                  <TextInput
-                    style={[styles.input, { borderColor: formErrors.phone ? theme.error : theme.border, color: theme.text }]}
-                    value={value}
-                    onChangeText={onChange}
-                    placeholder="+5491122334455"
-                    placeholderTextColor={theme.textSecondary}
-                  />
-                )}
-              />
-              {formErrors.phone && <Text style={[styles.fieldError, { color: theme.error }]}>{formErrors.phone.message}</Text>}
-
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>Correo Electrónico (Opcional)</Text>
-              <Controller
-                control={control}
-                name="email"
-                render={({ field: { onChange, value } }) => (
-                  <TextInput
-                    style={[styles.input, { borderColor: formErrors.email ? theme.error : theme.border, color: theme.text }]}
-                    value={value || ''}
-                    onChangeText={onChange}
-                    placeholder="paciente@correo.com"
-                    placeholderTextColor={theme.textSecondary}
-                    autoCapitalize="none"
-                    keyboardType="email-address"
-                  />
-                )}
-              />
-              {formErrors.email && <Text style={[styles.fieldError, { color: theme.error }]}>{formErrors.email.message}</Text>}
-
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>Obra Social / Prepaga (Opcional)</Text>
-              <Controller
-                control={control}
-                name="insurance_provider"
-                render={({ field: { onChange, value } }) => (
-                  <TextInput
-                    style={[styles.input, { borderColor: theme.border, color: theme.text }]}
-                    value={value || ''}
-                    onChangeText={onChange}
-                    placeholder="Ej. OSDE / Swiss Medical / Particular"
-                    placeholderTextColor={theme.textSecondary}
-                  />
-                )}
-              />
-
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>N° de Afiliado (Opcional)</Text>
-              <Controller
-                control={control}
-                name="insurance_number"
-                render={({ field: { onChange, value } }) => (
-                  <TextInput
-                    style={[styles.input, { borderColor: theme.border, color: theme.text }]}
-                    value={value || ''}
-                    onChangeText={onChange}
-                    placeholder="Ej. 12345678-01"
-                    placeholderTextColor={theme.textSecondary}
-                  />
-                )}
-              />
-
-              <View style={styles.modalButtons}>
-                <TouchableOpacity
-                  style={[styles.cancelBtn, { borderColor: theme.border }]}
-                  onPress={() => setModalVisible(false)}
-                >
-                  <Text style={[styles.cancelBtnText, { color: theme.textSecondary }]}>Cancelar</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.saveBtn, { backgroundColor: theme.primary }]}
-                  onPress={() => handleSubmit(onCreatePatient)()}
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.createBtnText}>Guardar Paciente</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
+      <ModalWrapper
+        visible={modalVisible}
+        onClose={() => setModalVisible(false)}
+        title="Registrar Nuevo Paciente"
+        subtitle="Complete los datos filiatorios y de cobertura de salud"
+        footer={
+          <>
+            <Button
+              title="Cancelar"
+              variant="secondary"
+              size="md"
+              onPress={() => setModalVisible(false)}
+            />
+            <Button
+              title="Guardar Paciente"
+              size="md"
+              loading={isSubmitting}
+              onPress={() => handleSubmit(onCreatePatient)()}
+            />
+          </>
+        }
+      >
+        {formError && (
+          <View style={[styles.modalError, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
+            <Text style={[styles.modalErrorText, { color: theme.error }]}>{formError}</Text>
           </View>
-        </View>
-      </Modal>
+        )}
+
+        <Controller
+          control={control}
+          name="dni"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="DNI / Documento"
+              value={value}
+              onChangeText={onChange}
+              keyboardType="numeric"
+              placeholder="38450123"
+              error={formErrors.dni?.message}
+              required
+            />
+          )}
+        />
+
+        <Controller
+          control={control}
+          name="first_name"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="Nombre"
+              value={value}
+              onChangeText={onChange}
+              placeholder="Martín"
+              error={formErrors.first_name?.message}
+              required
+            />
+          )}
+        />
+
+        <Controller
+          control={control}
+          name="last_name"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="Apellido"
+              value={value}
+              onChangeText={onChange}
+              placeholder="Gómez"
+              error={formErrors.last_name?.message}
+              required
+            />
+          )}
+        />
+
+        <Controller
+          control={control}
+          name="birth_date"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="Fecha de Nacimiento (AAAA-MM-DD)"
+              value={value}
+              onChangeText={onChange}
+              placeholder="1990-05-15"
+              error={formErrors.birth_date?.message}
+              required
+            />
+          )}
+        />
+
+        <Controller
+          control={control}
+          name="phone"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="Teléfono de contacto"
+              value={value}
+              onChangeText={onChange}
+              placeholder="+5491122334455"
+              error={formErrors.phone?.message}
+              required
+            />
+          )}
+        />
+
+        <Controller
+          control={control}
+          name="email"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="Correo electrónico (opcional)"
+              value={value || ''}
+              onChangeText={onChange}
+              placeholder="paciente@correo.com"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              error={formErrors.email?.message}
+            />
+          )}
+        />
+
+        <Controller
+          control={control}
+          name="insurance_provider"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="Obra Social / Prepaga (opcional)"
+              value={value || ''}
+              onChangeText={onChange}
+              placeholder="OSDE / Swiss Medical / Particular"
+            />
+          )}
+        />
+
+        <Controller
+          control={control}
+          name="insurance_number"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="N° de Afiliado (opcional)"
+              value={value || ''}
+              onChangeText={onChange}
+              placeholder="12345678-01"
+            />
+          )}
+        />
+      </ModalWrapper>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
-  topBar: { marginBottom: 16 },
-  searchContainer: { flexDirection: 'row', marginBottom: 8 },
-  searchInput: { flex: 1, height: 44, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, marginRight: 8 },
-  searchBtn: { paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center', borderRadius: 8 },
-  searchBtnText: { color: '#FFFFFF', fontWeight: 'bold' },
-  createBtn: { height: 40, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
-  createBtnText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 14 },
-  patientCard: { padding: 14, borderRadius: 10, borderWidth: 1, marginBottom: 10 },
-  patientName: { fontSize: 16, fontWeight: 'bold' },
-  patientDetail: { fontSize: 13, marginTop: 4 },
-  insuranceDetail: { fontSize: 12, marginTop: 2 },
-  kineTag: { fontSize: 12, fontWeight: '600', marginTop: 4 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 16 },
-  modalContent: { maxHeight: '90%', borderRadius: 14, padding: 20, borderWidth: 1 },
-  modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 16, textAlign: 'center' },
-  fieldLabel: { fontSize: 13, fontWeight: '600', marginTop: 10, marginBottom: 4 },
-  fieldError: { fontSize: 11, marginTop: 2 },
-  input: { height: 44, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12 },
-  errorBanner: { padding: 10, borderRadius: 8, borderWidth: 1, marginBottom: 12 },
-  errorBannerText: { fontSize: 12, fontWeight: '500' },
-  modalButtons: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 20, marginBottom: 10 },
-  cancelBtn: { flex: 1, height: 44, borderWidth: 1, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginRight: 8 },
-  cancelBtnText: { fontWeight: '600' },
-  saveBtn: { flex: 1, height: 44, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginLeft: 8 }
+  container: {
+    flex: 1,
+    padding: spacing.xl
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.lg
+  },
+  searchInputContainer: {
+    flex: 1
+  },
+  patientCard: {
+    marginBottom: spacing.md
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  nameSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    paddingRight: spacing.sm
+  },
+  avatar: {
+    width: 38,
+    height: 38,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.md
+  },
+  avatarText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold
+  },
+  infoCol: {
+    flex: 1
+  },
+  patientName: {
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.semibold
+  },
+  metaText: {
+    fontSize: typography.fontSize.xs,
+    marginTop: 2
+  },
+  divider: {
+    height: 1,
+    marginVertical: spacing.sm
+  },
+  extraDetails: {
+    gap: 2
+  },
+  subText: {
+    fontSize: typography.fontSize.xs
+  },
+  kineText: {
+    fontSize: typography.fontSize.tiny,
+    fontWeight: typography.fontWeight.semibold,
+    marginTop: 2
+  },
+  modalError: {
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    marginBottom: spacing.md
+  },
+  modalErrorText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium
+  }
 });

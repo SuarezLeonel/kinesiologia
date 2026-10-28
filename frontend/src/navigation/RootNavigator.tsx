@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../theme/ThemeContext';
+import { typography, spacing } from '../theme/tokens';
 import { LoadingState } from '../components/FeedbackStates';
 
 import { LoginScreen } from '../screens/LoginScreen';
@@ -25,11 +26,22 @@ const MainTabs = () => {
   return (
     <Tab.Navigator
       screenOptions={{
-        headerStyle: { backgroundColor: theme.surface },
-        headerTintColor: theme.text,
-        tabBarStyle: { backgroundColor: theme.surface, borderTopColor: theme.border },
+        headerShown: false,
+        tabBarStyle: {
+          backgroundColor: theme.surface,
+          borderTopColor: theme.border,
+          borderTopWidth: 1,
+          height: 60,
+          paddingBottom: spacing.sm,
+          paddingTop: spacing.xs + 2
+        },
         tabBarActiveTintColor: theme.primary,
-        tabBarInactiveTintColor: theme.textSecondary
+        tabBarInactiveTintColor: theme.textSecondary,
+        tabBarLabelStyle: {
+          fontSize: typography.fontSize.tiny,
+          fontWeight: typography.fontWeight.semibold,
+          letterSpacing: 0.2
+        }
       }}
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} options={{ title: 'Inicio' }} />

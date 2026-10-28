@@ -4,11 +4,7 @@ import {
   Text,
   StyleSheet,
   FlatList,
-  TextInput,
-  TouchableOpacity,
-  Modal,
-  ScrollView,
-  ActivityIndicator
+  TouchableOpacity
 } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -16,6 +12,8 @@ import { z } from 'zod';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../theme/ThemeContext';
+import { spacing, radii, typography } from '../theme/tokens';
+import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper } from '../components/ui';
 import { LoadingState, ErrorState, EmptyState, AccessDeniedState } from '../components/FeedbackStates';
 
 const clinicalRecordSchema = z.object({
@@ -44,6 +42,8 @@ export const ClinicalRecordsScreen = () => {
     control,
     handleSubmit,
     reset,
+    watch,
+    setValue,
     formState: { errors: formErrors, isSubmitting }
   } = useForm<ClinicalRecordFormData>({
     resolver: zodResolver(clinicalRecordSchema) as any,
@@ -57,6 +57,8 @@ export const ClinicalRecordsScreen = () => {
       pain_scale_initial: 5
     }
   });
+
+  const selectedPain = watch('pain_scale_initial');
 
   const fetchRecords = async () => {
     if (isReceptionist || !patientId) return;
@@ -98,50 +100,66 @@ export const ClinicalRecordsScreen = () => {
     }
   };
 
-  // Protección de acceso clínico evaluada en render después de invocar todos los hooks
+  // Protección de acceso clínico evaluada en render tras declarar hooks
   if (isReceptionist) {
     return <AccessDeniedState />;
   }
 
+  const getPainBadgeVariant = (pain?: number) => {
+    if (pain === undefined || pain === null) return 'neutral';
+    if (pain <= 3) return 'success';
+    if (pain <= 6) return 'warning';
+    return 'error';
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={styles.topActions}>
-        <View style={styles.searchRow}>
-          <TextInput
-            style={[styles.input, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }]}
-            placeholder="ID de Paciente (ej: 1)"
-            placeholderTextColor={theme.textSecondary}
+      <ScreenHeader
+        title="Historias Clínicas"
+        subtitle="Evolución clínica, evaluaciones funcionales y escala de dolor"
+        action={
+          <Button
+            title="+ Nueva Nota"
+            size="sm"
+            onPress={() => {
+              setFormError(null);
+              reset({
+                patient_id: Number(patientId) || 1,
+                reason_for_consultation: '',
+                subjective_assessment: '',
+                objective_assessment: '',
+                diagnosis: '',
+                treatment_plan: '',
+                pain_scale_initial: 5
+              });
+              setModalVisible(true);
+            }}
+          />
+        }
+      />
+
+      {/* Buscador de paciente por ID */}
+      <View style={styles.searchRow}>
+        <View style={styles.searchInputContainer}>
+          <Input
+            placeholder="Ingrese ID del Paciente (ej: 1)..."
             value={patientId}
             onChangeText={setPatientId}
             keyboardType="numeric"
+            containerStyle={{ marginBottom: 0 }}
           />
-          <TouchableOpacity style={[styles.btn, { backgroundColor: theme.primary }]} onPress={fetchRecords}>
-            <Text style={styles.btnText}>Ver Ficha</Text>
-          </TouchableOpacity>
         </View>
-
-        <TouchableOpacity
-          style={[styles.createBtn, { backgroundColor: theme.success }]}
-          onPress={() => {
-            setFormError(null);
-            reset({
-              patient_id: Number(patientId) || 1,
-              reason_for_consultation: '',
-              subjective_assessment: '',
-              objective_assessment: '',
-              diagnosis: '',
-              treatment_plan: '',
-              pain_scale_initial: 5
-            });
-            setModalVisible(true);
-          }}
-        >
-          <Text style={styles.btnText}>+ Nueva Nota Clínica</Text>
-        </TouchableOpacity>
+        <Button
+          title="Ver Ficha"
+          variant="secondary"
+          size="md"
+          onPress={fetchRecords}
+          style={{ marginLeft: spacing.sm }}
+        />
       </View>
 
       {loading ? (
-        <LoadingState message="Consultando historias clínicas..." />
+        <LoadingState message="Consultando registros clínicos..." />
       ) : error ? (
         <ErrorState message={error} onRetry={fetchRecords} />
       ) : (
@@ -151,226 +169,348 @@ export const ClinicalRecordsScreen = () => {
           ListEmptyComponent={
             <EmptyState
               title="Sin registros clínicos"
-              subtitle="Este paciente no posee notas clínicas aún o el ID no coincide"
+              subtitle={`No hay evoluciones registradas para el paciente #${patientId}.`}
+              action={{
+                label: 'Agregar nota de evolución',
+                onPress: () => setModalVisible(true)
+              }}
             />
           }
-          renderItem={({ item }) => (
-            <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <View style={styles.cardHeader}>
-                <Text style={[styles.diagnosis, { color: theme.text }]}>
-                  Diagnóstico: {item.diagnosis || 'No especificado'}
-                </Text>
-                {item.pain_scale_initial !== null && item.pain_scale_initial !== undefined && (
-                  <Text style={[styles.painBadge, { color: theme.warning }]}>
-                    Dolor: {item.pain_scale_initial}/10
-                  </Text>
+          renderItem={({ item }) => {
+            const pain = item.pain_scale_initial ?? item.reported_pain_level;
+            const dateStr = item.created_at
+              ? new Date(item.created_at).toLocaleDateString('es-AR', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric'
+                })
+              : '';
+
+            return (
+              <Card elevated style={styles.recordCard} padding="lg">
+                <View style={styles.recordHeader}>
+                  <View style={styles.titleCol}>
+                    <Text style={[styles.diagnosisText, { color: theme.text }]}>
+                      {item.diagnosis || 'Consulta Kinésica'}
+                    </Text>
+                    <Text style={[styles.dateText, { color: theme.textSecondary }]}>
+                      {dateStr} • Por {item.kinesiologist_first_name || item.author_name || 'Lic.'} {item.kinesiologist_last_name || item.author_last_name || ''}
+                    </Text>
+                  </View>
+
+                  {pain !== null && pain !== undefined && (
+                    <Badge
+                      label={`EVA ${pain}/10`}
+                      variant={getPainBadgeVariant(pain)}
+                      size="sm"
+                    />
+                  )}
+                </View>
+
+                <View style={[styles.divider, { backgroundColor: theme.borderSubtle }]} />
+
+                {item.reason_for_consultation && (
+                  <View style={styles.sectionRow}>
+                    <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>Motivo:</Text>
+                    <Text style={[styles.sectionValue, { color: theme.text }]}>
+                      {item.reason_for_consultation}
+                    </Text>
+                  </View>
                 )}
-              </View>
-              <Text style={[styles.reason, { color: theme.textSecondary }]}>
-                Motivo: {item.reason_for_consultation || item.consultation_reason || 'Sin motivo registrado'}
-              </Text>
-              {item.treatment_plan && (
-                <Text style={[styles.plan, { color: theme.text }]}>
-                  Plan: {item.treatment_plan}
-                </Text>
-              )}
-              <Text style={[styles.author, { color: theme.primary }]}>
-                Profesional: {item.kinesiologist_first_name || item.author_name || 'Kinesiólogo'}{' '}
-                {item.kinesiologist_last_name || item.author_last_name || ''}
-              </Text>
-              <Text style={[styles.date, { color: theme.textSecondary }]}>
-                {item.created_at ? new Date(item.created_at).toLocaleDateString('es-AR') : ''}
-              </Text>
-            </View>
-          )}
+
+                {item.subjective_assessment && (
+                  <View style={styles.sectionRow}>
+                    <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>Subjetivo:</Text>
+                    <Text style={[styles.sectionValue, { color: theme.text }]}>
+                      {item.subjective_assessment}
+                    </Text>
+                  </View>
+                )}
+
+                {item.objective_assessment && (
+                  <View style={styles.sectionRow}>
+                    <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>Objetivo:</Text>
+                    <Text style={[styles.sectionValue, { color: theme.text }]}>
+                      {item.objective_assessment}
+                    </Text>
+                  </View>
+                )}
+
+                {item.treatment_plan && (
+                  <View style={[styles.planBox, { backgroundColor: theme.surfaceSubtle }]}>
+                    <Text style={[styles.planTitle, { color: theme.primary }]}>Plan y Tratamiento:</Text>
+                    <Text style={[styles.planValue, { color: theme.text }]}>
+                      {item.treatment_plan}
+                    </Text>
+                  </View>
+                )}
+              </Card>
+            );
+          }}
         />
       )}
 
-      {/* Modal de Creación de Nota Clínica con React Hook Form y Zod */}
-      <Modal visible={modalVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Nueva Nota de Evolución</Text>
+      {/* Modal de Creación de Nota Clínica */}
+      <ModalWrapper
+        visible={modalVisible}
+        onClose={() => setModalVisible(false)}
+        title="Nueva Nota de Evolución"
+        subtitle="Complete la anamnesis, examen físico y prescripción de tratamiento"
+        footer={
+          <>
+            <Button
+              title="Cancelar"
+              variant="secondary"
+              size="md"
+              onPress={() => setModalVisible(false)}
+            />
+            <Button
+              title="Guardar Nota"
+              size="md"
+              loading={isSubmitting}
+              onPress={() => handleSubmit(onCreateRecord)()}
+            />
+          </>
+        }
+      >
+        {formError && (
+          <View style={[styles.modalError, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
+            <Text style={[styles.modalErrorText, { color: theme.error }]}>{formError}</Text>
+          </View>
+        )}
 
-            {formError && (
-              <View style={[styles.errorBanner, { backgroundColor: theme.error + '20', borderColor: theme.error }]}>
-                <Text style={[styles.errorBannerText, { color: theme.error }]}>{formError}</Text>
-              </View>
-            )}
+        <Controller
+          control={control}
+          name="patient_id"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="ID Paciente"
+              value={String(value || '')}
+              onChangeText={onChange}
+              keyboardType="numeric"
+              placeholder="1"
+              error={formErrors.patient_id?.message}
+              required
+            />
+          )}
+        />
 
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>ID Paciente</Text>
-              <Controller
-                control={control}
-                name="patient_id"
-                render={({ field: { onChange, value } }) => (
-                  <TextInput
-                    style={[styles.input, { borderColor: formErrors.patient_id ? theme.error : theme.border, color: theme.text }]}
-                    value={String(value || '')}
-                    onChangeText={onChange}
-                    keyboardType="numeric"
-                  />
-                )}
-              />
-              {formErrors.patient_id && <Text style={[styles.fieldError, { color: theme.error }]}>{formErrors.patient_id.message}</Text>}
+        <Controller
+          control={control}
+          name="diagnosis"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="Diagnóstico Kinésico"
+              value={value}
+              onChangeText={onChange}
+              placeholder="Ej. Tendinopatía supraespinoso / Lumbalgia mecánica"
+              error={formErrors.diagnosis?.message}
+              required
+            />
+          )}
+        />
 
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>Diagnóstico Kinésico</Text>
-              <Controller
-                control={control}
-                name="diagnosis"
-                render={({ field: { onChange, value } }) => (
-                  <TextInput
-                    style={[styles.input, { borderColor: formErrors.diagnosis ? theme.error : theme.border, color: theme.text }]}
-                    value={value}
-                    onChangeText={onChange}
-                    placeholder="Ej. Cervicobraquialgia derecha"
-                    placeholderTextColor={theme.textSecondary}
-                  />
-                )}
-              />
-              {formErrors.diagnosis && <Text style={[styles.fieldError, { color: theme.error }]}>{formErrors.diagnosis.message}</Text>}
+        <Controller
+          control={control}
+          name="reason_for_consultation"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="Motivo de consulta"
+              value={value}
+              onChangeText={onChange}
+              placeholder="Ej. Dolor agudo al realizar abducción de hombro"
+              error={formErrors.reason_for_consultation?.message}
+              required
+            />
+          )}
+        />
 
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>Motivo de Consulta</Text>
-              <Controller
-                control={control}
-                name="reason_for_consultation"
-                render={({ field: { onChange, value } }) => (
-                  <TextInput
-                    style={[styles.input, { borderColor: formErrors.reason_for_consultation ? theme.error : theme.border, color: theme.text }]}
-                    value={value}
-                    onChangeText={onChange}
-                    placeholder="Ej. Dolor irradiado a miembro superior"
-                    placeholderTextColor={theme.textSecondary}
-                  />
-                )}
-              />
-              {formErrors.reason_for_consultation && <Text style={[styles.fieldError, { color: theme.error }]}>{formErrors.reason_for_consultation.message}</Text>}
+        <Controller
+          control={control}
+          name="subjective_assessment"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="Evaluación Subjetiva (Anamnesis)"
+              value={value}
+              onChangeText={onChange}
+              placeholder="Sensaciones del paciente, cronología y actividades agravantes"
+              multiline
+              numberOfLines={3}
+              error={formErrors.subjective_assessment?.message}
+              required
+            />
+          )}
+        />
 
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>Evaluación Subjetiva (Anamnesis)</Text>
-              <Controller
-                control={control}
-                name="subjective_assessment"
-                render={({ field: { onChange, value } }) => (
-                  <TextInput
-                    style={[styles.inputArea, { borderColor: formErrors.subjective_assessment ? theme.error : theme.border, color: theme.text }]}
-                    value={value}
-                    onChangeText={onChange}
-                    multiline
-                    numberOfLines={3}
-                    placeholder="Sensaciones del paciente, cronología y agravantes"
-                    placeholderTextColor={theme.textSecondary}
-                  />
-                )}
-              />
-              {formErrors.subjective_assessment && <Text style={[styles.fieldError, { color: theme.error }]}>{formErrors.subjective_assessment.message}</Text>}
+        <Controller
+          control={control}
+          name="objective_assessment"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="Evaluación Objetiva (Examen Físico)"
+              value={value}
+              onChangeText={onChange}
+              placeholder="Movilidad articular, fuerza muscular, palpación y pruebas ortopédicas"
+              multiline
+              numberOfLines={3}
+              error={formErrors.objective_assessment?.message}
+              required
+            />
+          )}
+        />
 
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>Evaluación Objetiva (Física)</Text>
-              <Controller
-                control={control}
-                name="objective_assessment"
-                render={({ field: { onChange, value } }) => (
-                  <TextInput
-                    style={[styles.inputArea, { borderColor: formErrors.objective_assessment ? theme.error : theme.border, color: theme.text }]}
-                    value={value}
-                    onChangeText={onChange}
-                    multiline
-                    numberOfLines={3}
-                    placeholder="Palpación, arcos de movilidad, fuerza y pruebas ortopédicas"
-                    placeholderTextColor={theme.textSecondary}
-                  />
-                )}
-              />
-              {formErrors.objective_assessment && <Text style={[styles.fieldError, { color: theme.error }]}>{formErrors.objective_assessment.message}</Text>}
+        <Controller
+          control={control}
+          name="treatment_plan"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="Plan Terapéutico y Ejercicios"
+              value={value}
+              onChangeText={onChange}
+              placeholder="Terapia manual, electroanalgesia, protocolo excéntrico"
+              multiline
+              numberOfLines={3}
+              error={formErrors.treatment_plan?.message}
+              required
+            />
+          )}
+        />
 
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>Plan Terapéutico y Ejercicios</Text>
-              <Controller
-                control={control}
-                name="treatment_plan"
-                render={({ field: { onChange, value } }) => (
-                  <TextInput
-                    style={[styles.inputArea, { borderColor: formErrors.treatment_plan ? theme.error : theme.border, color: theme.text }]}
-                    value={value}
-                    onChangeText={onChange}
-                    multiline
-                    numberOfLines={3}
-                    placeholder="Terapia manual, agentes físicos y ejercicios prescriptos"
-                    placeholderTextColor={theme.textSecondary}
-                  />
-                )}
-              />
-              {formErrors.treatment_plan && <Text style={[styles.fieldError, { color: theme.error }]}>{formErrors.treatment_plan.message}</Text>}
-
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>Escala EVA de Dolor Inicial (0 - 10)</Text>
-              <Controller
-                control={control}
-                name="pain_scale_initial"
-                render={({ field: { onChange, value } }) => (
-                  <TextInput
-                    style={[styles.input, { borderColor: formErrors.pain_scale_initial ? theme.error : theme.border, color: theme.text }]}
-                    value={value !== undefined ? String(value) : ''}
-                    onChangeText={onChange}
-                    keyboardType="numeric"
-                    placeholder="5"
-                    placeholderTextColor={theme.textSecondary}
-                  />
-                )}
-              />
-              {formErrors.pain_scale_initial && <Text style={[styles.fieldError, { color: theme.error }]}>{formErrors.pain_scale_initial.message}</Text>}
-
-              <View style={styles.modalButtons}>
+        {/* Selector Visual de Escala EVA (0 a 10) */}
+        <View style={styles.painSelectorContainer}>
+          <Text style={[styles.fieldLabel, { color: theme.text }]}>
+            Escala Analógica Visual del Dolor (EVA: {selectedPain ?? 5}/10)
+          </Text>
+          <View style={styles.painChipsRow}>
+            {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {
+              const isSelected = selectedPain === num;
+              return (
                 <TouchableOpacity
-                  style={[styles.cancelBtn, { borderColor: theme.border }]}
-                  onPress={() => setModalVisible(false)}
+                  key={num}
+                  onPress={() => setValue('pain_scale_initial', num)}
+                  style={[
+                    styles.painChip,
+                    {
+                      backgroundColor: isSelected ? theme.primary : theme.surfaceSubtle,
+                      borderColor: isSelected ? theme.primary : theme.border
+                    }
+                  ]}
                 >
-                  <Text style={[styles.cancelBtnText, { color: theme.textSecondary }]}>Cancelar</Text>
+                  <Text
+                    style={[
+                      styles.painChipText,
+                      { color: isSelected ? theme.primaryContrast : theme.text }
+                    ]}
+                  >
+                    {num}
+                  </Text>
                 </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.saveBtn, { backgroundColor: theme.primary }]}
-                  onPress={() => handleSubmit(onCreateRecord)()}
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.btnText}>Guardar Nota</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
+              );
+            })}
           </View>
         </View>
-      </Modal>
+      </ModalWrapper>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
-  topActions: { marginBottom: 16 },
-  searchRow: { flexDirection: 'row', marginBottom: 8 },
-  input: { flex: 1, height: 44, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, marginRight: 8 },
-  inputArea: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, textAlignVertical: 'top', minHeight: 70 },
-  btn: { paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center', borderRadius: 8 },
-  createBtn: { height: 40, justifyContent: 'center', alignItems: 'center', borderRadius: 8, marginTop: 4 },
-  btnText: { color: '#FFFFFF', fontWeight: 'bold' },
-  card: { padding: 14, borderRadius: 10, borderWidth: 1, marginBottom: 12 },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  diagnosis: { fontSize: 16, fontWeight: 'bold', flex: 1 },
-  painBadge: { fontSize: 12, fontWeight: 'bold', marginLeft: 8 },
-  reason: { fontSize: 14, marginTop: 6 },
-  plan: { fontSize: 13, marginTop: 4, fontStyle: 'italic' },
-  author: { fontSize: 12, fontWeight: '600', marginTop: 8 },
-  date: { fontSize: 11, marginTop: 4 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 16 },
-  modalContent: { maxHeight: '90%', borderRadius: 14, padding: 20, borderWidth: 1 },
-  modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 16, textAlign: 'center' },
-  fieldLabel: { fontSize: 13, fontWeight: '600', marginTop: 10, marginBottom: 4 },
-  fieldError: { fontSize: 11, marginTop: 2 },
-  errorBanner: { padding: 10, borderRadius: 8, borderWidth: 1, marginBottom: 12 },
-  errorBannerText: { fontSize: 12, fontWeight: '500' },
-  modalButtons: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 20, marginBottom: 10 },
-  cancelBtn: { flex: 1, height: 44, borderWidth: 1, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginRight: 8 },
-  cancelBtnText: { fontWeight: '600' },
-  saveBtn: { flex: 1, height: 44, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginLeft: 8 }
+  container: {
+    flex: 1,
+    padding: spacing.xl
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.lg
+  },
+  searchInputContainer: {
+    flex: 1
+  },
+  recordCard: {
+    marginBottom: spacing.md
+  },
+  recordHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start'
+  },
+  titleCol: {
+    flex: 1,
+    paddingRight: spacing.sm
+  },
+  diagnosisText: {
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.bold
+  },
+  dateText: {
+    fontSize: typography.fontSize.xs,
+    marginTop: 2
+  },
+  divider: {
+    height: 1,
+    marginVertical: spacing.md
+  },
+  sectionRow: {
+    marginBottom: spacing.sm
+  },
+  sectionLabel: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.semibold,
+    marginBottom: 1
+  },
+  sectionValue: {
+    fontSize: typography.fontSize.sm,
+    lineHeight: typography.fontSize.sm * typography.lineHeight.normal
+  },
+  planBox: {
+    padding: spacing.md,
+    borderRadius: radii.md,
+    marginTop: spacing.xs
+  },
+  planTitle: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold,
+    marginBottom: 2
+  },
+  planValue: {
+    fontSize: typography.fontSize.sm,
+    lineHeight: typography.fontSize.sm * typography.lineHeight.normal
+  },
+  modalError: {
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    marginBottom: spacing.md
+  },
+  modalErrorText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium
+  },
+  painSelectorContainer: {
+    marginBottom: spacing.md
+  },
+  fieldLabel: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    marginBottom: spacing.xs + 2
+  },
+  painChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 4
+  },
+  painChip: {
+    width: 32,
+    height: 32,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  painChipText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold
+  }
 });

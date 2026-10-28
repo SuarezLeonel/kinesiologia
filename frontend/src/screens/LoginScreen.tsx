@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../theme/ThemeContext';
+import { spacing, radii, typography } from '../theme/tokens';
+import { Input, Button, Card } from '../components/ui';
 
 const loginSchema = z.object({
   email: z.string().email('Ingrese un correo electrónico válido'),
@@ -18,7 +20,11 @@ export const LoginScreen = () => {
   const { theme } = useAppTheme();
   const [serverError, setServerError] = useState<string | null>(null);
 
-  const { control, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginFormData>({
+  const {
+    control,
+    handleSubmit,
+    formState: { errors, isSubmitting }
+  } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
     defaultValues: { email: '', password: '' }
   });
@@ -32,80 +38,160 @@ export const LoginScreen = () => {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-        <Text style={[styles.title, { color: theme.text }]}>Consultorio Kinesiología</Text>
-        <Text style={[styles.subtitle, { color: theme.textSecondary }]}>Gestión de Pacientes y Turnos</Text>
-
-        {serverError && (
-          <View style={[styles.errorBanner, { backgroundColor: theme.error + '20', borderColor: theme.error }]}>
-            <Text style={[styles.errorBannerText, { color: theme.error }]}>{serverError}</Text>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={[styles.container, { backgroundColor: theme.background }]}
+    >
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.brandContainer}>
+          <View style={[styles.brandMark, { backgroundColor: theme.primaryLight, borderColor: theme.primary + '30' }]}>
+            <Text style={[styles.brandMarkText, { color: theme.primary }]}>KG</Text>
           </View>
-        )}
+          <Text style={[styles.brandTitle, { color: theme.text }]}>KinesioGestión</Text>
+          <Text style={[styles.brandSubtitle, { color: theme.textSecondary }]}>
+            Sistema Integral para Consultorio y Fisioterapia
+          </Text>
+        </View>
 
-        <Text style={[styles.label, { color: theme.text }]}>Correo electrónico</Text>
-        <Controller
-          control={control}
-          name="email"
-          render={({ field: { onChange, onBlur, value } }) => (
-            <TextInput
-              style={[styles.input, { borderColor: errors.email ? theme.error : theme.border, color: theme.text }]}
-              onBlur={onBlur}
-              onChangeText={onChange}
-              value={value}
-              placeholder="ejemplo@kinesiologia.com"
-              placeholderTextColor={theme.textSecondary}
-              autoCapitalize="none"
-              keyboardType="email-address"
-            />
-          )}
-        />
-        {errors.email && <Text style={[styles.fieldError, { color: theme.error }]}>{errors.email.message}</Text>}
+        <Card elevated style={styles.card} padding="xl">
+          <Text style={[styles.cardTitle, { color: theme.text }]}>Iniciar sesión</Text>
+          <Text style={[styles.cardSubtitle, { color: theme.textSecondary }]}>
+            Ingrese sus credenciales profesionales para acceder
+          </Text>
 
-        <Text style={[styles.label, { color: theme.text, marginTop: 12 }]}>Contraseña</Text>
-        <Controller
-          control={control}
-          name="password"
-          render={({ field: { onChange, onBlur, value } }) => (
-            <TextInput
-              style={[styles.input, { borderColor: errors.password ? theme.error : theme.border, color: theme.text }]}
-              onBlur={onBlur}
-              onChangeText={onChange}
-              value={value}
-              placeholder="••••••••"
-              placeholderTextColor={theme.textSecondary}
-              secureTextEntry
-            />
+          {serverError && (
+            <View style={[styles.errorBanner, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
+              <Text style={[styles.errorBannerText, { color: theme.error }]}>{serverError}</Text>
+            </View>
           )}
-        />
-        {errors.password && <Text style={[styles.fieldError, { color: theme.error }]}>{errors.password.message}</Text>}
 
-        <TouchableOpacity
-          style={[styles.button, { backgroundColor: theme.primary }]}
-          onPress={() => handleSubmit(onSubmit)()}
-          disabled={isSubmitting}
-        >
-          {isSubmitting ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <Text style={styles.buttonText}>Iniciar Sesión</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-    </View>
+          <Controller
+            control={control}
+            name="email"
+            render={({ field: { onChange, onBlur, value } }) => (
+              <Input
+                label="Correo electrónico"
+                placeholder="profesional@kinesiologia.com"
+                value={value}
+                onChangeText={onChange}
+                onBlur={onBlur}
+                error={errors.email?.message}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                autoComplete="email"
+                required
+              />
+            )}
+          />
+
+          <Controller
+            control={control}
+            name="password"
+            render={({ field: { onChange, onBlur, value } }) => (
+              <Input
+                label="Contraseña"
+                placeholder="••••••••"
+                value={value}
+                onChangeText={onChange}
+                onBlur={onBlur}
+                error={errors.password?.message}
+                secureTextEntry
+                required
+              />
+            )}
+          />
+
+          <Button
+            title="Ingresar al sistema"
+            onPress={() => handleSubmit(onSubmit)()}
+            loading={isSubmitting}
+            size="lg"
+            style={{ marginTop: spacing.md }}
+          />
+
+          <View style={styles.footerNote}>
+            <Text style={[styles.footerText, { color: theme.textMuted }]}>
+              Acceso seguro con token cifrado y control de sesiones por rol.
+            </Text>
+          </View>
+        </Card>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', padding: 20 },
-  card: { padding: 24, borderRadius: 16, borderWidth: 1, shadowOpacity: 0.05, shadowRadius: 10, elevation: 2 },
-  title: { fontSize: 24, fontWeight: 'bold', textAlign: 'center' },
-  subtitle: { fontSize: 14, textAlign: 'center', marginBottom: 20, marginTop: 4 },
-  label: { fontSize: 14, fontWeight: '600', marginBottom: 6 },
-  input: { height: 48, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, fontSize: 16 },
-  fieldError: { fontSize: 12, marginTop: 4 },
-  errorBanner: { padding: 12, borderRadius: 8, borderWidth: 1, marginBottom: 16 },
-  errorBannerText: { fontSize: 13, fontWeight: '500' },
-  button: { height: 48, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginTop: 24 },
-  buttonText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' }
+  container: {
+    flex: 1
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.xl
+  },
+  brandContainer: {
+    alignItems: 'center',
+    marginBottom: spacing.xxl
+  },
+  brandMark: {
+    width: 44,
+    height: 44,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing.md
+  },
+  brandMarkText: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
+    letterSpacing: 0.5
+  },
+  brandTitle: {
+    fontSize: typography.fontSize.xxl,
+    fontWeight: typography.fontWeight.bold,
+    letterSpacing: -0.5
+  },
+  brandSubtitle: {
+    fontSize: typography.fontSize.sm,
+    marginTop: spacing.xs,
+    textAlign: 'center'
+  },
+  card: {
+    width: '100%',
+    maxWidth: 420
+  },
+  cardTitle: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
+    marginBottom: 2
+  },
+  cardSubtitle: {
+    fontSize: typography.fontSize.sm,
+    marginBottom: spacing.lg
+  },
+  errorBanner: {
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    marginBottom: spacing.lg
+  },
+  errorBannerText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium
+  },
+  footerNote: {
+    marginTop: spacing.xl,
+    paddingTop: spacing.md,
+    alignItems: 'center'
+  },
+  footerText: {
+    fontSize: typography.fontSize.xs,
+    textAlign: 'center',
+    lineHeight: 16
+  }
 });

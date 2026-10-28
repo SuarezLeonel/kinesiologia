@@ -1,44 +1,119 @@
+export interface SemanticColor {
+  text: string;
+  bg: string;
+  border: string;
+}
+
 export interface ThemeColors {
-  primary: string;
-  primaryLight: string;
+  // Fondos y superficies
   background: string;
   surface: string;
-  card: string;
+  surfaceElevated: string;
+  surfaceSubtle: string;
+
+  // Tipografía
   text: string;
   textSecondary: string;
+  textMuted: string;
+
+  // Bordes
   border: string;
-  error: string;
+  borderSubtle: string;
+
+  // Identidad de marca (Verde Salvia)
+  primary: string;
+  primaryHover: string;
+  primaryLight: string;
+  primarySoft: string;
+  primaryContrast: string;
+
+  // Estados semánticos (texto + fondo suave + borde)
   success: string;
+  successBg: string;
   warning: string;
+  warningBg: string;
+  error: string;
+  errorBg: string;
+  info: string;
+  infoBg: string;
+
+  // Legacy mappings para compatibilidad
+  card: string;
   tint: string;
 }
 
 export const lightTheme: ThemeColors = {
-  primary: '#0D9488', // Teal profesional de salud
-  primaryLight: '#CCFBF1',
-  background: '#F8FAFC',
+  // Fondos y superficies
+  background: '#F7F8F7',
   surface: '#FFFFFF',
+  surfaceElevated: '#FFFFFF',
+  surfaceSubtle: '#F0F2F0',
+
+  // Tipografía
+  text: '#202522',
+  textSecondary: '#727873',
+  textMuted: '#9AA09B',
+
+  // Bordes
+  border: '#E7EAE7',
+  borderSubtle: '#EFF2EF',
+
+  // Acento Verde Salvia
+  primary: '#537C68',
+  primaryHover: '#426353',
+  primaryLight: '#E9F0EC',
+  primarySoft: '#F2F6F3',
+  primaryContrast: '#FFFFFF',
+
+  // Semánticos
+  success: '#2E7D32',
+  successBg: '#E8F5E9',
+  warning: '#B45309',
+  warningBg: '#FEF3C7',
+  error: '#C62828',
+  errorBg: '#FFEBEE',
+  info: '#1565C0',
+  infoBg: '#E3F2FD',
+
+  // Legacy
   card: '#FFFFFF',
-  text: '#0F172A',
-  textSecondary: '#64748B',
-  border: '#E2E8F0',
-  error: '#EF4444',
-  success: '#10B981',
-  warning: '#F59E0B',
-  tint: '#0D9488'
+  tint: '#537C68'
 };
 
 export const darkTheme: ThemeColors = {
-  primary: '#14B8A6',
-  primaryLight: '#134E4A',
-  background: '#0F172A',
-  surface: '#1E293B',
-  card: '#1E293B',
-  text: '#F8FAFC',
-  textSecondary: '#94A3B8',
-  border: '#334155',
-  error: '#F87171',
-  success: '#34D399',
+  // Fondos y superficies
+  background: '#151816',
+  surface: '#1D211E',
+  surfaceElevated: '#252B26',
+  surfaceSubtle: '#191E1A',
+
+  // Tipografía
+  text: '#F0F2F0',
+  textSecondary: '#A2AAA4',
+  textMuted: '#6E7670',
+
+  // Bordes
+  border: '#303631',
+  borderSubtle: '#262C27',
+
+  // Acento Verde Salvia Claro
+  primary: '#91B7A0',
+  primaryHover: '#A6C8B4',
+  primaryLight: '#1E2E25',
+  primarySoft: '#18241D',
+  primaryContrast: '#0D1510',
+
+  // Semánticos
+  success: '#81C784',
+  successBg: '#1B3322',
   warning: '#FBBF24',
-  tint: '#14B8A6'
+  warningBg: '#332A15',
+  error: '#E57373',
+  errorBg: '#3A1E1E',
+  info: '#64B5F6',
+  infoBg: '#16293D',
+
+  // Legacy
+  card: '#1D211E',
+  tint: '#91B7A0'
 };

@@ -5,11 +5,7 @@ import {
   StyleSheet,
   FlatList,
   RefreshControl,
-  TouchableOpacity,
-  Modal,
-  ScrollView,
-  TextInput,
-  ActivityIndicator
+  TouchableOpacity
 } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -17,6 +13,8 @@ import { z } from 'zod';
 import { apiClient } from '../api/client';
 import { useAppTheme } from '../theme/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { spacing, radii, typography } from '../theme/tokens';
+import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper } from '../components/ui';
 import { LoadingState, ErrorState, EmptyState, AccessDeniedState } from '../components/FeedbackStates';
 
 const paymentSchema = z.object({
@@ -43,6 +41,8 @@ export const PaymentsScreen = () => {
     control,
     handleSubmit,
     reset,
+    watch,
+    setValue,
     formState: { errors: formErrors, isSubmitting }
   } = useForm<PaymentFormData>({
     resolver: zodResolver(paymentSchema) as any,
@@ -54,6 +54,8 @@ export const PaymentsScreen = () => {
       notes: ''
     }
   });
+
+  const selectedMethod = watch('payment_method');
 
   const fetchPayments = async () => {
     if (isKinesiologist) return;
@@ -95,221 +97,332 @@ export const PaymentsScreen = () => {
     }
   };
 
-  // Kinesiólogo no tiene acceso a caja y cobros administrativos (evaluado tras registrar hooks)
+  // Kinesiólogo no tiene acceso a caja y cobros administrativos
   if (isKinesiologist) {
     return <AccessDeniedState />;
   }
 
+  const getMethodLabel = (method: string) => {
+    switch (method) {
+      case 'cash':
+        return 'Efectivo';
+      case 'debit_card':
+        return 'Tarjeta Débito';
+      case 'credit_card':
+        return 'Tarjeta Crédito';
+      case 'bank_transfer':
+        return 'Transferencia';
+      case 'qr_mercadopago':
+        return 'Mercado Pago QR';
+      case 'insurance':
+        return 'Obra Social';
+      default:
+        return method?.toUpperCase() || 'Cobro';
+    }
+  };
+
   if (loading && !refreshing) return <LoadingState message="Cargando cobros y pagos..." />;
   if (error) return <ErrorState message={error} onRetry={fetchPayments} />;
 
+  const paymentMethods: { key: PaymentFormData['payment_method']; label: string }[] = [
+    { key: 'cash', label: 'Efectivo' },
+    { key: 'debit_card', label: 'Débito' },
+    { key: 'credit_card', label: 'Crédito' },
+    { key: 'bank_transfer', label: 'Transferencia' },
+    { key: 'qr_mercadopago', label: 'QR / MP' }
+  ];
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <TouchableOpacity
-        style={[styles.createBtn, { backgroundColor: theme.primary }]}
-        onPress={() => {
-          setFormError(null);
-          reset({
-            patient_id: 1,
-            amount: 15000,
-            payment_method: 'cash',
-            receipt_number: `REC-${Date.now().toString().slice(-6)}`,
-            notes: ''
-          });
-          setModalVisible(true);
-        }}
-      >
-        <Text style={styles.createBtnText}>+ Registrar Cobro</Text>
-      </TouchableOpacity>
+      <ScreenHeader
+        title="Cobros y Caja"
+        subtitle="Registro de transacciones de aranceles y facturación"
+        action={
+          <Button
+            title="+ Registrar Cobro"
+            size="sm"
+            onPress={() => {
+              setFormError(null);
+              reset({
+                patient_id: 1,
+                amount: 15000,
+                payment_method: 'cash',
+                receipt_number: `REC-${Date.now().toString().slice(-6)}`,
+                notes: ''
+              });
+              setModalVisible(true);
+            }}
+          />
+        }
+      />
 
       <FlatList
         data={payments}
         keyExtractor={(item) => item.id.toString()}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchPayments(); }} />}
-        ListEmptyComponent={<EmptyState title="Sin registros de cobros" subtitle="No se han registrado pagos hoy" />}
-        renderItem={({ item }) => (
-          <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <View style={styles.header}>
-              <Text style={[styles.patient, { color: theme.text }]}>
-                {item.patient_last_name}, {item.patient_first_name}
-              </Text>
-              <Text style={[styles.amount, { color: theme.success }]}>
-                ${Number(item.amount).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-              </Text>
-            </View>
-            <View style={styles.detailsRow}>
-              <Text style={[styles.method, { color: theme.textSecondary }]}>
-                Método: {item.payment_method?.toUpperCase()}
-              </Text>
-              <Text style={[styles.receipt, { color: theme.textSecondary }]}>
-                Comprobante: {item.receipt_number || 'S/N'}
-              </Text>
-            </View>
-            <Text style={[styles.date, { color: theme.textSecondary }]}>
-              {item.created_at ? new Date(item.created_at).toLocaleString('es-AR') : ''}
-            </Text>
-          </View>
-        )}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              fetchPayments();
+            }}
+            tintColor={theme.primary}
+          />
+        }
+        ListEmptyComponent={
+          <EmptyState
+            title="Sin registros de cobros"
+            subtitle="No se registran pagos en la jornada."
+            action={{
+              label: 'Registrar nuevo cobro',
+              onPress: () => setModalVisible(true)
+            }}
+          />
+        }
+        renderItem={({ item }) => {
+          const dateStr = item.created_at
+            ? new Date(item.created_at).toLocaleString('es-AR', {
+                day: '2-digit',
+                month: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+              })
+            : '';
+
+          return (
+            <Card elevated style={styles.paymentCard} padding="lg">
+              <View style={styles.cardHeader}>
+                <View style={styles.infoCol}>
+                  <Text style={[styles.patientName, { color: theme.text }]}>
+                    {item.patient_last_name}, {item.patient_first_name}
+                  </Text>
+                  <Text style={[styles.receiptText, { color: theme.textSecondary }]}>
+                    Comprobante: {item.receipt_number || 'S/N'} • {dateStr}
+                  </Text>
+                </View>
+
+                <View style={styles.amountCol}>
+                  <Text style={[styles.amountValue, { color: theme.text }]}>
+                    ${Number(item.amount).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                  </Text>
+                  <Badge
+                    label={getMethodLabel(item.payment_method)}
+                    variant="neutral"
+                    size="sm"
+                    style={{ alignSelf: 'flex-end', marginTop: 4 }}
+                  />
+                </View>
+              </View>
+
+              {item.notes ? (
+                <>
+                  <View style={[styles.divider, { backgroundColor: theme.borderSubtle }]} />
+                  <Text style={[styles.notesText, { color: theme.textMuted }]}>
+                    Nota: {item.notes}
+                  </Text>
+                </>
+              ) : null}
+            </Card>
+          );
+        }}
       />
 
       {/* Modal de Alta de Pago */}
-      <Modal visible={modalVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Registrar Cobro</Text>
+      <ModalWrapper
+        visible={modalVisible}
+        onClose={() => setModalVisible(false)}
+        title="Registrar Cobro"
+        subtitle="Asiento de pago con control estricto de idempotencia"
+        footer={
+          <>
+            <Button
+              title="Cancelar"
+              variant="secondary"
+              size="md"
+              onPress={() => setModalVisible(false)}
+            />
+            <Button
+              title="Guardar Cobro"
+              size="md"
+              loading={isSubmitting}
+              onPress={() => handleSubmit(onCreatePayment)()}
+            />
+          </>
+        }
+      >
+        {formError && (
+          <View style={[styles.modalError, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
+            <Text style={[styles.modalErrorText, { color: theme.error }]}>{formError}</Text>
+          </View>
+        )}
 
-            {formError && (
-              <View style={[styles.errorBanner, { backgroundColor: theme.error + '20', borderColor: theme.error }]}>
-                <Text style={[styles.errorBannerText, { color: theme.error }]}>{formError}</Text>
-              </View>
-            )}
+        <Controller
+          control={control}
+          name="patient_id"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="ID Paciente"
+              value={String(value || '')}
+              onChangeText={onChange}
+              keyboardType="numeric"
+              placeholder="1"
+              error={formErrors.patient_id?.message}
+              required
+            />
+          )}
+        />
 
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>ID Paciente</Text>
-              <Controller
-                control={control}
-                name="patient_id"
-                render={({ field: { onChange, value } }) => (
-                  <TextInput
-                    style={[styles.input, { borderColor: formErrors.patient_id ? theme.error : theme.border, color: theme.text }]}
-                    value={String(value || '')}
-                    onChangeText={onChange}
-                    keyboardType="numeric"
-                  />
-                )}
-              />
-              {formErrors.patient_id && <Text style={[styles.fieldError, { color: theme.error }]}>{formErrors.patient_id.message}</Text>}
+        <Controller
+          control={control}
+          name="amount"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="Monto a Cobrar ($)"
+              value={String(value || '')}
+              onChangeText={onChange}
+              keyboardType="numeric"
+              placeholder="15000"
+              error={formErrors.amount?.message}
+              required
+            />
+          )}
+        />
 
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>Monto ($)</Text>
-              <Controller
-                control={control}
-                name="amount"
-                render={({ field: { onChange, value } }) => (
-                  <TextInput
-                    style={[styles.input, { borderColor: formErrors.amount ? theme.error : theme.border, color: theme.text }]}
-                    value={String(value || '')}
-                    onChangeText={onChange}
-                    keyboardType="numeric"
-                  />
-                )}
-              />
-              {formErrors.amount && <Text style={[styles.fieldError, { color: theme.error }]}>{formErrors.amount.message}</Text>}
+        <Controller
+          control={control}
+          name="receipt_number"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="N° de Recibo / Comprobante"
+              value={value}
+              onChangeText={onChange}
+              placeholder="REC-00123"
+              error={formErrors.receipt_number?.message}
+              required
+            />
+          )}
+        />
 
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>N° de Recibo / Comprobante</Text>
-              <Controller
-                control={control}
-                name="receipt_number"
-                render={({ field: { onChange, value } }) => (
-                  <TextInput
-                    style={[styles.input, { borderColor: formErrors.receipt_number ? theme.error : theme.border, color: theme.text }]}
-                    value={value}
-                    onChangeText={onChange}
-                    placeholder="REC-00123"
-                    placeholderTextColor={theme.textSecondary}
-                  />
-                )}
-              />
-              {formErrors.receipt_number && <Text style={[styles.fieldError, { color: theme.error }]}>{formErrors.receipt_number.message}</Text>}
-
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>Método de Pago</Text>
-              <Controller
-                control={control}
-                name="payment_method"
-                render={({ field: { onChange, value } }) => (
-                  <View style={styles.methodSelector}>
-                    {[
-                      { key: 'cash', label: 'Efectivo' },
-                      { key: 'debit_card', label: 'Débito' },
-                      { key: 'credit_card', label: 'Crédito' },
-                      { key: 'bank_transfer', label: 'Transferencia' },
-                      { key: 'qr_mercadopago', label: 'QR / MP' }
-                    ].map((m) => (
-                      <TouchableOpacity
-                        key={m.key}
-                        style={[
-                          styles.methodChip,
-                          { borderColor: theme.border },
-                          value === m.key && { backgroundColor: theme.primary, borderColor: theme.primary }
-                        ]}
-                        onPress={() => onChange(m.key)}
-                      >
-                        <Text style={[styles.methodChipText, { color: value === m.key ? '#FFFFFF' : theme.text }]}>
-                          {m.label}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
-              />
-
-              <Text style={[styles.fieldLabel, { color: theme.text }]}>Notas / Observaciones</Text>
-              <Controller
-                control={control}
-                name="notes"
-                render={({ field: { onChange, value } }) => (
-                  <TextInput
-                    style={[styles.input, { borderColor: theme.border, color: theme.text }]}
-                    value={value || ''}
-                    onChangeText={onChange}
-                    placeholder="Opcional..."
-                    placeholderTextColor={theme.textSecondary}
-                  />
-                )}
-              />
-
-              <View style={styles.modalButtons}>
+        {/* Selector de Método de Pago */}
+        <View style={styles.methodContainer}>
+          <Text style={[styles.fieldLabel, { color: theme.text }]}>Método de Pago *</Text>
+          <View style={styles.methodRow}>
+            {paymentMethods.map((m) => {
+              const isSelected = selectedMethod === m.key;
+              return (
                 <TouchableOpacity
-                  style={[styles.cancelBtn, { borderColor: theme.border }]}
-                  onPress={() => setModalVisible(false)}
+                  key={m.key}
+                  onPress={() => setValue('payment_method', m.key)}
+                  style={[
+                    styles.methodChip,
+                    {
+                      backgroundColor: isSelected ? theme.primary : theme.surfaceSubtle,
+                      borderColor: isSelected ? theme.primary : theme.border
+                    }
+                  ]}
                 >
-                  <Text style={[styles.cancelBtnText, { color: theme.textSecondary }]}>Cancelar</Text>
+                  <Text
+                    style={[
+                      styles.methodChipText,
+                      { color: isSelected ? theme.primaryContrast : theme.text }
+                    ]}
+                  >
+                    {m.label}
+                  </Text>
                 </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.saveBtn, { backgroundColor: theme.primary }]}
-                  onPress={() => handleSubmit(onCreatePayment)()}
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.createBtnText}>Guardar Cobro</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
+              );
+            })}
           </View>
         </View>
-      </Modal>
+
+        <Controller
+          control={control}
+          name="notes"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="Observaciones (opcional)"
+              value={value || ''}
+              onChangeText={onChange}
+              placeholder="Detalle de sesión o número de autorización"
+            />
+          )}
+        />
+      </ModalWrapper>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
-  createBtn: { height: 44, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-  createBtnText: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 15 },
-  card: { padding: 16, borderRadius: 10, borderWidth: 1, marginBottom: 12 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  patient: { fontSize: 16, fontWeight: 'bold' },
-  amount: { fontSize: 16, fontWeight: 'bold' },
-  detailsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
-  method: { fontSize: 13, textTransform: 'capitalize' },
-  receipt: { fontSize: 13 },
-  date: { fontSize: 11, marginTop: 6 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 16 },
-  modalContent: { maxHeight: '90%', borderRadius: 14, padding: 20, borderWidth: 1 },
-  modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 16, textAlign: 'center' },
-  fieldLabel: { fontSize: 13, fontWeight: '600', marginTop: 10, marginBottom: 4 },
-  fieldError: { fontSize: 11, marginTop: 2 },
-  input: { height: 44, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12 },
-  methodSelector: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginVertical: 6 },
-  methodChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1 },
-  methodChipText: { fontSize: 12, fontWeight: '600' },
-  errorBanner: { padding: 10, borderRadius: 8, borderWidth: 1, marginBottom: 12 },
-  errorBannerText: { fontSize: 12, fontWeight: '500' },
-  modalButtons: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 20, marginBottom: 10 },
-  cancelBtn: { flex: 1, height: 44, borderWidth: 1, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginRight: 8 },
-  cancelBtnText: { fontWeight: '600' },
-  saveBtn: { flex: 1, height: 44, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginLeft: 8 }
+  container: {
+    flex: 1,
+    padding: spacing.xl
+  },
+  paymentCard: {
+    marginBottom: spacing.md
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start'
+  },
+  infoCol: {
+    flex: 1,
+    paddingRight: spacing.sm
+  },
+  patientName: {
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.semibold
+  },
+  receiptText: {
+    fontSize: typography.fontSize.xs,
+    marginTop: 2
+  },
+  amountCol: {
+    alignItems: 'flex-end'
+  },
+  amountValue: {
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
+    letterSpacing: -0.2
+  },
+  divider: {
+    height: 1,
+    marginVertical: spacing.sm
+  },
+  notesText: {
+    fontSize: typography.fontSize.xs
+  },
+  modalError: {
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    marginBottom: spacing.md
+  },
+  modalErrorText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium
+  },
+  methodContainer: {
+    marginBottom: spacing.md
+  },
+  fieldLabel: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    marginBottom: spacing.xs + 2
+  },
+  methodRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs + 2
+  },
+  methodChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    borderRadius: radii.full,
+    borderWidth: 1
+  },
+  methodChipText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.semibold
+  }
 });
