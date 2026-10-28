@@ -2,7 +2,16 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { apiClient } from '../api/client';
 
-export type UserRole = 'admin' | 'kinesiologist' | 'receptionist';
+export type UserRole = 'admin' | 'kinesiologo' | 'recepcionista';
+
+export const normalizeRole = (rawRole?: string): UserRole => {
+  if (!rawRole) return 'recepcionista'; // Menor privilegio por defecto
+  const lower = String(rawRole).toLowerCase();
+  if (lower === 'admin') return 'admin';
+  if (lower === 'kinesiologo' || lower === 'kinesiologist') return 'kinesiologo';
+  if (lower === 'recepcionista' || lower === 'receptionist') return 'recepcionista';
+  return 'recepcionista';
+};
 
 export interface User {
   id: number;
@@ -17,6 +26,9 @@ export interface User {
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
+  isAdmin: boolean;
+  isKinesiologist: boolean;
+  isReceptionist: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
 }
@@ -72,7 +84,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const parsed = JSON.parse(savedUser);
           const normalized: User = {
             ...parsed,
-            role: (parsed.role || parsed.role_name || 'admin') as UserRole,
+            role: normalizeRole(parsed.role || parsed.role_name),
             lastName: parsed.lastName || parsed.last_name || ''
           };
           setUser(normalized);
@@ -91,7 +103,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const { user: rawUser, accessToken, refreshToken } = response.data.data;
         const normalizedUser: User = {
           ...rawUser,
-          role: (rawUser.role || rawUser.role_name || 'admin') as UserRole,
+          role: normalizeRole(rawUser.role || rawUser.role_name),
           lastName: rawUser.lastName || rawUser.last_name || ''
         };
         await storage.setItem(ACCESS_TOKEN_KEY, accessToken);
@@ -122,8 +134,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const isAdmin = user?.role === 'admin';
+  const isKinesiologist = user?.role === 'kinesiologo';
+  const isReceptionist = user?.role === 'recepcionista';
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, isAdmin, isKinesiologist, isReceptionist, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

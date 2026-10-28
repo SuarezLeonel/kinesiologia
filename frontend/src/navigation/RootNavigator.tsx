@@ -20,7 +20,7 @@ const Tab = createBottomTabNavigator();
 
 const MainTabs = () => {
   const { theme } = useAppTheme();
-  const { user } = useAuth();
+  const { isReceptionist, isKinesiologist } = useAuth();
 
   return (
     <Tab.Navigator
@@ -36,12 +36,12 @@ const MainTabs = () => {
       <Tab.Screen name="Appointments" component={AppointmentsScreen} options={{ title: 'Agenda' }} />
       <Tab.Screen name="Patients" component={PatientsScreen} options={{ title: 'Pacientes' }} />
       {/* Historias clínicas solo para kinesiólogos y administradores */}
-      {user?.role !== 'receptionist' && (
+      {!isReceptionist && (
         <Tab.Screen name="ClinicalRecords" component={ClinicalRecordsScreen} options={{ title: 'Historias' }} />
       )}
       <Tab.Screen name="Exercises" component={ExercisesScreen} options={{ title: 'Ejercicios' }} />
       {/* Pagos administrativos visibles para Admin y Recepcionista */}
-      {user?.role !== 'kinesiologist' && (
+      {!isKinesiologist && (
         <Tab.Screen name="Payments" component={PaymentsScreen} options={{ title: 'Pagos' }} />
       )}
       <Tab.Screen name="Settings" component={SettingsScreen} options={{ title: 'Ajustes' }} />

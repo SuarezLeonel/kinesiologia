@@ -566,7 +566,7 @@ paths:
   # ============================================================
   # MÓDULO DASHBOARD
   # ============================================================
-  /dashboard/metrics:
+  /dashboard/summary:
     post:
       summary: Métricas operativas según el rol del usuario conectado (POST)
       tags: [Dashboard]

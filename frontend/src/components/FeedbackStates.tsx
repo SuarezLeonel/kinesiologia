@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, ActivityIndicator, StyleSheet, TouchableOpacity } from 'react-native';
 import { useAppTheme } from '../theme/ThemeContext';
 
 export const LoadingState: React.FC<{ message?: string }> = ({ message = 'Cargando información...' }) => {
@@ -18,6 +18,11 @@ export const ErrorState: React.FC<{ message: string; onRetry?: () => void }> = (
     <View style={[styles.center, { backgroundColor: theme.background }]}>
       <Text style={[styles.errorTitle, { color: theme.error }]}>Ocurrió un problema</Text>
       <Text style={[styles.text, { color: theme.textSecondary }]}>{message}</Text>
+      {onRetry && (
+        <TouchableOpacity style={[styles.retryBtn, { backgroundColor: theme.primary }]} onPress={onRetry}>
+          <Text style={styles.retryBtnText}>Reintentar</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 };
@@ -65,5 +70,16 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     textAlign: 'center'
+  },
+  retryBtn: {
+    marginTop: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8
+  },
+  retryBtnText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 14
   }
 });
