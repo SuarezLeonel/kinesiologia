@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { config } from '../config/env.js';
 import { UnauthorizedError, ForbiddenError } from '../utils/errors.js';
-import { query } from '../config/database.js';
+import { authRepository } from '../modules/auth/repository.js';
 
 export async function authenticateToken(req, res, next) {
   try {
@@ -18,29 +18,24 @@ export async function authenticateToken(req, res, next) {
       throw new UnauthorizedError('Token inválido o expirado');
     }
 
-    // Extraer datos del payload del token
-    req.user = {
-      id: payload.userId,
-      roleId: payload.roleId || null,
-      role: payload.role || 'user',
-      email: payload.email
-    };
-
-    // Si la base de datos está disponible, comprobar estado activo
-    try {
-      const users = await query('SELECT id, role_id, email, is_active FROM users WHERE id = ? LIMIT 1', [payload.userId]);
-      if (users && users.length > 0) {
-        if (!users[0].is_active) {
-          throw new UnauthorizedError('Usuario inactivo');
-        }
-        req.user.roleId = users[0].role_id;
-      }
-    } catch (dbErr) {
-      // Si la conexión a la base de datos no está disponible en entorno de tests unitarios, usar datos verificados del JWT
-      if (dbErr.code !== 'ECONNREFUSED' && dbErr.code !== 'ER_ACCESS_DENIED_ERROR') {
-        throw dbErr;
-      }
+    // Solo los tokens de acceso son válidos aquí (se rechazan tokens de reset u otros propósitos)
+    if (payload.type !== 'access' || !payload.userId) {
+      throw new UnauthorizedError('Token inválido o expirado');
     }
+
+    // Identidad, rol y estado se leen SIEMPRE de la base (fail-closed): si la consulta falla,
+    // el error se propaga y la petición no se autentica.
+    const user = await authRepository.findUserById(payload.userId);
+    if (!user || !user.is_active) {
+      throw new UnauthorizedError('Usuario inactivo o no encontrado');
+    }
+
+    req.user = {
+      id: user.id,
+      roleId: user.role_id,
+      role: user.role_name,
+      email: user.email
+    };
 
     next();
   } catch (error) {

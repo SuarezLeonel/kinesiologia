@@ -54,7 +54,7 @@ test('3. Seguridad de autenticación: Acceso protegido sin Token rechaza con 401
 test('4. Seguridad de roles: Recepcionista bloqueada en historias clínicas (403)', async () => {
   // Simular token válido de recepcionista
   const receptionistToken = jwt.sign(
-    { userId: 3, role: 'receptionist', email: 'mariana.recep@kinesiologia.com' },
+    { type: 'access', userId: 3, role: 'receptionist', email: 'mariana.recep@kinesiologia.com' },
     config.jwt.accessSecret,
     { expiresIn: '15m' }
   );
@@ -64,11 +64,49 @@ test('4. Seguridad de roles: Recepcionista bloqueada en historias clínicas (403
     .set('Authorization', `Bearer ${receptionistToken}`)
     .send({ patientId: 1 });
 
-  // Debe retornar 403 Forbidden o 401 si no encuentra al usuario en base de datos de test
-  assert.ok(
-    [401, 403].includes(res.status),
-    `Esperaba 401 o 403 para recepcionista en historias clínicas, pero obtuve ${res.status}`
+  assert.strictEqual(res.status, 403);
+});
+
+test('4b. El rol se toma de la BD: token que declara admin para un usuario recepcionista sigue en 403', async () => {
+  const forgedToken = jwt.sign(
+    { type: 'access', userId: 3, role: 'admin', email: 'mariana.recep@kinesiologia.com' },
+    config.jwt.accessSecret,
+    { expiresIn: '15m' }
   );
+
+  const res = await request(app)
+    .post('/api/v1/clinical-records/search')
+    .set('Authorization', `Bearer ${forgedToken}`)
+    .send({ patientId: 1 });
+
+  assert.strictEqual(res.status, 403);
+});
+
+test('4c. Tokens sin type=access (p. ej. de reseteo) son rechazados con 401', async () => {
+  const noType = jwt.sign({ userId: 1, role: 'admin' }, config.jwt.accessSecret, { expiresIn: '15m' });
+  const resetLike = jwt.sign(
+    { userId: 1, purpose: 'reset-password' },
+    config.jwt.accessSecret,
+    { expiresIn: '15m' }
+  );
+
+  for (const token of [noType, resetLike]) {
+    const res = await request(app)
+      .post('/api/v1/patients/search')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+    assert.strictEqual(res.status, 401);
+  }
+});
+
+test('4d. JSON malformado responde 400 (no 500)', async () => {
+  const res = await request(app)
+    .post('/api/v1/auth/login')
+    .set('Content-Type', 'application/json')
+    .send('{"email": ');
+
+  assert.strictEqual(res.status, 400);
+  assert.strictEqual(res.body.error.code, 'INVALID_JSON');
 });
 
 test('5. Formato consistente de error 404 para rutas inexistentes', async () => {
@@ -88,7 +126,7 @@ test('6. Ejercicios y Pagos: Bloqueo de solicitudes GET (405 Method Not Allowed)
 
 test('7. Control de acceso: Kinesiólogo bloqueado en módulo de cobros administrativos (403)', async () => {
   const kineToken = jwt.sign(
-    { userId: 2, role: 'kinesiologist', email: 'carlos.kine@kinesiologia.com' },
+    { type: 'access', userId: 2, role: 'kinesiologist', email: 'carlos.kine@kinesiologia.com' },
     config.jwt.accessSecret,
     { expiresIn: '15m' }
   );

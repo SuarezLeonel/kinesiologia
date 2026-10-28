@@ -15,19 +15,28 @@ export class AuthService {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
-    // Los registros por API estándar se crean como kinesiólogo o paciente según política; rol 2 = kinesiólogo
+    // El registro público nunca otorga privilegios clínicos: rol de menor privilegio
+    // y cuenta inactiva hasta aprobación de un administrador. No se emiten tokens.
+    const role = await authRepository.findRoleByName('receptionist');
+    if (!role) {
+      throw new AppError('Rol por defecto no configurado', 500, 'ROLE_NOT_CONFIGURED');
+    }
     const userId = await authRepository.createUser({
       name,
       lastName,
       email,
       passwordHash,
       phone,
-      roleId: 2
+      roleId: role.id,
+      isActive: false
     });
 
     const user = await authRepository.findUserById(userId);
-    const tokens = await this._generateTokens(user);
-    return { user, ...tokens };
+    return {
+      user,
+      pendingApproval: true,
+      message: 'Cuenta creada. Un administrador debe aprobarla antes de poder iniciar sesión.'
+    };
   }
 
   async login({ email, password, ipAddress, userAgent }) {
@@ -37,7 +46,7 @@ export class AuthService {
     }
 
     if (!user.is_active) {
-      throw new UnauthorizedError('Cuenta de usuario inactiva');
+      throw new UnauthorizedError('Cuenta inactiva o pendiente de aprobación');
     }
 
     const isMatch = await bcrypt.compare(password, user.password_hash);
@@ -125,20 +134,19 @@ export class AuthService {
 
   async _generateTokens(user, ipAddress = null, userAgent = null) {
     const accessToken = jwt.sign(
-      { userId: user.id, email: user.email, role: user.role_name || user.role },
+      { type: 'access', userId: user.id, email: user.email, role: user.role_name || user.role },
       config.jwt.accessSecret,
       { expiresIn: config.jwt.accessExpiresIn }
     );
 
     const refreshToken = jwt.sign(
-      { userId: user.id },
+      { type: 'refresh', userId: user.id },
       config.jwt.refreshSecret,
-      { expiresIn: config.jwt.refreshExpiresIn }
+      { expiresIn: config.jwt.refreshExpiresIn, jwtid: crypto.randomUUID() }
     );
 
     const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
+    const expiresAt = new Date(jwt.decode(refreshToken).exp * 1000);
 
     await authRepository.saveRefreshToken({
       userId: user.id,

@@ -40,6 +40,42 @@ export function errorHandler(err, req, res, next) {
     });
   }
 
+  if (err.type === 'entity.parse.failed') {
+    return res.status(400).json({
+      success: false,
+      error: { code: 'INVALID_JSON', message: 'El cuerpo de la solicitud no es un JSON válido' }
+    });
+  }
+
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({
+      success: false,
+      error: { code: 'PAYLOAD_TOO_LARGE', message: 'El cuerpo de la solicitud es demasiado grande' }
+    });
+  }
+
+  if (err.code === 'ER_NO_REFERENCED_ROW_2') {
+    return res.status(409).json({
+      success: false,
+      error: { code: 'INVALID_REFERENCE', message: 'Se referencia un registro que no existe' }
+    });
+  }
+
+  if (err.code === 'ER_ROW_IS_REFERENCED_2') {
+    return res.status(409).json({
+      success: false,
+      error: { code: 'RECORD_IN_USE', message: 'El registro está en uso y no puede eliminarse' }
+    });
+  }
+
+  if (['ECONNREFUSED', 'ETIMEDOUT', 'PROTOCOL_CONNECTION_LOST', 'ER_ACCESS_DENIED_ERROR'].includes(err.code)) {
+    console.error(`[ERROR] ${new Date().toISOString()} ${req.method} ${req.originalUrl}: base de datos no disponible (${err.code})`);
+    return res.status(503).json({
+      success: false,
+      error: { code: 'SERVICE_UNAVAILABLE', message: 'El servicio no está disponible temporalmente' }
+    });
+  }
+
   // Log seguro sin filtrar tokens ni datos clínicos
   console.error(`[ERROR] ${new Date().toISOString()} ${req.method} ${req.originalUrl}:`, err.message);
 

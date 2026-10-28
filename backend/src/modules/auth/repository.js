@@ -23,11 +23,16 @@ export class AuthRepository {
     return rows[0] || null;
   }
 
-  async createUser({ name, lastName, email, passwordHash, phone, roleId = 2 }) {
+  async findRoleByName(name) {
+    const rows = await query('SELECT id, name FROM roles WHERE name = ? LIMIT 1', [name]);
+    return rows[0] || null;
+  }
+
+  async createUser({ name, lastName, email, passwordHash, phone, roleId, isActive = true }) {
     const result = await query(`
       INSERT INTO users (role_id, name, last_name, email, password_hash, phone, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, 1)
-    `, [roleId, name, lastName, email, passwordHash, phone || null]);
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [roleId, name, lastName, email, passwordHash, phone || null, isActive ? 1 : 0]);
     return result.insertId;
   }
 
