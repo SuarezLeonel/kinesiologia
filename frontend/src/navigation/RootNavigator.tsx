@@ -9,6 +9,7 @@ import { typography, spacing } from '../theme/tokens';
 import { LoadingState } from '../components/FeedbackStates';
 
 import { LoginScreen } from '../screens/LoginScreen';
+import { ForgotPasswordScreen } from '../screens/ForgotPasswordScreen';
 import { DashboardScreen } from '../screens/DashboardScreen';
 import { PatientsScreen } from '../screens/PatientsScreen';
 import { AppointmentsScreen } from '../screens/AppointmentsScreen';
@@ -97,7 +98,10 @@ export const RootNavigator = () => {
         {user ? (
           <Stack.Screen name="MainApp" component={MainTabs} />
         ) : (
-          <Stack.Screen name="Auth" component={LoginScreen} />
+          <>
+            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+          </>
         )}
       </Stack.Navigator>
     </NavigationContainer>

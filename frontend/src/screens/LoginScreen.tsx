@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -15,7 +15,7 @@ const loginSchema = z.object({
 
 type LoginFormData = z.infer<typeof loginSchema>;
 
-export const LoginScreen = () => {
+export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   const { login } = useAuth();
   const { theme } = useAppTheme();
   const [serverError, setServerError] = useState<string | null>(null);
@@ -103,6 +103,18 @@ export const LoginScreen = () => {
               />
             )}
           />
+
+          <View style={styles.forgotPasswordRow}>
+            <TouchableOpacity
+              onPress={() => navigation?.navigate('ForgotPassword')}
+              accessibilityRole="button"
+              accessibilityLabel="Recuperar contraseña"
+            >
+              <Text style={[styles.forgotPasswordText, { color: theme.primary }]}>
+                ¿Olvidó su contraseña?
+              </Text>
+            </TouchableOpacity>
+          </View>
 
           <Button
             title="Ingresar al sistema"
@@ -193,5 +205,14 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.xs,
     textAlign: 'center',
     lineHeight: 16
+  },
+  forgotPasswordRow: {
+    alignItems: 'flex-end',
+    marginTop: -spacing.xs,
+    marginBottom: spacing.sm
+  },
+  forgotPasswordText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.semibold
   }
 });
