@@ -7,9 +7,11 @@ export type UserRole = 'admin' | 'kinesiologist' | 'receptionist';
 export interface User {
   id: number;
   name: string;
-  lastName: string;
+  lastName?: string;
+  last_name?: string;
   email: string;
   role: UserRole;
+  role_name?: string;
 }
 
 interface AuthContextType {
@@ -67,7 +69,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const savedUser = await storage.getItem(USER_STORAGE_KEY);
         const token = await storage.getItem(ACCESS_TOKEN_KEY);
         if (savedUser && token) {
-          setUser(JSON.parse(savedUser));
+          const parsed = JSON.parse(savedUser);
+          const normalized: User = {
+            ...parsed,
+            role: (parsed.role || parsed.role_name || 'admin') as UserRole,
+            lastName: parsed.lastName || parsed.last_name || ''
+          };
+          setUser(normalized);
         }
       } catch (e) {
       } finally {
@@ -80,11 +88,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const response = await apiClient.post('/auth/login', { email, password });
       if (response.data?.success) {
-        const { user: userData, accessToken, refreshToken } = response.data.data;
+        const { user: rawUser, accessToken, refreshToken } = response.data.data;
+        const normalizedUser: User = {
+          ...rawUser,
+          role: (rawUser.role || rawUser.role_name || 'admin') as UserRole,
+          lastName: rawUser.lastName || rawUser.last_name || ''
+        };
         await storage.setItem(ACCESS_TOKEN_KEY, accessToken);
         await storage.setItem(REFRESH_TOKEN_KEY, refreshToken);
-        await storage.setItem(USER_STORAGE_KEY, JSON.stringify(userData));
-        setUser(userData);
+        await storage.setItem(USER_STORAGE_KEY, JSON.stringify(normalizedUser));
+        setUser(normalizedUser);
         return { success: true };
       }
       return { success: false, error: response.data?.error?.message || 'Error al iniciar sesión' };

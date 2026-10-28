@@ -44,8 +44,8 @@ export const DashboardScreen = () => {
       <View style={styles.header}>
         <View>
           <Text style={[styles.welcome, { color: theme.textSecondary }]}>Bienvenido/a,</Text>
-          <Text style={[styles.userName, { color: theme.text }]}>{user?.name} {user?.lastName}</Text>
-          <Text style={[styles.roleBadge, { color: theme.primary }]}>Rol: {user?.role.toUpperCase()}</Text>
+          <Text style={[styles.userName, { color: theme.text }]}>{user?.name} {user?.lastName || user?.last_name || ''}</Text>
+          <Text style={[styles.roleBadge, { color: theme.primary }]}>Rol: {(user?.role || user?.role_name || 'USUARIO').toUpperCase()}</Text>
         </View>
         <TouchableOpacity style={[styles.logoutBtn, { borderColor: theme.border }]} onPress={logout}>
           <Text style={[styles.logoutText, { color: theme.error }]}>Salir</Text>
