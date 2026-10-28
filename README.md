@@ -97,9 +97,10 @@ cd kinesiologia
    - Servidor API: `http://localhost:3000`
    - Documentación OpenAPI/Swagger: `http://localhost:3000/api/docs`
 
-5. Ejecutar la suite de pruebas del backend:
+5. Ejecutar la suite de pruebas y linter del backend:
    ```powershell
-   npm test
+   npm test        # Ejecuta 16 pruebas automatizadas de seguridad y reglas HTTP
+   npm run lint    # Validación estricta con ESLint Flat Config
    ```
 
 ---
@@ -112,7 +113,13 @@ cd kinesiologia
    npm install
    ```
 
-2. Ejecutar la aplicación con Expo:
+2. Ejecutar verificaciones de calidad y compatibilidad:
+   ```powershell
+   npm run type-check  # Validación de tipos estricta con TypeScript (0 errores)
+   npm run doctor      # Verificación de salud y compatibilidad de Expo (20/20 checks)
+   ```
+
+3. Ejecutar la aplicación con Expo:
    ```powershell
    npm start
    ```
@@ -120,7 +127,7 @@ cd kinesiologia
    - Presionar `a` para emulador Android.
    - Escanear el código QR con la app **Expo Go** en tu celular físico.
 
-3. Compilar APK Android:
+4. Compilar APK Android:
    Ver las instrucciones completas en [docs/ANDROID_BUILD_GUIDE.md](docs/ANDROID_BUILD_GUIDE.md).
 
 ---

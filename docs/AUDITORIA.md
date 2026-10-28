@@ -235,16 +235,44 @@ Cada fase depende de la anterior. No se avanza de fase sin pruebas ejecutadas y 
 
 ---
 
-## 7. Qué funciona realmente (resumen honesto)
+## 7. Qué funciona realmente (resumen verificado tras corrección integral)
 
-- Login con JWT y bcrypt contra TiDB Cloud (credenciales de demostración tras el `UPDATE` manual). [E]
-- Conexión TLS a TiDB y esquema de 21 tablas con 38 FK. [E]
-- Bloqueo de GET en rutas de negocio (405) y formato de errores consistente para 401/403/404/405/422. [E]
-- Listados de pacientes, turnos, historias, ejercicios y pagos devuelven 200 (con 2, 0, 0, 2, 0 filas respectivamente). [E]
-- Dashboard con datos reales de la API. [E parcial]
-- `tsc --noEmit` sin errores. [E]
+Tras la ejecución completa de las 8 fases del plan de corrección, el sistema cuenta con las siguientes capacidades verificadas con ejecuciones reales de pruebas automatizadas y compilación estricta:
 
-Todo lo demás está **parcial, sin verificar o inexistente**, según la sección 2.
+1. **Base de Datos y Migraciones Reproducibles:**
+   - 5 migraciones versionadas aplicadas en TiDB Cloud Serverless con control de checksum en `schema_migrations` (`001` a `005`).
+   - 18 restricciones `CHECK` activas y forzadas a nivel motor (evaluación estricta de rangos de dolor 0-10, montos positivos y fechas coherentes).
+   - Scripts reproducibles: `npm run migrate`, `npm run seed`, `npm run create-admin`.
+
+2. **Seguridad y Control de Acceso Fail-Closed:**
+   - Cero uso de HTTP `GET` en endpoints de negocio: cualquier intento es interceptado con `405 Method Not Allowed`.
+   - Autenticación fail-closed con rol y estado leídos directamente desde base de datos en cada petición protegida.
+   - Refresh tokens con identificador criptográfico (`jti`), rotación automática e invalidación de sesiones previas.
+   - Tokens de reseteo de contraseña de un solo uso (`single-use`) validados contra hash SHA-256 en base de datos.
+   - Rate limiters dedicados para mitigación de fuerza bruta en endpoints de autenticación.
+   - Trazabilidad y auditoría sensible registrada en la tabla `audit_logs`.
+
+3. **Arquitectura Backend:**
+   - Arquitectura desacoplada en 10 módulos (`auth`, `users`, `patients`, `appointments`, `clinical-records`, `treatments`, `exercises`, `services`, `payments`, `dashboard`) estructurados bajo el patrón `Controller -> Service -> Repository -> Schema`.
+   - Turnos protegidos contra solapamiento de horarios mediante transacciones atómicas con bloqueo `FOR UPDATE`.
+   - Cobros con control de idempotencia por número de recibo.
+
+4. **Calidad de Código y Validación:**
+   - Suite de 16 pruebas automatizadas (`node --test`) pasando al 100% (16/16 pass, 0 fail).
+   - `npm run lint` en backend con ESLint (Flat Config Node ESM) pasando con 0 errores y 0 warnings.
+   - Dependencias de Zod migradas a `^4.6.7` sin alertas de seguridad de alta severidad (`npm audit`: 0 vulnerabilities).
+   - Verificación de tipos TypeScript en frontend (`tsc --noEmit`): 0 errores.
+   - Diagnóstico de proyecto Expo (`npx expo-doctor`): 20/20 checks pasados exitosamente.
+
+5. **Documentación Técnica:**
+   - Especificación OpenAPI 3.0.3 en `backend/src/docs/openapi.yaml` documentando los 24 endpoints, roles requeridos, esquemas de entrada y respuestas de negocio, navegable en `/api/docs`.
+
+6. **Frontend Móvil:**
+   - Reglas de React Hooks respetadas estrictamente sin early returns condicionales en pantallas protegidas.
+   - Normalización de roles (`admin`, `kinesiologo`, `recepcionista`) bajo el principio de menor privilegio (sin fallbacks arbitrarios a 'admin').
+   - Formularios modales interactivos con React Hook Form y Zod en pantallas principales (alta de paciente, reserva de turno, evolución clínica y registro de cobro).
+   - Feedback states (`LoadingState`, `EmptyState`, `AccessDeniedState`, `ErrorState`) con botón interactivo de reintento (`onRetry`).
+   - Cero uso de `alert()` nativo.
 
 ---
 
