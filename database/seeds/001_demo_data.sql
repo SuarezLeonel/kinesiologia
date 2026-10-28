@@ -1,43 +1,8 @@
 -- ==========================================================
--- Seeds ficticios para demostración y pruebas
--- Contraseña genérica de prueba: 'Password123!' (con hash bcrypt demostrativo)
+-- Seeds ficticios para demostración y pruebas.
+-- Roles/permisos: migración 002. Usuarios demo: backend/scripts/seed.js (bcrypt real).
+-- Requiere que existan users con id 1..3 (los crea seed.js antes de este archivo).
 -- ==========================================================
-
-INSERT INTO roles (id, name, description) VALUES
-(1, 'admin', 'Administrador total del consultorio y configuraciones'),
-(2, 'kinesiologist', 'Profesional kinesiólogo con acceso a historias y sesiones'),
-(3, 'receptionist', 'Recepcionista con acceso administrativo y turnos')
-ON DUPLICATE KEY UPDATE description=VALUES(description);
-
-INSERT INTO permissions (id, code, description) VALUES
-(1, 'users:manage', 'Crear y administrar usuarios'),
-(2, 'patients:read', 'Ver listado y datos de pacientes'),
-(3, 'patients:write', 'Crear y editar pacientes'),
-(4, 'appointments:manage', 'Gestionar agenda y turnos'),
-(5, 'clinical_records:read', 'Ver historias clínicas y notas médicas'),
-(6, 'clinical_records:write', 'Crear y actualizar historias clínicas'),
-(7, 'treatments:manage', 'Gestionar planes y sesiones'),
-(8, 'payments:manage', 'Registrar y consultar cobros y paquetes')
-ON DUPLICATE KEY UPDATE description=VALUES(description);
-
--- Permisos Admin: todos
-INSERT IGNORE INTO role_permissions (role_id, permission_id) VALUES
-(1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8);
-
--- Permisos Kinesiólogo: pacientes, turnos, historias, tratamientos
-INSERT IGNORE INTO role_permissions (role_id, permission_id) VALUES
-(2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (2, 7);
-
--- Permisos Recepcionista: pacientes administrativos, turnos, pagos (sin historias clínicas)
-INSERT IGNORE INTO role_permissions (role_id, permission_id) VALUES
-(3, 2), (3, 3), (3, 4), (3, 8);
-
--- Usuarios de prueba ($2a$12$e0M2/LzW2P4kQvO/mQYgfe70bQ.4xJqI9s3g4zN/w89a4J8wZqg5y -> Password123!)
-INSERT INTO users (id, role_id, name, last_name, email, password_hash, phone, is_active) VALUES
-(1, 1, 'Laura', 'Admin', 'admin@kinesiologia.com', '$2b$10$v5yT9k4X/h0o8gZ6JkL.9uLd1W0zM2Qe5gA0nQZ1q2x3w4e5r6t7y', '+5491100010001', 1),
-(2, 2, 'Carlos', 'Kinesio', 'carlos.kine@kinesiologia.com', '$2b$10$v5yT9k4X/h0o8gZ6JkL.9uLd1W0zM2Qe5gA0nQZ1q2x3w4e5r6t7y', '+5491100020002', 1),
-(3, 3, 'Mariana', 'Recep', 'mariana.recep@kinesiologia.com', '$2b$10$v5yT9k4X/h0o8gZ6JkL.9uLd1W0zM2Qe5gA0nQZ1q2x3w4e5r6t7y', '+5491100030003', 1)
-ON DUPLICATE KEY UPDATE name=VALUES(name);
 
 INSERT INTO services (id, name, description, duration_minutes, default_price, is_active) VALUES
 (1, 'Rehabilitación Traumatológica', 'Sesión kinesiológica para lesiones articulares y musculares', 45, 12000.00, 1),

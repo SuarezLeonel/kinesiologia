@@ -70,23 +70,25 @@ cd kinesiologia
    PORT=3000
    NODE_ENV=development
    API_PREFIX=/api/v1
-   CORS_ORIGIN=*
+   CORS_ORIGIN=http://localhost:8081,http://localhost:19006
 
-   # TiDB Cloud / MySQL
-   DB_HOST=gateway01.sa-east-1.prod.aws.tidbcloud.com
-   DB_PORT=4000
-   DB_USER=3ZyKUgrUg9g5yJf.root
+   # MySQL / TiDB Cloud
+   DB_HOST=127.0.0.1
+   DB_PORT=3306
+   DB_USER=tu_usuario
    DB_PASSWORD=tu_password_aqui
    DB_NAME=kinesiologia_db
-   DB_SSL=true
+   DB_SSL=false
 
-   JWT_ACCESS_SECRET=clave_secreta_para_access_tokens
-   JWT_REFRESH_SECRET=clave_secreta_para_refresh_tokens
+   # Claves JWT (mínimo 32 caracteres)
+   JWT_ACCESS_SECRET=clave_secreta_larga_para_access_tokens_minimo_32_caracteres
+   JWT_REFRESH_SECRET=clave_secreta_larga_para_refresh_tokens_minimo_32_caracteres
    ```
 
-3. Migrar y sembrar la base de datos:
-   - Para **TiDB Cloud**: `node database/scripts/migrate_tidb.js`
-   - Para **MySQL Local**: ver [docs/DATABASE_OPERATIONS.md](docs/DATABASE_OPERATIONS.md)
+3. Aplicar migraciones y datos iniciales (desde la carpeta `backend/`):
+   - **Migraciones versionadas**: `npm run migrate`
+   - **Datos de prueba (opcional)**: `$env:DEMO_USER_PASSWORD="Password123!"; npm run seed`
+   - **Crear administrador inicial**: `$env:ADMIN_EMAIL="admin@kinesiologia.com"; $env:ADMIN_PASSWORD="TuPasswordSeguro123!"; npm run create-admin`
 
 4. Iniciar el servidor:
    ```powershell

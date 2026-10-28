@@ -24,34 +24,50 @@ Ejecutar en PowerShell o CMD (solicitará la contraseña de root de MySQL):
 
 ---
 
-## 3. Ejecutar Migraciones (Crear Tablas e Índices)
-
-Aplica el esquema completo en 3FN con sus 21 tablas, claves foráneas e índices:
+## 3. Ejecutar Migraciones Versionadas
+ 
+El sistema cuenta con un runner de migraciones versionadas que registra cada archivo SQL aplicado en la tabla `schema_migrations` con su checksum SHA-256:
 
 ```powershell
-& "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -p kinesiologia_db < database/migrations/001_initial_schema.sql
+cd backend
+npm run migrate
 ```
+
+Aplica en orden:
+- `001_initial_schema.sql`: 21 tablas normalizadas (1FN, 2FN, 3FN), 38 FKs e índices.
+- `002_reference_data.sql`: Datos de referencia indispensables (roles `admin`, `kinesiologist`, `receptionist`, permisos y su mapeo).
+- `003_constraints.sql`: Unicidad de turnos, recibos, sesiones e índices compuestos.
+- `004_check_constraints.sql`: Restricciones CHECK de negocio (rangos de dolor 0–10, importes > 0, sesiones, etc.).
 
 ---
 
 ## 4. Sembrar Datos Ficticios (Seeds)
 
-Carga los roles del sistema, permisos granulares, usuarios con hash seguro y datos de prueba:
+Para entornos de desarrollo y pruebas, carga usuarios de demostración con hashes bcrypt reales (`$env:DEMO_USER_PASSWORD`), servicios, pacientes y ejercicios:
 
 ```powershell
-& "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe" -u root -p kinesiologia_db < database/seeds/001_demo_data.sql
+cd backend
+$env:DEMO_USER_PASSWORD="Password123!"
+npm run seed
 ```
+
+> [!NOTE]
+> Este script se niega a ejecutarse en entornos con `NODE_ENV=production` para evitar inyectar credenciales o pacientes ficticios en bases de datos productivas.
 
 ---
 
 ## 5. Procedimiento Seguro para el Administrador Inicial
 
-Para generar una clave inicial segura de administrador sin dejar contraseñas codificadas en texto plano en el repositorio:
+Para dar de alta el primer usuario administrador con validación de entradas por Zod y cifrado seguro bcrypt (12 rondas):
 
 ```powershell
-node database/scripts/create_initial_admin.js
+cd backend
+$env:ADMIN_EMAIL="admin@kinesiologia.com"
+$env:ADMIN_PASSWORD="TuPasswordSeguroDe12CaracteresMinimo!"
+$env:ADMIN_NAME="Laura"
+$env:ADMIN_LAST_NAME="Admin"
+npm run create-admin
 ```
-El script generará una contraseña aleatoria con alta entropía y las indicaciones para el backend.
 
 ---
 
