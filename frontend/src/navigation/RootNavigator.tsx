@@ -29,7 +29,9 @@ const MainTabs = () => {
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarPosition: 'top',
-        tabBarIcon: ({ color, size }) => {
+        tabBarShowIcon: true,
+        tabBarShowLabel: true,
+        tabBarIcon: ({ color }) => {
           let iconName: React.ComponentProps<typeof MaterialIcons>['name'] = 'space-dashboard';
           if (route.name === 'Dashboard') iconName = 'space-dashboard';
           else if (route.name === 'Appointments') iconName = 'event';
@@ -39,22 +41,23 @@ const MainTabs = () => {
           else if (route.name === 'Payments') iconName = 'payments';
           else if (route.name === 'Settings') iconName = 'tune';
 
-          return <MaterialIcons name={iconName} size={18} color={color} />;
+          return <MaterialIcons name={iconName} size={20} color={color} />;
         },
         tabBarStyle: {
           backgroundColor: theme.surface,
           borderBottomColor: theme.border,
           borderBottomWidth: 1,
           borderTopWidth: 0,
-          height: 56,
-          paddingVertical: spacing.xs
+          height: 62,
+          paddingTop: 4,
+          paddingBottom: 4
         },
         tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.textSecondary,
         tabBarLabelStyle: {
-          fontSize: typography.fontSize.xs,
+          fontSize: typography.fontSize.tiny,
           fontWeight: typography.fontWeight.semibold,
-          letterSpacing: 0.1
+          letterSpacing: 0.2
         }
       })}
     >
