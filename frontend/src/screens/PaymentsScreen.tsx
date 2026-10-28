@@ -1,15 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
   RefreshControl,
-  TouchableOpacity
+  TouchableOpacity,
+  TextInput,
+  ScrollView
 } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { MaterialIcons } from '@expo/vector-icons';
 import { apiClient } from '../api/client';
 import { useAppTheme } from '../theme/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -18,7 +21,7 @@ import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper } from '../compo
 import { LoadingState, ErrorState, EmptyState, AccessDeniedState } from '../components/FeedbackStates';
 
 const paymentSchema = z.object({
-  patient_id: z.coerce.number().positive('El ID de paciente debe ser mayor a 0'),
+  patient_id: z.coerce.number().positive('Debe seleccionar un paciente'),
   amount: z.coerce.number().positive('El monto debe ser un valor positivo'),
   payment_method: z.enum(['cash', 'debit_card', 'credit_card', 'bank_transfer', 'insurance', 'qr_mercadopago']),
   receipt_number: z.string().min(3, 'El número de comprobante debe tener al menos 3 caracteres'),
@@ -31,11 +34,16 @@ export const PaymentsScreen = () => {
   const { theme } = useAppTheme();
   const { isKinesiologist } = useAuth();
   const [payments, setPayments] = useState<any[]>([]);
+  const [patients, setPatients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Selector desplegable de pacientes
+  const [patientSearch, setPatientSearch] = useState('');
+  const [showPatientPicker, setShowPatientPicker] = useState(false);
 
   const {
     control,
@@ -47,7 +55,7 @@ export const PaymentsScreen = () => {
   } = useForm<PaymentFormData>({
     resolver: zodResolver(paymentSchema) as any,
     defaultValues: {
-      patient_id: 1,
+      patient_id: 0,
       amount: 15000,
       payment_method: 'cash',
       receipt_number: '',
@@ -56,6 +64,22 @@ export const PaymentsScreen = () => {
   });
 
   const selectedMethod = watch('payment_method');
+  const selectedPatientId = watch('patient_id');
+
+  const selectedPatient = useMemo(
+    () => patients.find((p) => p.id === Number(selectedPatientId)),
+    [patients, selectedPatientId]
+  );
+
+  const filteredPatients = useMemo(() => {
+    if (!patientSearch.trim()) return patients;
+    const q = patientSearch.toLowerCase().trim();
+    return patients.filter((p) => {
+      const fullName = `${p.last_name || ''} ${p.first_name || ''}`.toLowerCase();
+      const dni = String(p.dni || '');
+      return fullName.includes(q) || dni.includes(q);
+    });
+  }, [patients, patientSearch]);
 
   const fetchPayments = async () => {
     if (isKinesiologist) return;
@@ -77,9 +101,23 @@ export const PaymentsScreen = () => {
     }
   };
 
+  const fetchPatientsList = async () => {
+    try {
+      const res = await apiClient.post('/patients/search', { page: 1, limit: 100 });
+      if (res.data?.success) {
+        const list = res.data.data || [];
+        setPatients(list);
+        if (list.length > 0 && (!selectedPatientId || selectedPatientId === 0)) {
+          setValue('patient_id', list[0].id, { shouldValidate: true });
+        }
+      }
+    } catch (e) {}
+  };
+
   useEffect(() => {
     if (!isKinesiologist) {
       fetchPayments();
+      fetchPatientsList();
     }
   }, [isKinesiologist]);
 
@@ -111,6 +149,7 @@ export const PaymentsScreen = () => {
       case 'credit_card':
         return 'Tarjeta Crédito';
       case 'bank_transfer':
+      case 'transfer':
         return 'Transferencia';
       case 'qr_mercadopago':
         return 'Mercado Pago QR';
@@ -140,18 +179,22 @@ export const PaymentsScreen = () => {
         action={
           <Button
             title="+ Registrar Cobro"
-            size="sm"
             onPress={() => {
               setFormError(null);
+              fetchPatientsList();
+              const defaultPid = patients.length > 0 ? patients[0].id : 0;
               reset({
-                patient_id: 1,
+                patient_id: defaultPid,
                 amount: 15000,
                 payment_method: 'cash',
-                receipt_number: `REC-${Date.now().toString().slice(-6)}`,
+                receipt_number: `REC-${Date.now().toString().slice(-5)}`,
                 notes: ''
               });
+              setShowPatientPicker(false);
+              setPatientSearch('');
               setModalVisible(true);
             }}
+            size="sm"
           />
         }
       />
@@ -171,17 +214,13 @@ export const PaymentsScreen = () => {
         }
         ListEmptyComponent={
           <EmptyState
-            title="Sin registros de cobros"
-            subtitle="No se registran pagos en la jornada."
-            action={{
-              label: 'Registrar nuevo cobro',
-              onPress: () => setModalVisible(true)
-            }}
+            title="Sin cobros registrados"
+            subtitle="Aún no se han asentado pagos o recibos en la caja."
           />
         }
         renderItem={({ item }) => {
-          const dateStr = item.created_at
-            ? new Date(item.created_at).toLocaleString('es-AR', {
+          const dateStr = item.payment_date || item.created_at
+            ? new Date(item.payment_date || item.created_at).toLocaleString('es-AR', {
                 day: '2-digit',
                 month: '2-digit',
                 hour: '2-digit',
@@ -216,7 +255,7 @@ export const PaymentsScreen = () => {
 
               {item.notes ? (
                 <>
-                  <View style={[styles.divider, { backgroundColor: theme.borderSubtle }]} />
+                  <View style={[styles.divider, { backgroundColor: theme.border }]} />
                   <Text style={[styles.notesText, { color: theme.textMuted }]}>
                     Nota: {item.notes}
                   </Text>
@@ -225,6 +264,7 @@ export const PaymentsScreen = () => {
             </Card>
           );
         }}
+        contentContainerStyle={{ paddingBottom: spacing.xxl }}
       />
 
       {/* Modal de Alta de Pago */}
@@ -232,7 +272,7 @@ export const PaymentsScreen = () => {
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
         title="Registrar Cobro"
-        subtitle="Asiento de pago con control estricto de idempotencia"
+        subtitle="Seleccione el paciente y asiente el pago de aranceles"
         footer={
           <>
             <Button
@@ -242,7 +282,7 @@ export const PaymentsScreen = () => {
               onPress={() => setModalVisible(false)}
             />
             <Button
-              title="Guardar Cobro"
+              title="Asentar Pago"
               size="md"
               loading={isSubmitting}
               onPress={() => handleSubmit(onCreatePayment)()}
@@ -256,21 +296,122 @@ export const PaymentsScreen = () => {
           </View>
         )}
 
-        <Controller
-          control={control}
-          name="patient_id"
-          render={({ field: { onChange, value } }) => (
-            <Input
-              label="ID Paciente"
-              value={String(value || '')}
-              onChangeText={onChange}
-              keyboardType="numeric"
-              placeholder="1"
-              error={formErrors.patient_id?.message}
-              required
-            />
+        {/* SELECTOR INTERACTIVO DE PACIENTES */}
+        <View style={styles.fieldContainer}>
+          <Text style={[styles.fieldLabel, { color: theme.text }]}>
+            Paciente <Text style={{ color: theme.error }}>*</Text>
+          </Text>
+
+          <TouchableOpacity
+            style={[
+              styles.pickerTrigger,
+              {
+                backgroundColor: theme.surface,
+                borderColor: formErrors.patient_id ? theme.error : theme.border
+              }
+            ]}
+            onPress={() => setShowPatientPicker(!showPatientPicker)}
+            accessibilityRole="button"
+          >
+            <View style={styles.pickerTriggerContent}>
+              <MaterialIcons name="person" size={20} color={theme.primary} style={{ marginRight: spacing.sm }} />
+              <View style={{ flex: 1 }}>
+                {selectedPatient ? (
+                  <View>
+                    <Text style={[styles.pickerSelectedText, { color: theme.text }]}>
+                      {selectedPatient.last_name}, {selectedPatient.first_name}
+                    </Text>
+                    <Text style={[styles.pickerSelectedSub, { color: theme.textSecondary }]}>
+                      DNI: {selectedPatient.dni}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={[styles.pickerPlaceholder, { color: theme.textMuted }]}>
+                    {patients.length === 0 ? 'Cargando pacientes...' : 'Seleccione un paciente de la lista...'}
+                  </Text>
+                )}
+              </View>
+              <MaterialIcons
+                name={showPatientPicker ? 'expand-less' : 'expand-more'}
+                size={22}
+                color={theme.textSecondary}
+              />
+            </View>
+          </TouchableOpacity>
+
+          {formErrors.patient_id && (
+            <Text style={[styles.fieldError, { color: theme.error }]}>
+              {formErrors.patient_id.message}
+            </Text>
           )}
-        />
+
+          {showPatientPicker && (
+            <View style={[styles.dropdownContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <View style={[styles.searchBox, { borderBottomColor: theme.border }]}>
+                <MaterialIcons name="search" size={18} color={theme.textSecondary} style={{ marginRight: spacing.xs }} />
+                <TextInput
+                  placeholder="Buscar por nombre, apellido o DNI..."
+                  placeholderTextColor={theme.textMuted}
+                  value={patientSearch}
+                  onChangeText={setPatientSearch}
+                  style={[styles.searchInput, { color: theme.text }]}
+                  autoFocus
+                />
+                {patientSearch ? (
+                  <TouchableOpacity onPress={() => setPatientSearch('')}>
+                    <MaterialIcons name="close" size={16} color={theme.textMuted} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+
+              <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                {filteredPatients.length === 0 ? (
+                  <View style={styles.dropdownEmpty}>
+                    <Text style={[styles.dropdownEmptyText, { color: theme.textMuted }]}>
+                      No se encontraron pacientes que coincidan
+                    </Text>
+                  </View>
+                ) : (
+                  filteredPatients.map((p) => {
+                    const isSelected = p.id === Number(selectedPatientId);
+                    return (
+                      <TouchableOpacity
+                        key={p.id}
+                        style={[
+                          styles.patientRow,
+                          { borderBottomColor: theme.border + '30' },
+                          isSelected && { backgroundColor: theme.primaryLight + '40' }
+                        ]}
+                        onPress={() => {
+                          setValue('patient_id', p.id, { shouldValidate: true });
+                          setShowPatientPicker(false);
+                          setPatientSearch('');
+                        }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={[
+                              styles.patientRowName,
+                              { color: isSelected ? theme.primary : theme.text }
+                            ]}
+                          >
+                            {p.last_name}, {p.first_name}
+                          </Text>
+                          <Text style={[styles.patientRowDni, { color: theme.textSecondary }]}>
+                            DNI: {p.dni}
+                          </Text>
+                        </View>
+                        {isSelected && (
+                          <MaterialIcons name="check" size={18} color={theme.primary} />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
+              </ScrollView>
+            </View>
+          )}
+        </View>
 
         <Controller
           control={control}
@@ -288,6 +429,38 @@ export const PaymentsScreen = () => {
           )}
         />
 
+        <View style={styles.methodContainer}>
+          <Text style={[styles.fieldLabel, { color: theme.text }]}>Medio de Pago</Text>
+          <View style={styles.methodRow}>
+            {paymentMethods.map((m) => {
+              const isSelected = selectedMethod === m.key;
+              return (
+                <TouchableOpacity
+                  key={m.key}
+                  onPress={() => setValue('payment_method', m.key)}
+                  style={[
+                    styles.methodChip,
+                    {
+                      backgroundColor: isSelected ? theme.primary : theme.surface,
+                      borderColor: isSelected ? theme.primary : theme.border
+                    }
+                  ]}
+                  accessibilityRole="button"
+                >
+                  <Text
+                    style={[
+                      styles.methodChipText,
+                      { color: isSelected ? '#FFFFFF' : theme.text }
+                    ]}
+                  >
+                    {m.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
         <Controller
           control={control}
           name="receipt_number"
@@ -303,38 +476,6 @@ export const PaymentsScreen = () => {
           )}
         />
 
-        {/* Selector de Método de Pago */}
-        <View style={styles.methodContainer}>
-          <Text style={[styles.fieldLabel, { color: theme.text }]}>Método de Pago *</Text>
-          <View style={styles.methodRow}>
-            {paymentMethods.map((m) => {
-              const isSelected = selectedMethod === m.key;
-              return (
-                <TouchableOpacity
-                  key={m.key}
-                  onPress={() => setValue('payment_method', m.key)}
-                  style={[
-                    styles.methodChip,
-                    {
-                      backgroundColor: isSelected ? theme.primary : theme.surfaceSubtle,
-                      borderColor: isSelected ? theme.primary : theme.border
-                    }
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.methodChipText,
-                      { color: isSelected ? theme.primaryContrast : theme.text }
-                    ]}
-                  >
-                    {m.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-
         <Controller
           control={control}
           name="notes"
@@ -343,7 +484,7 @@ export const PaymentsScreen = () => {
               label="Observaciones (opcional)"
               value={value || ''}
               onChangeText={onChange}
-              placeholder="Detalle de sesión o número de autorización"
+              placeholder="Detalle o concepto del cobro..."
             />
           )}
         />
@@ -366,8 +507,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start'
   },
   infoCol: {
-    flex: 1,
-    paddingRight: spacing.sm
+    flex: 1
   },
   patientName: {
     fontSize: typography.fontSize.md,
@@ -405,10 +545,88 @@ const styles = StyleSheet.create({
   methodContainer: {
     marginBottom: spacing.md
   },
+  fieldContainer: {
+    marginBottom: spacing.md
+  },
   fieldLabel: {
     fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.medium,
     marginBottom: spacing.xs + 2
+  },
+  fieldError: {
+    fontSize: typography.fontSize.xs,
+    marginTop: spacing.xs,
+    fontWeight: typography.fontWeight.medium
+  },
+  pickerTrigger: {
+    borderRadius: radii.md,
+    borderWidth: 1,
+    padding: spacing.md,
+    minHeight: 52,
+    justifyContent: 'center'
+  },
+  pickerTriggerContent: {
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  pickerSelectedText: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.semibold
+  },
+  pickerSelectedSub: {
+    fontSize: typography.fontSize.xs,
+    marginTop: 2
+  },
+  pickerPlaceholder: {
+    fontSize: typography.fontSize.base
+  },
+  dropdownContainer: {
+    marginTop: spacing.xs,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3
+  },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: typography.fontSize.sm,
+    paddingVertical: 4
+  },
+  dropdownScroll: {
+    maxHeight: 180
+  },
+  dropdownEmpty: {
+    padding: spacing.md,
+    alignItems: 'center'
+  },
+  dropdownEmptyText: {
+    fontSize: typography.fontSize.xs
+  },
+  patientRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    borderBottomWidth: 1
+  },
+  patientRowName: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold
+  },
+  patientRowDni: {
+    fontSize: typography.fontSize.xs,
+    marginTop: 1
   },
   methodRow: {
     flexDirection: 'row',

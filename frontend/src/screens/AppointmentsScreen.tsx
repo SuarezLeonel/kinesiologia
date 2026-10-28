@@ -5,11 +5,14 @@ import {
   StyleSheet,
   FlatList,
   RefreshControl,
-  TouchableOpacity
+  TouchableOpacity,
+  TextInput,
+  ScrollView
 } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { MaterialIcons } from '@expo/vector-icons';
 import { apiClient } from '../api/client';
 import { useAppTheme } from '../theme/ThemeContext';
 import { spacing, radii, typography } from '../theme/tokens';
@@ -17,21 +20,21 @@ import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper, BadgeVariant } 
 import { LoadingState, ErrorState, EmptyState } from '../components/FeedbackStates';
 
 const appointmentSchema = z.object({
-  patient_id: z.coerce.number().positive('El ID de paciente debe ser mayor a 0'),
-  kinesiologist_id: z.coerce.number().positive('El ID de profesional debe ser mayor a 0'),
-  service_id: z.coerce.number().positive('El ID de prestación debe ser mayor a 0').optional(),
+  patient_id: z.coerce.number().positive('Debe seleccionar un paciente'),
+  kinesiologist_id: z.coerce.number().positive('Debe seleccionar un profesional'),
+  service_id: z.coerce.number().positive().default(1),
   scheduled_at: z.string().min(10, 'Ingrese fecha y hora (AAAA-MM-DD HH:MM:SS)'),
   duration_minutes: z.coerce.number().min(15, 'Mínimo 15 minutos').max(180, 'Máximo 180 minutos'),
   reason: z.string().optional()
 });
 
 type AppointmentFormData = z.infer<typeof appointmentSchema>;
-
 type StatusFilter = 'all' | 'scheduled' | 'confirmed' | 'attended' | 'cancelled';
 
 export const AppointmentsScreen = () => {
   const { theme } = useAppTheme();
   const [appointments, setAppointments] = useState<any[]>([]);
+  const [patients, setPatients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -39,15 +42,21 @@ export const AppointmentsScreen = () => {
   const [formError, setFormError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
+  // Estado para el selector desplegable de pacientes
+  const [patientSearch, setPatientSearch] = useState('');
+  const [showPatientPicker, setShowPatientPicker] = useState(false);
+
   const {
     control,
     handleSubmit,
     reset,
+    setValue,
+    watch,
     formState: { errors: formErrors, isSubmitting }
   } = useForm<AppointmentFormData>({
     resolver: zodResolver(appointmentSchema) as any,
     defaultValues: {
-      patient_id: 1,
+      patient_id: 0,
       kinesiologist_id: 2,
       service_id: 1,
       scheduled_at: new Date(Date.now() + 86400000).toISOString().slice(0, 10) + ' 10:00:00',
@@ -56,10 +65,26 @@ export const AppointmentsScreen = () => {
     }
   });
 
+  const selectedPatientId = watch('patient_id');
+  const selectedPatient = useMemo(
+    () => patients.find((p) => p.id === Number(selectedPatientId)),
+    [patients, selectedPatientId]
+  );
+
+  const filteredPatients = useMemo(() => {
+    if (!patientSearch.trim()) return patients;
+    const q = patientSearch.toLowerCase().trim();
+    return patients.filter((p) => {
+      const fullName = `${p.last_name || ''} ${p.first_name || ''}`.toLowerCase();
+      const dni = String(p.dni || '');
+      return fullName.includes(q) || dni.includes(q);
+    });
+  }, [patients, patientSearch]);
+
   const fetchAppointments = async () => {
     try {
       setError(null);
-      // REGLA HTTP ESTRICTA: POST /appointments/search
+      // REGLA HTTP ESTRICTA: POST para consultas
       const response = await apiClient.post('/appointments/search', {
         page: 1,
         limit: 50
@@ -75,8 +100,22 @@ export const AppointmentsScreen = () => {
     }
   };
 
+  const fetchPatientsList = async () => {
+    try {
+      const res = await apiClient.post('/patients/search', { page: 1, limit: 100 });
+      if (res.data?.success) {
+        const list = res.data.data || [];
+        setPatients(list);
+        if (list.length > 0 && (!selectedPatientId || selectedPatientId === 0)) {
+          setValue('patient_id', list[0].id, { shouldValidate: true });
+        }
+      }
+    } catch (e) {}
+  };
+
   useEffect(() => {
     fetchAppointments();
+    fetchPatientsList();
   }, []);
 
   const onCreateAppointment = async (data: AppointmentFormData) => {
@@ -143,14 +182,18 @@ export const AppointmentsScreen = () => {
             title="+ Agendar Turno"
             onPress={() => {
               setFormError(null);
+              fetchPatientsList();
+              const defaultPid = patients.length > 0 ? patients[0].id : 0;
               reset({
-                patient_id: 1,
+                patient_id: defaultPid,
                 kinesiologist_id: 2,
                 service_id: 1,
                 scheduled_at: new Date(Date.now() + 86400000).toISOString().slice(0, 10) + ' 10:00:00',
                 duration_minutes: 45,
                 reason: 'Sesión de kinesiología y rehabilitación'
               });
+              setShowPatientPicker(false);
+              setPatientSearch('');
               setModalVisible(true);
             }}
             size="sm"
@@ -169,15 +212,16 @@ export const AppointmentsScreen = () => {
               style={[
                 styles.filterChip,
                 {
-                  backgroundColor: isActive ? theme.primary : theme.surfaceSubtle,
+                  backgroundColor: isActive ? theme.primary : theme.surface,
                   borderColor: isActive ? theme.primary : theme.border
                 }
               ]}
+              accessibilityRole="button"
             >
               <Text
                 style={[
                   styles.filterText,
-                  { color: isActive ? theme.primaryContrast : theme.textSecondary }
+                  { color: isActive ? '#FFFFFF' : theme.textSecondary }
                 ]}
               >
                 {tab.label}
@@ -202,76 +246,60 @@ export const AppointmentsScreen = () => {
         }
         ListEmptyComponent={
           <EmptyState
-            title="No hay turnos en esta vista"
-            subtitle="No se encontraron turnos programados con el filtro seleccionado."
-            action={{
-              label: 'Agendar nuevo turno',
-              onPress: () => setModalVisible(true)
-            }}
+            title="Sin turnos encontrados"
+            subtitle="No se registran turnos para el filtro seleccionado o el calendario está vacío."
           />
         }
         renderItem={({ item }) => {
           const badge = getStatusBadge(item.status);
-          const timeFormatted = item.scheduled_at || item.start_time
-            ? new Date(item.scheduled_at || item.start_time).toLocaleString('es-AR', {
-                day: '2-digit',
-                month: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit'
-              })
-            : 'A confirmar';
+          const patientName = item.patient_name
+            ? `${item.patient_last_name || ''}, ${item.patient_name}`
+            : `Paciente #${item.patient_id}`;
 
           return (
-            <Card elevated style={styles.appointmentCard} padding="md">
+            <Card elevated style={styles.appointmentCard} padding="lg">
               <View style={styles.cardHeader}>
-                <View style={styles.timeBox}>
-                  <Text style={[styles.timeText, { color: theme.text }]}>{timeFormatted}</Text>
-                  {item.duration_minutes && (
-                    <Text style={[styles.durationText, { color: theme.textMuted }]}>
-                      {item.duration_minutes} min
-                    </Text>
-                  )}
+                <View style={styles.timeBadgeContainer}>
+                  <Text style={[styles.timeText, { color: theme.text }]}>
+                    {item.start_time?.slice(11, 16) || item.scheduled_at?.slice(11, 16) || '10:00'} hs
+                  </Text>
+                  <Text style={[styles.durationText, { color: theme.textSecondary }]}>
+                    {item.duration_minutes || 45} min
+                  </Text>
                 </View>
-
                 <Badge label={badge.label} variant={badge.variant} size="sm" />
               </View>
 
-              <View style={[styles.divider, { backgroundColor: theme.borderSubtle }]} />
+              <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
               <View style={styles.cardBody}>
                 <Text style={[styles.patientName, { color: theme.text }]}>
-                  {item.patient_last_name ? `${item.patient_last_name}, ${item.patient_first_name}` : `Paciente #${item.patient_id}`}
+                  {patientName}
                 </Text>
-
-                {item.service_name && (
-                  <Text style={[styles.serviceText, { color: theme.primary }]}>
-                    {item.service_name}
-                  </Text>
-                )}
-
-                {item.reason && (
-                  <Text style={[styles.reasonText, { color: theme.textSecondary }]} numberOfLines={2}>
+                <Text style={[styles.serviceText, { color: theme.primary }]}>
+                  {item.service_name || 'Sesión de Kinesiología y Fisioterapia'}
+                </Text>
+                {item.reason ? (
+                  <Text style={[styles.reasonText, { color: theme.textSecondary }]}>
                     Motivo: {item.reason}
                   </Text>
-                )}
-
-                {item.kinesiologist_name && (
-                  <Text style={[styles.kineText, { color: theme.textMuted }]}>
-                    Profesional: {item.kinesiologist_name} {item.kinesiologist_last_name || ''}
-                  </Text>
-                )}
+                ) : null}
+                <Text style={[styles.kineText, { color: theme.textMuted }]}>
+                  Atiende: {item.kinesiologist_name || 'Lic. Carlos Gómez'}
+                </Text>
               </View>
             </Card>
           );
         }}
+        contentContainerStyle={{ paddingBottom: spacing.xxl }}
       />
 
-      {/* Modal de Agendar Turno */}
+      {/* Modal para Agendar Turno */}
       <ModalWrapper
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
         title="Agendar Nuevo Turno"
-        subtitle="Reserva atómica sin superposición horaria (FOR UPDATE)"
+        subtitle="Seleccione el paciente y horario de la sesión"
         footer={
           <>
             <Button
@@ -295,37 +323,147 @@ export const AppointmentsScreen = () => {
           </View>
         )}
 
-        <Controller
-          control={control}
-          name="patient_id"
-          render={({ field: { onChange, value } }) => (
-            <Input
-              label="ID Paciente"
-              value={String(value || '')}
-              onChangeText={onChange}
-              keyboardType="numeric"
-              placeholder="1"
-              error={formErrors.patient_id?.message}
-              required
-            />
-          )}
-        />
+        {/* SELECTOR INTERACTIVO DE PACIENTES */}
+        <View style={styles.fieldContainer}>
+          <Text style={[styles.fieldLabel, { color: theme.text }]}>
+            Paciente <Text style={{ color: theme.error }}>*</Text>
+          </Text>
 
-        <Controller
-          control={control}
-          name="kinesiologist_id"
-          render={({ field: { onChange, value } }) => (
-            <Input
-              label="ID Profesional Kinesiólogo"
-              value={String(value || '')}
-              onChangeText={onChange}
-              keyboardType="numeric"
-              placeholder="2"
-              error={formErrors.kinesiologist_id?.message}
-              required
-            />
+          <TouchableOpacity
+            style={[
+              styles.pickerTrigger,
+              {
+                backgroundColor: theme.surface,
+                borderColor: formErrors.patient_id ? theme.error : theme.border
+              }
+            ]}
+            onPress={() => setShowPatientPicker(!showPatientPicker)}
+            accessibilityRole="button"
+          >
+            <View style={styles.pickerTriggerContent}>
+              <MaterialIcons name="person" size={20} color={theme.primary} style={{ marginRight: spacing.sm }} />
+              <View style={{ flex: 1 }}>
+                {selectedPatient ? (
+                  <View>
+                    <Text style={[styles.pickerSelectedText, { color: theme.text }]}>
+                      {selectedPatient.last_name}, {selectedPatient.first_name}
+                    </Text>
+                    <Text style={[styles.pickerSelectedSub, { color: theme.textSecondary }]}>
+                      DNI: {selectedPatient.dni} {selectedPatient.phone ? `• Tel: ${selectedPatient.phone}` : ''}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={[styles.pickerPlaceholder, { color: theme.textMuted }]}>
+                    {patients.length === 0 ? 'Cargando pacientes...' : 'Seleccione un paciente de la lista...'}
+                  </Text>
+                )}
+              </View>
+              <MaterialIcons
+                name={showPatientPicker ? 'expand-less' : 'expand-more'}
+                size={22}
+                color={theme.textSecondary}
+              />
+            </View>
+          </TouchableOpacity>
+
+          {formErrors.patient_id && (
+            <Text style={[styles.fieldError, { color: theme.error }]}>
+              {formErrors.patient_id.message}
+            </Text>
           )}
-        />
+
+          {/* Menú desplegable con búsqueda */}
+          {showPatientPicker && (
+            <View style={[styles.dropdownContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <View style={[styles.searchBox, { borderBottomColor: theme.border }]}>
+                <MaterialIcons name="search" size={18} color={theme.textSecondary} style={{ marginRight: spacing.xs }} />
+                <TextInput
+                  placeholder="Buscar por nombre, apellido o DNI..."
+                  placeholderTextColor={theme.textMuted}
+                  value={patientSearch}
+                  onChangeText={setPatientSearch}
+                  style={[styles.searchInput, { color: theme.text }]}
+                  autoFocus
+                />
+                {patientSearch ? (
+                  <TouchableOpacity onPress={() => setPatientSearch('')}>
+                    <MaterialIcons name="close" size={16} color={theme.textMuted} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+
+              <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                {filteredPatients.length === 0 ? (
+                  <View style={styles.dropdownEmpty}>
+                    <Text style={[styles.dropdownEmptyText, { color: theme.textMuted }]}>
+                      No se encontraron pacientes que coincidan
+                    </Text>
+                  </View>
+                ) : (
+                  filteredPatients.map((p) => {
+                    const isSelected = p.id === Number(selectedPatientId);
+                    return (
+                      <TouchableOpacity
+                        key={p.id}
+                        style={[
+                          styles.patientRow,
+                          { borderBottomColor: theme.border + '30' },
+                          isSelected && { backgroundColor: theme.primaryLight + '40' }
+                        ]}
+                        onPress={() => {
+                          setValue('patient_id', p.id, { shouldValidate: true });
+                          setShowPatientPicker(false);
+                          setPatientSearch('');
+                        }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={[
+                              styles.patientRowName,
+                              { color: isSelected ? theme.primary : theme.text }
+                            ]}
+                          >
+                            {p.last_name}, {p.first_name}
+                          </Text>
+                          <Text style={[styles.patientRowDni, { color: theme.textSecondary }]}>
+                            DNI: {p.dni}
+                          </Text>
+                        </View>
+                        {isSelected && (
+                          <MaterialIcons name="check" size={18} color={theme.primary} />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
+              </ScrollView>
+            </View>
+          )}
+        </View>
+
+        {/* SELECTOR DE PROFESIONAL KINESIÓLOGO */}
+        <View style={styles.fieldContainer}>
+          <Text style={[styles.fieldLabel, { color: theme.text }]}>
+            Profesional a cargo <Text style={{ color: theme.error }}>*</Text>
+          </Text>
+          <View
+            style={[
+              styles.readOnlySelector,
+              { backgroundColor: theme.surface, borderColor: theme.border }
+            ]}
+          >
+            <MaterialIcons name="medical-services" size={18} color={theme.primary} style={{ marginRight: spacing.sm }} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.readOnlyTitle, { color: theme.text }]}>
+                Lic. Carlos Gómez
+              </Text>
+              <Text style={[styles.readOnlySubtitle, { color: theme.textSecondary }]}>
+                Kinesiólogo y Fisioterapeuta Especialista
+              </Text>
+            </View>
+            <Badge label="Asignado" variant="success" size="sm" />
+          </View>
+        </View>
 
         <Controller
           control={control}
@@ -404,7 +542,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center'
   },
-  timeBox: {
+  timeBadgeContainer: {
     flexDirection: 'row',
     alignItems: 'baseline',
     gap: spacing.sm
@@ -448,5 +586,103 @@ const styles = StyleSheet.create({
   modalErrorText: {
     fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.medium
+  },
+  fieldContainer: {
+    marginBottom: spacing.md
+  },
+  fieldLabel: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    marginBottom: spacing.xs + 2
+  },
+  fieldError: {
+    fontSize: typography.fontSize.xs,
+    marginTop: spacing.xs,
+    fontWeight: typography.fontWeight.medium
+  },
+  pickerTrigger: {
+    borderRadius: radii.md,
+    borderWidth: 1,
+    padding: spacing.md,
+    minHeight: 52,
+    justifyContent: 'center'
+  },
+  pickerTriggerContent: {
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  pickerSelectedText: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.semibold
+  },
+  pickerSelectedSub: {
+    fontSize: typography.fontSize.xs,
+    marginTop: 2
+  },
+  pickerPlaceholder: {
+    fontSize: typography.fontSize.base
+  },
+  dropdownContainer: {
+    marginTop: spacing.xs,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3
+  },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: typography.fontSize.sm,
+    paddingVertical: 4
+  },
+  dropdownScroll: {
+    maxHeight: 180
+  },
+  dropdownEmpty: {
+    padding: spacing.md,
+    alignItems: 'center'
+  },
+  dropdownEmptyText: {
+    fontSize: typography.fontSize.xs
+  },
+  patientRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    borderBottomWidth: 1
+  },
+  patientRowName: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold
+  },
+  patientRowDni: {
+    fontSize: typography.fontSize.xs,
+    marginTop: 1
+  },
+  readOnlySelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1
+  },
+  readOnlyTitle: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold
+  },
+  readOnlySubtitle: {
+    fontSize: typography.fontSize.xs,
+    marginTop: 1
   }
 });
