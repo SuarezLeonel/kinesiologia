@@ -409,17 +409,17 @@ export const AppointmentsScreen = () => {
       {/* Barra de navegación de la semana */}
       <View style={[styles.weekNavContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}>
         <TouchableOpacity
-          style={styles.navButton}
+          style={[styles.navButton, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}
           onPress={goToPrevWeek}
           accessibilityLabel="Semana anterior"
+          accessibilityRole="button"
         >
-          <MaterialIcons name="chevron-left" size={22} color={theme.text} />
-          <Text style={[styles.navButtonText, { color: theme.text }]}>Semana anterior</Text>
+          <MaterialIcons name="chevron-left" size={24} color={theme.text} />
         </TouchableOpacity>
 
         <View style={styles.weekInfoCenter}>
           <View style={styles.weekTitleRow}>
-            <MaterialIcons name="calendar-today" size={18} color={theme.primary} />
+            <MaterialIcons name="calendar-today" size={16} color={theme.primary} />
             <Text style={[styles.weekTitleText, { color: theme.text }]}>
               {weekTitle}
             </Text>
@@ -435,12 +435,12 @@ export const AppointmentsScreen = () => {
         </View>
 
         <TouchableOpacity
-          style={styles.navButton}
+          style={[styles.navButton, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}
           onPress={goToNextWeek}
           accessibilityLabel="Semana siguiente"
+          accessibilityRole="button"
         >
-          <Text style={[styles.navButtonText, { color: theme.text }]}>Semana siguiente</Text>
-          <MaterialIcons name="chevron-right" size={22} color={theme.text} />
+          <MaterialIcons name="chevron-right" size={24} color={theme.text} />
         </TouchableOpacity>
       </View>
 
@@ -903,16 +903,12 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md
   },
   navButton: {
-    flexDirection: 'row',
+    width: 36,
+    height: 36,
+    borderRadius: radii.full,
+    borderWidth: 1,
     alignItems: 'center',
-    gap: spacing.xs,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radii.sm
-  },
-  navButtonText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.medium
+    justifyContent: 'center'
   },
   weekInfoCenter: {
     alignItems: 'center',
