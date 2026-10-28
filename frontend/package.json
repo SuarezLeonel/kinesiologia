@@ -30,7 +30,12 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "type-check": "tsc --noEmit",
+    "doctor": "npx expo-doctor"
+  },
+  "overrides": {
+    "zod": "^4.6.7"
   },
   "private": true
 }

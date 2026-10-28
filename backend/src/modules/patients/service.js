@@ -2,7 +2,7 @@ import { patientsRepository } from './repository.js';
 import { NotFoundError, ConflictError } from '../../utils/errors.js';
 
 export class PatientsService {
-  async search(filters, currentUser) {
+  async search(filters, _currentUser) {
     // Si es kinesiólogo, por defecto puede filtrar o ver sus propios pacientes asignados o todos si la política de consultorio lo permite
     return await patientsRepository.search(filters);
   }

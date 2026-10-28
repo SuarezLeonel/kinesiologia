@@ -1,5 +1,5 @@
 import { appointmentsRepository } from './repository.js';
-import { NotFoundError, ConflictError } from '../../utils/errors.js';
+import { NotFoundError } from '../../utils/errors.js';
 import { logAudit } from '../../utils/auditLogger.js';
 
 export class AppointmentsService {

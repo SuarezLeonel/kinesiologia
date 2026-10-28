@@ -63,7 +63,11 @@ export class AuthService {
     let payload;
     try {
       payload = jwt.verify(refreshToken, config.jwt.refreshSecret);
-    } catch (err) {
+    } catch {
+      throw new UnauthorizedError('Refresh token inválido o expirado');
+    }
+
+    if (payload.type !== 'refresh' || !payload.userId) {
       throw new UnauthorizedError('Refresh token inválido o expirado');
     }
 
@@ -128,7 +132,7 @@ export class AuthService {
       if (payload.type !== 'password_reset' || !payload.userId) {
         throw new Error();
       }
-    } catch (err) {
+    } catch {
       throw new UnauthorizedError('Token de restablecimiento inválido o expirado');
     }
 
@@ -163,7 +167,7 @@ export class AuthService {
     return { success: true, message: 'Contraseña actualizada con éxito' };
   }
 
-  async socialAuth({ provider, idToken }) {
+  async socialAuth({ provider, idToken: _idToken }) {
     // Si no hay credenciales de proveedores configuradas, no simular la integración
     throw new AppError(`El proveedor OAuth ${provider} requiere credenciales activas del cliente en backend/.env`, 501, 'NOT_IMPLEMENTED');
   }

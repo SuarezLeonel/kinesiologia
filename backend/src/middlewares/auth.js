@@ -14,7 +14,7 @@ export async function authenticateToken(req, res, next) {
     let payload;
     try {
       payload = jwt.verify(token, config.jwt.accessSecret);
-    } catch (err) {
+    } catch {
       throw new UnauthorizedError('Token inválido o expirado');
     }
 

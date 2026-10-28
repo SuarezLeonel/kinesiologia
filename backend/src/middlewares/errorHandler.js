@@ -2,15 +2,16 @@ import { ZodError } from 'zod';
 import { AppError } from '../utils/errors.js';
 
 export function errorHandler(err, req, res, next) {
-  // Manejo de errores Zod
-  if (err instanceof ZodError) {
+  // Manejo de errores Zod (compatible con Zod 3 y Zod 4)
+  if (err instanceof ZodError || err.name === 'ZodError') {
+    const issues = err.issues || err.errors || [];
     return res.status(422).json({
       success: false,
       error: {
         code: 'VALIDATION_ERROR',
         message: 'Los datos proporcionados no son válidos',
-        details: err.errors.map(e => ({
-          field: e.path.join('.'),
+        details: issues.map(e => ({
+          field: Array.isArray(e.path) ? e.path.join('.') : String(e.path || ''),
           message: e.message
         }))
       }
