@@ -1,11 +1,13 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import mysql from 'mysql2/promise';
-import dotenv from 'dotenv';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Importar directamente las dependencias del backend
+import mysql from '../../backend/node_modules/mysql2/promise.js';
+import dotenv from '../../backend/node_modules/dotenv/lib/main.js';
 
 // Cargar .env de backend
 dotenv.config({ path: path.resolve(__dirname, '../../backend/.env') });
@@ -36,16 +38,20 @@ async function runCloudMigration() {
     port,
     user,
     password,
-    database,
-    ssl: useSsl ? { rejectUnauthorized: true } : false,
+    ssl: { rejectUnauthorized: true },
     multipleStatements: true
   });
 
   try {
+    console.log(`1. Creando / verificando base de datos '${database}'...`);
+    await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`);
+    await connection.query(`USE \`${database}\`;`);
+    console.log(`✅ Base de datos seleccionada: ${database}`);
+
     const migrationFile = path.resolve(__dirname, '../migrations/001_initial_schema.sql');
     const seedsFile = path.resolve(__dirname, '../seeds/001_demo_data.sql');
 
-    console.log('1. Ejecutando migración de tablas (001_initial_schema.sql)...');
+    console.log('\n2. Ejecutando migración de tablas (001_initial_schema.sql)...');
     const migrationSql = fs.readFileSync(migrationFile, 'utf8');
     await connection.query(migrationSql);
     console.log('✅ Esquema creado con éxito en TiDB Cloud.');

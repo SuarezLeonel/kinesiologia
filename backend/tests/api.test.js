@@ -4,6 +4,12 @@ import request from 'supertest';
 import { app } from '../src/app.js';
 import jwt from 'jsonwebtoken';
 import { config } from '../src/config/env.js';
+import { getPool } from '../src/config/database.js';
+
+test.after(async () => {
+  const pool = getPool();
+  await pool.end();
+});
 
 test('1. Comprobación de Regla HTTP: Ningún endpoint de negocio permite GET (405 Method Not Allowed)', async (t) => {
   const businessRoutes = [
