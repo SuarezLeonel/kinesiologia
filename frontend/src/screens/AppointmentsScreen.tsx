@@ -29,7 +29,7 @@ const appointmentSchema = z.object({
 });
 
 type AppointmentFormData = z.infer<typeof appointmentSchema>;
-type StatusFilter = 'all' | 'scheduled' | 'confirmed' | 'attended' | 'cancelled';
+type StatusFilter = 'all' | 'pending' | 'confirmed' | 'attended' | 'cancelled';
 
 export const AppointmentsScreen = () => {
   const { theme } = useAppTheme();
@@ -41,6 +41,7 @@ export const AppointmentsScreen = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [updatingId, setUpdatingId] = useState<number | null>(null);
 
   // Estado para el selector desplegable de pacientes
   const [patientSearch, setPatientSearch] = useState('');
@@ -132,11 +133,38 @@ export const AppointmentsScreen = () => {
     }
   };
 
+  const onUpdateStatus = async (appointmentId: number, nextStatus: string) => {
+    try {
+      setUpdatingId(appointmentId);
+      const res = await apiClient.patch(`/appointments/${appointmentId}`, {
+        status: nextStatus
+      });
+      if (res.data?.success) {
+        await fetchAppointments();
+      }
+    } catch (err: any) {
+      console.error('Error al actualizar estado:', err?.response?.data || err);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
   const filteredAppointments = useMemo(() => {
     if (statusFilter === 'all') return appointments;
     return appointments.filter((item) => {
       const s = String(item.status || '').toLowerCase();
-      if (statusFilter === 'attended') return s === 'attended' || s === 'completed';
+      if (statusFilter === 'pending') {
+        return s === 'pending' || s === 'scheduled';
+      }
+      if (statusFilter === 'confirmed') {
+        return s === 'confirmed';
+      }
+      if (statusFilter === 'attended') {
+        return s === 'attended' || s === 'completed';
+      }
+      if (statusFilter === 'cancelled') {
+        return s === 'cancelled' || s === 'absent' || s === 'no_show';
+      }
       return s === statusFilter;
     });
   }, [appointments, statusFilter]);
@@ -149,6 +177,7 @@ export const AppointmentsScreen = () => {
         return { label: 'Atendido', variant: 'success' };
       case 'confirmed':
         return { label: 'Confirmado', variant: 'default' };
+      case 'pending':
       case 'scheduled':
         return { label: 'Programado', variant: 'info' };
       case 'cancelled':
@@ -166,7 +195,7 @@ export const AppointmentsScreen = () => {
 
   const filterTabs: { key: StatusFilter; label: string }[] = [
     { key: 'all', label: 'Todos' },
-    { key: 'scheduled', label: 'Programados' },
+    { key: 'pending', label: 'Programados' },
     { key: 'confirmed', label: 'Confirmados' },
     { key: 'attended', label: 'Atendidos' },
     { key: 'cancelled', label: 'Cancelados' }
@@ -254,7 +283,11 @@ export const AppointmentsScreen = () => {
           const badge = getStatusBadge(item.status);
           const patientName = item.patient_name
             ? `${item.patient_last_name || ''}, ${item.patient_name}`
-            : `Paciente #${item.patient_id}`;
+            : (item.patient_last_name && item.patient_first_name)
+              ? `${item.patient_last_name}, ${item.patient_first_name}`
+              : `Paciente #${item.patient_id}`;
+          const statusRaw = String(item.status || '').toLowerCase();
+          const isUpdating = updatingId === item.id;
 
           return (
             <Card elevated style={styles.appointmentCard} padding="lg">
@@ -279,14 +312,75 @@ export const AppointmentsScreen = () => {
                 <Text style={[styles.serviceText, { color: theme.primary }]}>
                   {item.service_name || 'Sesión de Kinesiología y Fisioterapia'}
                 </Text>
-                {item.reason ? (
+                {item.reason || item.notes ? (
                   <Text style={[styles.reasonText, { color: theme.textSecondary }]}>
-                    Motivo: {item.reason}
+                    Motivo: {item.reason || item.notes}
                   </Text>
                 ) : null}
                 <Text style={[styles.kineText, { color: theme.textMuted }]}>
-                  Atiende: {item.kinesiologist_name || 'Lic. Carlos Gómez'}
+                  Atiende: {item.kinesiologist_last_name ? `Lic. ${item.kinesiologist_last_name}, ${item.kinesiologist_name || ''}` : (item.kinesiologist_name || 'Lic. Carlos Gómez')}
                 </Text>
+              </View>
+
+              {/* Botones de acción según el estado */}
+              <View style={[styles.cardActions, { borderTopColor: theme.border }]}>
+                {statusRaw === 'pending' || statusRaw === 'scheduled' ? (
+                  <View style={styles.actionsGroup}>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, { backgroundColor: theme.primary }]}
+                      onPress={() => onUpdateStatus(item.id, 'confirmed')}
+                      disabled={isUpdating}
+                    >
+                      <MaterialIcons name="check-circle" size={16} color="#FFFFFF" />
+                      <Text style={styles.actionBtnText}>{isUpdating ? 'Actualizando...' : 'Confirmar'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.actionBtnSecondary, { borderColor: theme.border }]}
+                      onPress={() => onUpdateStatus(item.id, 'cancelled')}
+                      disabled={isUpdating}
+                    >
+                      <MaterialIcons name="cancel" size={16} color={theme.textMuted} />
+                      <Text style={[styles.actionBtnSecondaryText, { color: theme.textSecondary }]}>Cancelar</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : statusRaw === 'confirmed' ? (
+                  <View style={styles.actionsGroup}>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, { backgroundColor: '#10B981' }]}
+                      onPress={() => onUpdateStatus(item.id, 'attended')}
+                      disabled={isUpdating}
+                    >
+                      <MaterialIcons name="done-all" size={16} color="#FFFFFF" />
+                      <Text style={styles.actionBtnText}>{isUpdating ? 'Actualizando...' : 'Atendido'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.actionBtnSecondary, { borderColor: theme.border }]}
+                      onPress={() => onUpdateStatus(item.id, 'cancelled')}
+                      disabled={isUpdating}
+                    >
+                      <MaterialIcons name="cancel" size={16} color={theme.textMuted} />
+                      <Text style={[styles.actionBtnSecondaryText, { color: theme.textSecondary }]}>Cancelar</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : statusRaw === 'cancelled' || statusRaw === 'absent' ? (
+                  <View style={styles.actionsGroup}>
+                    <TouchableOpacity
+                      style={[styles.actionBtnSecondary, { borderColor: theme.primary }]}
+                      onPress={() => onUpdateStatus(item.id, 'pending')}
+                      disabled={isUpdating}
+                    >
+                      <MaterialIcons name="restore" size={16} color={theme.primary} />
+                      <Text style={[styles.actionBtnSecondaryText, { color: theme.primary }]}>
+                        {isUpdating ? 'Reactivando...' : 'Reactivar Turno'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <View style={styles.completedRow}>
+                    <MaterialIcons name="check-circle" size={16} color="#10B981" />
+                    <Text style={[styles.completedText, { color: '#10B981' }]}>Sesión completada y atendida</Text>
+                  </View>
+                )}
               </View>
             </Card>
           );
@@ -576,6 +670,51 @@ const styles = StyleSheet.create({
   kineText: {
     fontSize: typography.fontSize.tiny,
     marginTop: 4
+  },
+  cardActions: {
+    marginTop: spacing.md,
+    paddingTop: spacing.sm + 2,
+    borderTopWidth: 1
+  },
+  actionsGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    borderRadius: radii.md
+  },
+  actionBtnText: {
+    color: '#FFFFFF',
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.semibold
+  },
+  actionBtnSecondary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    borderRadius: radii.md,
+    borderWidth: 1
+  },
+  actionBtnSecondaryText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium
+  },
+  completedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs
+  },
+  completedText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium
   },
   modalError: {
     padding: spacing.md,
