@@ -5,6 +5,37 @@ import { API_BASE_URL } from './config';
 const ACCESS_TOKEN_KEY = 'kine_access_token';
 const REFRESH_TOKEN_KEY = 'kine_refresh_token';
 
+const getStorageItem = async (key: string): Promise<string | null> => {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      return window.localStorage.getItem(key);
+    }
+    return await SecureStore.getItemAsync(key);
+  } catch {
+    return null;
+  }
+};
+
+const setStorageItem = async (key: string, value: string): Promise<void> => {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(key, value);
+      return;
+    }
+    await SecureStore.setItemAsync(key, value);
+  } catch {}
+};
+
+const deleteStorageItem = async (key: string): Promise<void> => {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.removeItem(key);
+      return;
+    }
+    await SecureStore.deleteItemAsync(key);
+  } catch {}
+};
+
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: {
@@ -16,7 +47,7 @@ export const apiClient = axios.create({
 // Interceptor para inyectar token de autorización
 apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   try {
-    const token = await SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
+    const token = await getStorageItem(ACCESS_TOKEN_KEY);
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -33,14 +64,14 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
       originalRequest._retry = true;
       try {
-        const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+        const refreshToken = await getStorageItem(REFRESH_TOKEN_KEY);
         if (refreshToken) {
           const res = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
           if (res.data?.success && res.data?.data?.accessToken) {
             const newAccessToken = res.data.data.accessToken;
-            await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, newAccessToken);
+            await setStorageItem(ACCESS_TOKEN_KEY, newAccessToken);
             if (res.data.data.refreshToken) {
-              await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, res.data.data.refreshToken);
+              await setStorageItem(REFRESH_TOKEN_KEY, res.data.data.refreshToken);
             }
             if (originalRequest.headers) {
               originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
@@ -49,9 +80,8 @@ apiClient.interceptors.response.use(
           }
         }
       } catch (refreshErr) {
-        // En caso de fallo en renovación, limpiar sesión
-        await SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY);
-        await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+        await deleteStorageItem(ACCESS_TOKEN_KEY);
+        await deleteStorageItem(REFRESH_TOKEN_KEY);
       }
     }
     return Promise.reject(error);
