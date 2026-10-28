@@ -22,5 +22,6 @@ paymentsRouter.use(authorizePermission('payments:manage'));
 paymentsRouter.post('/search', validate(paymentSearchSchema), asyncHandler((req, res, next) => paymentsController.search(req, res, next)));
 paymentsRouter.post('/detail', validate(paymentDetailSchema), asyncHandler((req, res, next) => paymentsController.detail(req, res, next)));
 paymentsRouter.post('/', validate(paymentCreateSchema), asyncHandler((req, res, next) => paymentsController.create(req, res, next)));
+paymentsRouter.post('/create', validate(paymentCreateSchema), asyncHandler((req, res, next) => paymentsController.create(req, res, next)));
 paymentsRouter.post('/consume-session', validate(sessionConsumeSchema), asyncHandler((req, res, next) => paymentsController.consumeSession(req, res, next)));
 paymentsRouter.post('/packages/search', validate(packageSearchSchema), asyncHandler((req, res, next) => paymentsController.searchPackages(req, res, next)));

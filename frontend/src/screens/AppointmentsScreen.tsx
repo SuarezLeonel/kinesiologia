@@ -82,7 +82,7 @@ export const AppointmentsScreen = () => {
   const onCreateAppointment = async (data: AppointmentFormData) => {
     setFormError(null);
     try {
-      const response = await apiClient.post('/appointments/create', data);
+      const response = await apiClient.post('/appointments', data);
       if (response.data?.success) {
         setModalVisible(false);
         reset();

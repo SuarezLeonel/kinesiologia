@@ -91,10 +91,13 @@ export const PatientsScreen = () => {
     setFormError(null);
     try {
       const payload = {
-        ...data,
-        email: data.email || null,
-        insurance_provider: data.insurance_provider || null,
-        insurance_number: data.insurance_number || null
+        firstName: data.first_name.trim(),
+        lastName: data.last_name.trim(),
+        dni: data.dni.trim(),
+        birthDate: data.birth_date.trim(),
+        phone: data.phone.trim(),
+        email: data.email?.trim() || undefined,
+        address: [data.insurance_provider, data.insurance_number].filter(Boolean).join(' - ') || undefined
       };
       const res = await apiClient.post('/patients', payload);
       if (res.data?.success) {

@@ -20,12 +20,47 @@ export const appointmentDetailSchema = z.object({
 
 export const appointmentCreateSchema = z.object({
   body: z.object({
-    patientId: z.number().int().positive(),
-    kinesiologistId: z.number().int().positive(),
-    serviceId: z.number().int().positive(),
-    startTime: z.string().datetime({ offset: true }).or(z.string().regex(/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/)),
-    endTime: z.string().datetime({ offset: true }).or(z.string().regex(/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/)),
-    notes: z.string().optional()
+    patientId: z.number().int().positive().optional(),
+    patient_id: z.number().int().positive().optional(),
+    kinesiologistId: z.number().int().positive().optional(),
+    kinesiologist_id: z.number().int().positive().optional(),
+    serviceId: z.number().int().positive().optional(),
+    service_id: z.number().int().positive().optional(),
+    startTime: z.string().optional(),
+    start_time: z.string().optional(),
+    endTime: z.string().optional(),
+    end_time: z.string().optional(),
+    scheduled_at: z.string().optional(),
+    duration_minutes: z.number().optional(),
+    durationMinutes: z.number().optional(),
+    notes: z.string().optional(),
+    reason: z.string().optional()
+  }).transform((val) => {
+    const patientId = val.patientId || val.patient_id;
+    const kinesiologistId = val.kinesiologistId || val.kinesiologist_id;
+    const serviceId = val.serviceId || val.service_id || 1;
+    let startTime = val.startTime || val.start_time || val.scheduled_at;
+    let endTime = val.endTime || val.end_time;
+    const duration = val.duration_minutes || val.durationMinutes || 45;
+
+    if (startTime && !endTime) {
+      const d = new Date(startTime.replace(' ', 'T'));
+      if (!isNaN(d.getTime())) {
+        const endD = new Date(d.getTime() + duration * 60000);
+        endTime = endD.toISOString().slice(0, 19).replace('T', ' ');
+      }
+    }
+
+    return {
+      patientId,
+      kinesiologistId,
+      serviceId,
+      startTime,
+      endTime: endTime || startTime,
+      notes: val.notes || val.reason
+    };
+  }).refine((val) => Boolean(val.patientId && val.kinesiologistId && val.serviceId && val.startTime), {
+    message: 'Paciente, profesional, prestación y horario son obligatorios'
   })
 });
 

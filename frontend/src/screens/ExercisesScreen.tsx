@@ -4,13 +4,29 @@ import {
   Text,
   StyleSheet,
   FlatList,
-  RefreshControl
+  RefreshControl,
+  TouchableOpacity
 } from 'react-native';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { MaterialIcons } from '@expo/vector-icons';
 import { apiClient } from '../api/client';
 import { useAppTheme } from '../theme/ThemeContext';
 import { spacing, radii, typography } from '../theme/tokens';
-import { Card, Badge, Button, Input, ScreenHeader, BadgeVariant } from '../components/ui';
+import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper, BadgeVariant } from '../components/ui';
 import { LoadingState, ErrorState, EmptyState } from '../components/FeedbackStates';
+
+const exerciseSchema = z.object({
+  name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
+  category: z.string().min(2, 'La categoría debe tener al menos 2 caracteres'),
+  description: z.string().min(2, 'La descripción debe tener al menos 2 caracteres'),
+  instructions: z.string().min(2, 'Las instrucciones deben tener al menos 2 caracteres'),
+  defaultSets: z.coerce.number().int().positive('Debe ser mayor a 0').optional().or(z.literal(0)),
+  defaultRepetitions: z.coerce.number().int().positive('Debe ser mayor a 0').optional().or(z.literal(0))
+});
+
+type ExerciseFormData = z.infer<typeof exerciseSchema>;
 
 export const ExercisesScreen = () => {
   const { theme } = useAppTheme();
@@ -19,6 +35,25 @@ export const ExercisesScreen = () => {
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const {
+    control,
+    handleSubmit,
+    reset,
+    formState: { errors: formErrors, isSubmitting }
+  } = useForm<ExerciseFormData>({
+    resolver: zodResolver(exerciseSchema) as any,
+    defaultValues: {
+      name: '',
+      category: 'Movilidad',
+      description: '',
+      instructions: '',
+      defaultSets: 3,
+      defaultRepetitions: 10
+    }
+  });
 
   const fetchExercises = async (search = '') => {
     try {
@@ -47,6 +82,28 @@ export const ExercisesScreen = () => {
     fetchExercises(searchTerm);
   };
 
+  const onCreateExercise = async (data: ExerciseFormData) => {
+    setFormError(null);
+    try {
+      const payload = {
+        name: data.name.trim(),
+        category: data.category.trim(),
+        description: data.description.trim(),
+        instructions: data.instructions.trim(),
+        defaultSets: data.defaultSets ? Number(data.defaultSets) : undefined,
+        defaultRepetitions: data.defaultRepetitions ? Number(data.defaultRepetitions) : undefined
+      };
+      const res = await apiClient.post('/exercises', payload);
+      if (res.data?.success) {
+        setModalVisible(false);
+        reset();
+        fetchExercises(searchTerm);
+      }
+    } catch (err: any) {
+      setFormError(err.response?.data?.error?.message || 'Error al registrar el ejercicio');
+    }
+  };
+
   const getDifficultyVariant = (diff?: string): BadgeVariant => {
     const d = String(diff || '').toLowerCase();
     switch (d) {
@@ -69,6 +126,24 @@ export const ExercisesScreen = () => {
       <ScreenHeader
         title="Catálogo de Ejercicios"
         subtitle="Protocolos de rehabilitación, movilidad y fortalecimiento"
+        action={
+          <Button
+            title="+ Nuevo Ejercicio"
+            onPress={() => {
+              setFormError(null);
+              reset({
+                name: '',
+                category: 'Movilidad',
+                description: '',
+                instructions: '',
+                defaultSets: 3,
+                defaultRepetitions: 10
+              });
+              setModalVisible(true);
+            }}
+            size="sm"
+          />
+        }
       />
 
       <View style={styles.searchRow}>
@@ -106,7 +181,7 @@ export const ExercisesScreen = () => {
         ListEmptyComponent={
           <EmptyState
             title="Sin ejercicios encontrados"
-            subtitle="Intenta con otro término de búsqueda o limpia el filtro."
+            subtitle="Intenta con otro término de búsqueda o registra un nuevo ejercicio."
           />
         }
         renderItem={({ item }) => (
@@ -120,19 +195,21 @@ export const ExercisesScreen = () => {
                       label={item.category}
                       variant="default"
                       size="sm"
+                      style={{ marginRight: spacing.xs }}
                     />
                   )}
-                  {item.target_body_part && (
+                  {item.target_muscle_zone && (
                     <Badge
-                      label={item.target_body_part}
-                      variant="neutral"
+                      label={item.target_muscle_zone}
+                      variant="info"
                       size="sm"
+                      style={{ marginRight: spacing.xs }}
                     />
                   )}
-                  {item.difficulty && (
+                  {item.difficulty_level && (
                     <Badge
-                      label={item.difficulty}
-                      variant={getDifficultyVariant(item.difficulty)}
+                      label={`Nivel: ${item.difficulty_level}`}
+                      variant={getDifficultyVariant(item.difficulty_level)}
                       size="sm"
                     />
                   )}
@@ -141,14 +218,14 @@ export const ExercisesScreen = () => {
             </View>
 
             {item.description ? (
-              <Text style={[styles.descText, { color: theme.textSecondary }]}>
+              <Text style={[styles.description, { color: theme.textSecondary }]}>
                 {item.description}
               </Text>
             ) : null}
 
             {item.instructions ? (
-              <View style={[styles.instructionsBox, { backgroundColor: theme.surfaceSubtle }]}>
-                <Text style={[styles.instructionsLabel, { color: theme.primary }]}>
+              <View style={[styles.instructionsBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <Text style={[styles.instructionsLabel, { color: theme.textSecondary }]}>
                   Indicaciones técnicas:
                 </Text>
                 <Text style={[styles.instructionsText, { color: theme.text }]}>
@@ -157,37 +234,173 @@ export const ExercisesScreen = () => {
               </View>
             ) : null}
 
-            {(item.default_sets || item.default_reps || item.default_hold_seconds) && (
-              <View style={styles.doseRow}>
-                <Text style={[styles.doseText, { color: theme.textSecondary }]}>
-                  Pauta sugerida:{' '}
-                  <Text style={{ fontWeight: typography.fontWeight.bold, color: theme.text }}>
-                    {item.default_sets ? `${item.default_sets} series` : ''}
-                    {item.default_reps ? ` × ${item.default_reps} reps` : ''}
-                    {item.default_hold_seconds ? ` (${item.default_hold_seconds}s de sostén)` : ''}
+            <View style={styles.cardFooter}>
+              <View style={styles.metricsRow}>
+                <View style={styles.metricItem}>
+                  <Text style={[styles.metricLabel, { color: theme.textMuted }]}>Series:</Text>
+                  <Text style={[styles.metricValue, { color: theme.text }]}>
+                    {item.default_sets || item.defaultSets || 3}
                   </Text>
-                </Text>
+                </View>
+                <View style={styles.metricItem}>
+                  <Text style={[styles.metricLabel, { color: theme.textMuted }]}>Reps:</Text>
+                  <Text style={[styles.metricValue, { color: theme.text }]}>
+                    {item.default_repetitions || item.defaultRepetitions || 10}
+                  </Text>
+                </View>
               </View>
-            )}
+            </View>
           </Card>
         )}
+        contentContainerStyle={styles.listContent}
       />
+
+      {/* Modal para Crear Ejercicio */}
+      <ModalWrapper
+        visible={modalVisible}
+        title="Nuevo Ejercicio Terapéutico"
+        onClose={() => setModalVisible(false)}
+        footer={
+          <>
+            <Button
+              title="Cancelar"
+              variant="secondary"
+              size="md"
+              onPress={() => setModalVisible(false)}
+            />
+            <Button
+              title="Guardar Ejercicio"
+              size="md"
+              loading={isSubmitting}
+              onPress={() => handleSubmit(onCreateExercise)()}
+            />
+          </>
+        }
+      >
+        {formError && (
+          <View style={[styles.formErrorBox, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
+            <MaterialIcons name="error-outline" size={18} color={theme.error} style={{ marginRight: spacing.xs }} />
+            <Text style={[styles.formErrorText, { color: theme.error }]}>{formError}</Text>
+          </View>
+        )}
+
+        <Controller
+          control={control}
+          name="name"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="Nombre del ejercicio"
+              value={value}
+              onChangeText={onChange}
+              placeholder="Ej: Puente de glúteos con banda"
+              error={formErrors.name?.message}
+              required
+            />
+          )}
+        />
+
+        <Controller
+          control={control}
+          name="category"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="Categoría o tipo"
+              value={value}
+              onChangeText={onChange}
+              placeholder="Movilidad / Fortalecimiento / Estiramiento / Lumbar"
+              error={formErrors.category?.message}
+              required
+            />
+          )}
+        />
+
+        <Controller
+          control={control}
+          name="description"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="Descripción del objetivo terapéutico"
+              value={value}
+              onChangeText={onChange}
+              placeholder="Objetivo, articulaciones involucradas y precauciones"
+              multiline
+              numberOfLines={2}
+              error={formErrors.description?.message}
+              required
+            />
+          )}
+        />
+
+        <Controller
+          control={control}
+          name="instructions"
+          render={({ field: { onChange, value } }) => (
+            <Input
+              label="Instrucciones paso a paso"
+              value={value}
+              onChangeText={onChange}
+              placeholder="Postura inicial, ejecución del movimiento y respiración"
+              multiline
+              numberOfLines={3}
+              error={formErrors.instructions?.message}
+              required
+            />
+          )}
+        />
+
+        <View style={styles.twoColRow}>
+          <View style={{ flex: 1, marginRight: spacing.sm }}>
+            <Controller
+              control={control}
+              name="defaultSets"
+              render={({ field: { onChange, value } }) => (
+                <Input
+                  label="Series por defecto"
+                  value={value !== undefined ? String(value) : '3'}
+                  onChangeText={onChange}
+                  keyboardType="numeric"
+                  placeholder="3"
+                />
+              )}
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Controller
+              control={control}
+              name="defaultRepetitions"
+              render={({ field: { onChange, value } }) => (
+                <Input
+                  label="Reps por defecto"
+                  value={value !== undefined ? String(value) : '10'}
+                  onChangeText={onChange}
+                  keyboardType="numeric"
+                  placeholder="10"
+                />
+              )}
+            />
+          </View>
+        </View>
+      </ModalWrapper>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    padding: spacing.xl
+    flex: 1
   },
   searchRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.lg
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+    alignItems: 'center'
   },
   searchInputContainer: {
     flex: 1
+  },
+  listContent: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xl
   },
   exerciseCard: {
     marginBottom: spacing.md
@@ -202,39 +415,77 @@ const styles = StyleSheet.create({
     flex: 1
   },
   exerciseName: {
-    fontSize: typography.fontSize.md,
-    fontWeight: typography.fontWeight.bold
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.semibold,
+    marginBottom: spacing.xs
   },
   badgeRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.xs,
-    marginTop: spacing.xs + 2
+    gap: spacing.xs
   },
-  descText: {
+  description: {
     fontSize: typography.fontSize.sm,
-    lineHeight: 18,
-    marginTop: spacing.xs
+    lineHeight: 20,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm
   },
   instructionsBox: {
     padding: spacing.md,
-    borderRadius: radii.md,
-    marginTop: spacing.md
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    marginBottom: spacing.md
   },
   instructionsLabel: {
     fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.bold,
-    marginBottom: 2
+    fontWeight: typography.fontWeight.semibold,
+    marginBottom: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5
   },
   instructionsText: {
-    fontSize: typography.fontSize.xs,
+    fontSize: typography.fontSize.sm,
     lineHeight: 18
   },
-  doseRow: {
-    marginTop: spacing.md,
-    paddingTop: spacing.xs
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.06)',
+    paddingTop: spacing.sm,
+    marginTop: spacing.xs
   },
-  doseText: {
+  metricsRow: {
+    flexDirection: 'row',
+    gap: spacing.md
+  },
+  metricItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs
+  },
+  metricLabel: {
     fontSize: typography.fontSize.xs
+  },
+  metricValue: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.semibold
+  },
+  formErrorBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    marginBottom: spacing.md
+  },
+  formErrorText: {
+    flex: 1,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium
+  },
+  twoColRow: {
+    flexDirection: 'row'
   }
 });

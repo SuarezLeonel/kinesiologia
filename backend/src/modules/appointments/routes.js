@@ -21,5 +21,6 @@ appointmentsRouter.use(authorizePermission('appointments:manage'));
 appointmentsRouter.post('/search', validate(appointmentSearchSchema), asyncHandler((req, res, next) => appointmentsController.search(req, res, next)));
 appointmentsRouter.post('/detail', validate(appointmentDetailSchema), asyncHandler((req, res, next) => appointmentsController.detail(req, res, next)));
 appointmentsRouter.post('/', validate(appointmentCreateSchema), asyncHandler((req, res, next) => appointmentsController.create(req, res, next)));
+appointmentsRouter.post('/create', validate(appointmentCreateSchema), asyncHandler((req, res, next) => appointmentsController.create(req, res, next)));
 appointmentsRouter.patch('/:id', validate(appointmentUpdateSchema), asyncHandler((req, res, next) => appointmentsController.update(req, res, next)));
 appointmentsRouter.delete('/:id', asyncHandler((req, res, next) => appointmentsController.delete(req, res, next)));

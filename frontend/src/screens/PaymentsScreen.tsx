@@ -86,7 +86,7 @@ export const PaymentsScreen = () => {
   const onCreatePayment = async (data: PaymentFormData) => {
     setFormError(null);
     try {
-      const response = await apiClient.post('/payments/create', data);
+      const response = await apiClient.post('/payments', data);
       if (response.data?.success) {
         setModalVisible(false);
         reset();
