@@ -27,20 +27,21 @@ const MainTabs = () => {
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
+        tabBarPosition: 'top',
         tabBarStyle: {
           backgroundColor: theme.surface,
-          borderTopColor: theme.border,
-          borderTopWidth: 1,
-          height: 60,
-          paddingBottom: spacing.sm,
-          paddingTop: spacing.xs + 2
+          borderBottomColor: theme.border,
+          borderBottomWidth: 1,
+          borderTopWidth: 0,
+          height: 52,
+          paddingVertical: spacing.xs
         },
         tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.textSecondary,
         tabBarLabelStyle: {
-          fontSize: typography.fontSize.tiny,
+          fontSize: typography.fontSize.sm,
           fontWeight: typography.fontWeight.semibold,
-          letterSpacing: 0.2
+          letterSpacing: 0.1
         }
       }}
     >
