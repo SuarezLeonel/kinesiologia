@@ -6,7 +6,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  TouchableOpacity
+  TouchableOpacity,
+  Linking
 } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -15,7 +16,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { apiClient } from '../api/client';
 import { useAppTheme } from '../theme/ThemeContext';
 import { spacing, radii, typography } from '../theme/tokens';
-import { Input, Button, Card, Badge } from '../components/ui';
+import { Input, Button, Card } from '../components/ui';
 
 const forgotSchema = z.object({
   email: z.string().email('Ingrese un correo electrónico válido')
@@ -23,7 +24,10 @@ const forgotSchema = z.object({
 
 const resetSchema = z
   .object({
-    token: z.string().min(1, 'El código o token de recuperación es requerido'),
+    token: z
+      .string()
+      .min(6, 'Ingrese el código de 6 dígitos recibido por correo')
+      .max(500, 'Código inválido'),
     newPassword: z.string().min(8, 'La nueva contraseña debe tener al menos 8 caracteres'),
     confirmPassword: z.string().min(1, 'Confirme la contraseña')
   })
@@ -40,9 +44,10 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
   const [step, setStep] = useState<'request' | 'reset' | 'success'>('request');
   const [serverMessage, setServerMessage] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
-  const [devToken, setDevToken] = useState<string | null>(null);
+  const [previewEmailUrl, setPreviewEmailUrl] = useState<string | null>(null);
+  const [targetEmail, setTargetEmail] = useState<string>('');
 
-  // Formulario Paso 1: Solicitud
+  // Formulario Paso 1: Solicitud de código
   const {
     control: requestControl,
     handleSubmit: handleRequestSubmit,
@@ -52,11 +57,10 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
     defaultValues: { email: '' }
   });
 
-  // Formulario Paso 2: Restablecimiento
+  // Formulario Paso 2: Restablecimiento con código y nueva contraseña
   const {
     control: resetControl,
     handleSubmit: handleResetSubmit,
-    setValue: setResetValue,
     formState: { errors: resetErrors, isSubmitting: isResetSubmitting }
   } = useForm<ResetFormData>({
     resolver: zodResolver(resetSchema),
@@ -66,18 +70,22 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
   const onRequestSubmit = async (data: ForgotFormData) => {
     setServerError(null);
     setServerMessage(null);
+    setPreviewEmailUrl(null);
+    setTargetEmail(data.email);
+
     try {
       const response = await apiClient.post('/auth/forgot-password', { email: data.email });
       if (response.data?.success) {
         setServerMessage(
-          response.data.message ||
-            'Si el correo electrónico existe en el sistema, se ha generado el enlace de restablecimiento.'
+          `Hemos enviado un correo a ${data.email} con su código de verificación para restablecer la contraseña.`
         );
-        const token = response.data?.data?.resetToken;
-        if (token) {
-          setDevToken(token);
-          setResetValue('token', token);
+
+        // Si se generó vista previa del correo (Ethereal o similar), permitir abrirlo
+        const preview = response.data?.data?.previewUrl;
+        if (preview) {
+          setPreviewEmailUrl(preview);
         }
+
         setStep('reset');
       } else {
         setServerError(response.data?.error?.message || 'Error al procesar la solicitud.');
@@ -94,19 +102,19 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
     setServerMessage(null);
     try {
       const response = await apiClient.post('/auth/reset-password', {
-        token: data.token,
+        token: data.token.trim(),
         newPassword: data.newPassword
       });
 
       if (response.data?.success) {
         setStep('success');
       } else {
-        setServerError(response.data?.error?.message || 'Token inválido o expirado.');
+        setServerError(response.data?.error?.message || 'El código es inválido o ha expirado.');
       }
     } catch (err: any) {
       setServerError(
         err.response?.data?.error?.message ||
-          'El código de recuperación es inválido o ya ha sido utilizado.'
+          'El código de recuperación es inválido, ya fue utilizado o ha expirado.'
       );
     }
   };
@@ -131,7 +139,7 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
           </View>
           <Text style={[styles.brandTitle, { color: theme.text }]}>Recuperar Contraseña</Text>
           <Text style={[styles.brandSubtitle, { color: theme.textSecondary }]}>
-            Gestión segura de credenciales de acceso
+            Restablecimiento seguro de credenciales de acceso
           </Text>
         </View>
 
@@ -144,16 +152,27 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                   { backgroundColor: theme.primaryLight, borderColor: theme.primary + '40' }
                 ]}
               >
-                <MaterialIcons name="check-circle" size={40} color={theme.primary} />
+                <MaterialIcons name="check-circle" size={42} color={theme.primary} />
               </View>
               <Text style={[styles.cardTitle, { color: theme.text, textAlign: 'center' }]}>
-                Contraseña restablecida
+                Contraseña actualizada
               </Text>
-              <Text style={[styles.cardSubtitle, { color: theme.textSecondary, textAlign: 'center', marginBottom: spacing.xl }]}>
-                Su contraseña ha sido actualizada con éxito. Ya puede iniciar sesión con sus nuevas credenciales.
+              <Text
+                style={[
+                  styles.cardSubtitle,
+                  {
+                    color: theme.textSecondary,
+                    textAlign: 'center',
+                    marginBottom: spacing.xl,
+                    lineHeight: 22
+                  }
+                ]}
+              >
+                Su contraseña ha sido modificada correctamente. Ya puede acceder al sistema con su
+                nueva clave.
               </Text>
               <Button
-                title="Ir a Iniciar Sesión"
+                title="Iniciar Sesión"
                 onPress={() => navigation.navigate('Login')}
                 size="lg"
                 style={{ width: '100%' }}
@@ -161,8 +180,13 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
             </View>
           ) : (
             <>
-              {/* Selector de modo / paso */}
-              <View style={[styles.stepTabs, { backgroundColor: theme.background, borderColor: theme.border }]}>
+              {/* Selector de pestañas */}
+              <View
+                style={[
+                  styles.stepTabs,
+                  { backgroundColor: theme.background, borderColor: theme.border }
+                ]}
+              >
                 <TouchableOpacity
                   style={[
                     styles.stepTab,
@@ -199,7 +223,7 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                       { color: step === 'reset' ? theme.primary : theme.textSecondary }
                     ]}
                   >
-                    2. Restablecer
+                    2. Ingresar código
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -211,7 +235,12 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                     { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }
                   ]}
                 >
-                  <MaterialIcons name="error-outline" size={18} color={theme.error} style={{ marginRight: spacing.xs }} />
+                  <MaterialIcons
+                    name="error-outline"
+                    size={18}
+                    color={theme.error}
+                    style={{ marginRight: spacing.xs }}
+                  />
                   <Text style={[styles.bannerText, { color: theme.error }]}>{serverError}</Text>
                 </View>
               )}
@@ -223,27 +252,48 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                     { backgroundColor: theme.primaryLight, borderColor: theme.primary + '40' }
                   ]}
                 >
-                  <MaterialIcons name="check" size={18} color={theme.primary} style={{ marginRight: spacing.xs }} />
+                  <MaterialIcons
+                    name="mark-email-read"
+                    size={20}
+                    color={theme.primary}
+                    style={{ marginRight: spacing.xs }}
+                  />
                   <Text style={[styles.bannerText, { color: theme.primary }]}>{serverMessage}</Text>
                 </View>
               )}
 
-              {devToken && step === 'reset' && (
-                <View style={[styles.devNotice, { backgroundColor: theme.background, borderColor: theme.border }]}>
-                  <View style={styles.devNoticeHeader}>
-                    <Badge label="Entorno de Desarrollo" variant="info" size="sm" />
-                  </View>
-                  <Text style={[styles.devNoticeText, { color: theme.textSecondary }]}>
-                    Token autocompletado en el formulario para pruebas rápidas.
+              {previewEmailUrl && step === 'reset' && (
+                <TouchableOpacity
+                  style={[
+                    styles.previewEmailBox,
+                    { backgroundColor: theme.surface, borderColor: theme.primary + '40' }
+                  ]}
+                  onPress={() => Linking.openURL(previewEmailUrl)}
+                  accessibilityRole="link"
+                >
+                  <MaterialIcons
+                    name="open-in-new"
+                    size={16}
+                    color={theme.primary}
+                    style={{ marginRight: spacing.xs }}
+                  />
+                  <Text style={[styles.previewEmailText, { color: theme.primary }]}>
+                    Ver correo enviado en bandeja de prueba (Ethereal)
                   </Text>
-                </View>
+                </TouchableOpacity>
               )}
 
               {step === 'request' ? (
                 /* PASO 1: Ingreso de correo */
                 <View>
-                  <Text style={[styles.cardSubtitle, { color: theme.textSecondary, marginBottom: spacing.lg }]}>
-                    Ingrese el correo electrónico registrado con su cuenta para recibir las instrucciones de recuperación.
+                  <Text
+                    style={[
+                      styles.cardSubtitle,
+                      { color: theme.textSecondary, marginBottom: spacing.lg }
+                    ]}
+                  >
+                    Ingrese su correo electrónico registrado para recibir el código de verificación
+                    de 6 dígitos.
                   </Text>
 
                   <Controller
@@ -251,7 +301,7 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                     name="email"
                     render={({ field: { onChange, onBlur, value } }) => (
                       <Input
-                        label="Correo electrónico registrado"
+                        label="Correo electrónico"
                         placeholder="profesional@kinesiologia.com"
                         value={value}
                         onChangeText={onChange}
@@ -266,7 +316,7 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                   />
 
                   <Button
-                    title="Enviar instrucciones"
+                    title="Enviar código de verificación"
                     onPress={() => handleRequestSubmit(onRequestSubmit)()}
                     loading={isRequestSubmitting}
                     size="lg"
@@ -274,10 +324,17 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                   />
                 </View>
               ) : (
-                /* PASO 2: Restablecer contraseña con token */
+                /* PASO 2: Ingreso de código de 6 dígitos y nueva contraseña */
                 <View>
-                  <Text style={[styles.cardSubtitle, { color: theme.textSecondary, marginBottom: spacing.lg }]}>
-                    Pegue el token de seguridad recibido e ingrese su nueva clave de acceso.
+                  <Text
+                    style={[
+                      styles.cardSubtitle,
+                      { color: theme.textSecondary, marginBottom: spacing.lg }
+                    ]}
+                  >
+                    {targetEmail
+                      ? `Ingrese el código de 6 dígitos enviado a ${targetEmail} y su nueva contraseña.`
+                      : 'Ingrese el código de verificación recibido por correo electrónico y su nueva contraseña.'}
                   </Text>
 
                   <Controller
@@ -285,13 +342,15 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                     name="token"
                     render={({ field: { onChange, onBlur, value } }) => (
                       <Input
-                        label="Token o código de recuperación"
-                        placeholder="Pegue aquí el token recibido"
+                        label="Código de verificación (6 dígitos)"
+                        placeholder="Ej: 123456"
                         value={value}
                         onChangeText={onChange}
                         onBlur={onBlur}
                         error={resetErrors.token?.message}
                         autoCapitalize="none"
+                        keyboardType="number-pad"
+                        maxLength={500}
                         required
                       />
                     )}
@@ -332,7 +391,7 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                   />
 
                   <Button
-                    title="Guardar nueva contraseña"
+                    title="Actualizar contraseña"
                     onPress={() => handleResetSubmit(onResetSubmit)()}
                     loading={isResetSubmitting}
                     size="lg"
@@ -350,7 +409,12 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
               style={styles.backLink}
               accessibilityRole="button"
             >
-              <MaterialIcons name="arrow-back" size={16} color={theme.primary} style={{ marginRight: spacing.xs }} />
+              <MaterialIcons
+                name="arrow-back"
+                size={16}
+                color={theme.primary}
+                style={{ marginRight: spacing.xs }}
+              />
               <Text style={[styles.backLinkText, { color: theme.primary }]}>
                 Volver a Iniciar Sesión
               </Text>
@@ -443,20 +507,21 @@ const styles = StyleSheet.create({
   bannerText: {
     flex: 1,
     fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.medium
+    fontWeight: typography.fontWeight.medium,
+    lineHeight: 18
   },
-  devNotice: {
+  previewEmailBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     padding: spacing.sm + 2,
-    borderRadius: radii.sm,
+    borderRadius: radii.md,
     borderWidth: 1,
     marginBottom: spacing.md
   },
-  devNoticeHeader: {
-    flexDirection: 'row',
-    marginBottom: spacing.xs
-  },
-  devNoticeText: {
-    fontSize: typography.fontSize.xs
+  previewEmailText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.semibold
   },
   successContainer: {
     alignItems: 'center',

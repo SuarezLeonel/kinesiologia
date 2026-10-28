@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { config } from '../../config/env.js';
 import { authRepository } from './repository.js';
+import { emailService } from '../../services/emailService.js';
 import { AppError, UnauthorizedError, ConflictError } from '../../utils/errors.js';
 
 export class AuthService {
@@ -105,62 +106,101 @@ export class AuthService {
       return { sent: true };
     }
 
-    // Generar token criptográfico firmado con secreto dedicado para reseteo
+    // 1. Generar código numérico de 6 dígitos para ingreso en la app
+    const resetCode = crypto.randomInt(100000, 999999).toString();
+    const codeHash = crypto.createHash('sha256').update(resetCode).digest('hex');
+
+    // 2. Generar token criptográfico firmado con secreto dedicado para enlace
     const resetToken = jwt.sign(
       { type: 'password_reset', userId: user.id },
       config.jwt.resetSecret,
       { expiresIn: config.jwt.resetExpiresIn, jwtid: crypto.randomUUID() }
     );
-
     const tokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
     const expiresAt = new Date(jwt.decode(resetToken).exp * 1000);
 
+    // Guardar ambos en la base de datos vinculados al usuario
+    await authRepository.savePasswordResetToken({
+      userId: user.id,
+      tokenHash: codeHash,
+      expiresAt
+    });
     await authRepository.savePasswordResetToken({
       userId: user.id,
       tokenHash,
       expiresAt
     });
 
-    // En producción se enviaría email; en desarrollo se retorna el token para pruebas
-    return { sent: true, resetToken: config.nodeEnv === 'development' ? resetToken : undefined };
+    // Enviar correo electrónico real (o vía Ethereal si no hay SMTP configurado)
+    const emailResult = await emailService.sendPasswordResetEmail({
+      to: user.email,
+      name: `${user.name} ${user.last_name || ''}`.trim(),
+      resetCode,
+      resetToken
+    });
+
+    return {
+      sent: true,
+      emailSent: emailResult.success,
+      previewUrl: emailResult.previewUrl,
+      // Para pruebas automatizadas de integración
+      resetToken: config.nodeEnv !== 'production' ? resetToken : undefined
+    };
   }
 
   async resetPassword({ token, newPassword, ipAddress = null }) {
-    let payload;
-    try {
-      payload = jwt.verify(token, config.jwt.resetSecret);
-      if (payload.type !== 'password_reset' || !payload.userId) {
-        throw new Error();
+    const cleanToken = String(token || '').trim();
+    let userId = null;
+    let tokenHashToInvalidate = null;
+
+    // Caso A: Código de 6 dígitos numéricos
+    if (/^\d{6}$/.test(cleanToken)) {
+      const codeHash = crypto.createHash('sha256').update(cleanToken).digest('hex');
+      const stored = await authRepository.findPasswordResetToken(codeHash);
+      if (!stored || stored.used_at || new Date(stored.expires_at) < new Date()) {
+        throw new UnauthorizedError('El código de verificación es inválido, ya fue utilizado o ha expirado');
       }
-    } catch {
-      throw new UnauthorizedError('Token de restablecimiento inválido o expirado');
-    }
+      userId = stored.user_id;
+      tokenHashToInvalidate = codeHash;
+    } else {
+      // Caso B: Token JWT firmado
+      try {
+        const payload = jwt.verify(cleanToken, config.jwt.resetSecret);
+        if (payload.type !== 'password_reset' || !payload.userId) {
+          throw new Error();
+        }
+        userId = payload.userId;
+      } catch {
+        throw new UnauthorizedError('Token de restablecimiento inválido o expirado');
+      }
 
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-    const stored = await authRepository.findPasswordResetToken(tokenHash);
+      const tokenHash = crypto.createHash('sha256').update(cleanToken).digest('hex');
+      const stored = await authRepository.findPasswordResetToken(tokenHash);
 
-    if (!stored || stored.used_at || new Date(stored.expires_at) < new Date()) {
-      throw new UnauthorizedError('El token de restablecimiento ya ha sido utilizado o ha expirado');
+      if (!stored || stored.used_at || new Date(stored.expires_at) < new Date()) {
+        throw new UnauthorizedError('El token de restablecimiento ya ha sido utilizado o ha expirado');
+      }
+      tokenHashToInvalidate = tokenHash;
     }
 
     // Invalidar token de un solo uso
-    await authRepository.markPasswordResetTokenUsed(tokenHash);
+    await authRepository.markPasswordResetTokenUsed(tokenHashToInvalidate);
 
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(newPassword, salt);
 
     // Actualizar contraseña y revocar sesiones previas
     const { query } = await import('../../config/database.js');
-    await query('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, payload.userId]);
-    await authRepository.revokeAllUserRefreshTokens(payload.userId);
+    await query('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, userId]);
+    await authRepository.revokeAllUserRefreshTokens(userId);
 
     // Registrar en auditoría
     const { logAudit } = await import('../../utils/auditLogger.js');
     await logAudit({
-      userId: payload.userId,
+      userId,
       action: 'PASSWORD_RESET',
       entityType: 'user',
-      entityId: payload.userId,
+      entityId: userId,
       ipAddress
     });
 

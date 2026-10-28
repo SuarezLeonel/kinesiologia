@@ -39,5 +39,14 @@ export const config = {
       ? process.env.JWT_RESET_SECRET
       : crypto.createHash('sha256').update((process.env.JWT_ACCESS_SECRET || '') + ':reset:dedicated').digest('hex'),
     resetExpiresIn: process.env.JWT_RESET_EXPIRES_IN || '15m'
+  },
+  email: {
+    host: process.env.SMTP_HOST || null,
+    port: parseInt(process.env.SMTP_PORT || '587', 10),
+    secure: process.env.SMTP_SECURE === 'true',
+    user: process.env.SMTP_USER || null,
+    pass: process.env.SMTP_PASS || null,
+    from: process.env.SMTP_FROM || '"KinesioGestión" <no-reply@kinesiologia.com>',
+    appUrl: process.env.APP_URL || 'http://localhost:8081'
   }
 };
