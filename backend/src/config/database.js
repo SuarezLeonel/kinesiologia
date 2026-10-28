@@ -14,7 +14,8 @@ export function getPool() {
       waitForConnections: true,
       connectionLimit: config.db.connectionLimit,
       queueLimit: 0,
-      decimalNumbers: true
+      decimalNumbers: true,
+      ssl: config.db.ssl
     });
   }
   return pool;

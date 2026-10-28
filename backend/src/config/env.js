@@ -12,7 +12,8 @@ export const config = {
     user: process.env.DB_USER || 'root',
     password: process.env.DB_PASSWORD || '',
     database: process.env.DB_NAME || 'kinesiologia_db',
-    connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT || '10', 10)
+    connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT || '10', 10),
+    ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: true } : false
   },
   jwt: {
     accessSecret: process.env.JWT_ACCESS_SECRET || 'default_access_secret_change_in_production',
