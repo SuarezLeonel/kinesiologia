@@ -75,7 +75,8 @@ export const Input: React.FC<InputProps> = ({
           styles.inputWrapper,
           {
             backgroundColor: theme.surface,
-            borderColor
+            borderColor,
+            minHeight: multiline ? (numberOfLines ? numberOfLines * 24 + 16 : 80) : controlHeights.md
           }
         ]}
       >
@@ -152,7 +153,7 @@ const styles = StyleSheet.create({
   },
   iconButton: {
     paddingHorizontal: spacing.md,
-    height: '100%',
+    height: controlHeights.md,
     justifyContent: 'center',
     alignItems: 'center'
   },

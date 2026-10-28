@@ -2,9 +2,11 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { config } from '../../config/env.js';
+import { executeTransaction } from '../../config/database.js';
 import { authRepository } from './repository.js';
 import { emailService } from '../../services/emailService.js';
 import { AppError, UnauthorizedError, ConflictError } from '../../utils/errors.js';
+import { logAudit } from '../../utils/auditLogger.js';
 
 export class AuthService {
   async register({ name, lastName, email, password, phone }) {
@@ -207,8 +209,212 @@ export class AuthService {
     return { success: true, message: 'Contraseña actualizada con éxito' };
   }
 
-  async socialAuth({ provider, idToken: _idToken }) {
-    // Si no hay credenciales de proveedores configuradas, no simular la integración
+  // ==========================================
+  // Registro e Inicio de Sesión de Pacientes
+  // ==========================================
+
+  async registerPatient({ email, password, firstName, lastName, phone, dni, birthDate }, { ipAddress, userAgent } = {}) {
+    const normalizedEmail = email.toLowerCase().trim();
+    const existingUser = await authRepository.findUserByEmail(normalizedEmail);
+    if (existingUser) {
+      throw new ConflictError('Ya existe una cuenta de usuario con ese correo electrónico');
+    }
+
+    const patientRole = await authRepository.findRoleByName('patient');
+    if (!patientRole) {
+      throw new AppError('Rol de paciente no configurado', 500);
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password, salt);
+
+    const { userId, patientId, linkedToExistingPatient } = await executeTransaction(async (conn) => {
+      // 1. Crear usuario estrictamente con rol patient y activo
+      const [uRes] = await conn.execute(`
+        INSERT INTO users (role_id, name, last_name, email, password_hash, phone, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, 1)
+      `, [patientRole.id, firstName.trim(), lastName.trim(), normalizedEmail, passwordHash, phone?.trim() || null]);
+
+      const userId = uRes.insertId;
+
+      // 2. Comprobación segura de ficha de paciente existente
+      // Caso A: Existe una única ficha previa con este email no vinculada (user_id IS NULL)
+      const [pByEmail] = await conn.execute(`
+        SELECT id, user_id, dni FROM patients WHERE email = ? AND is_active = 1 FOR UPDATE
+      `, [normalizedEmail]);
+
+      let patientId = null;
+
+      if (pByEmail.length === 1 && pByEmail[0].user_id === null) {
+        patientId = pByEmail[0].id;
+        await conn.execute('UPDATE patients SET user_id = ? WHERE id = ?', [userId, patientId]);
+      } else if (pByEmail.length === 0) {
+        // Caso B: No existe por email. Si envió DNI, comprobar si ya existe ficha con ese DNI
+        if (dni) {
+          const [pByDni] = await conn.execute(`
+            SELECT id, user_id FROM patients WHERE dni = ? AND is_active = 1 FOR UPDATE
+          `, [dni.trim()]);
+          if (pByDni.length > 0) {
+            if (pByDni[0].user_id !== null) {
+              throw new ConflictError('El documento de identidad ingresado ya se encuentra vinculado a otra cuenta');
+            }
+            patientId = pByDni[0].id;
+            await conn.execute('UPDATE patients SET user_id = ?, email = COALESCE(email, ?) WHERE id = ?', [userId, normalizedEmail, patientId]);
+          }
+        }
+
+        // Si aún no hay ficha, se crea la nueva ficha para el paciente
+        if (!patientId) {
+          const patientDni = dni?.trim() || `P-${Date.now().toString().slice(-8)}`;
+          const patientBirth = birthDate || '2000-01-01';
+          const [newP] = await conn.execute(`
+            INSERT INTO patients (first_name, last_name, dni, birth_date, phone, email, user_id, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+          `, [firstName.trim(), lastName.trim(), patientDni, patientBirth, phone?.trim() || '', normalizedEmail, userId]);
+          patientId = newP.insertId;
+        }
+      } else {
+        // Caso C: Hay ambigüedad o la ficha ya pertenece a otra cuenta.
+        // No se vincula automáticamente para proteger los datos de salud.
+      }
+
+      return { userId, patientId, linkedToExistingPatient: Boolean(patientId && pByEmail.length === 1) };
+    });
+
+    await logAudit({
+      userId,
+      action: 'PATIENT_ACCOUNT_REGISTERED',
+      entityType: 'user',
+      entityId: userId,
+      ipAddress,
+      details: { patientId, linked: Boolean(patientId) }
+    });
+
+    const user = await authRepository.findUserById(userId);
+    const tokens = await this._generateTokens(user, ipAddress, userAgent);
+    const { password_hash, ...safeUser } = user;
+    return { user: { ...safeUser, patientId }, tokens, linkedToExistingPatient, patientId };
+  }
+
+  async verifyGoogleToken(idToken) {
+    if (!idToken || typeof idToken !== 'string') {
+      throw new UnauthorizedError('Token de Google inválido');
+    }
+    try {
+      const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
+      if (!res.ok) {
+        throw new Error('Google tokeninfo invalid response');
+      }
+      const data = await res.json();
+      if (!data.sub || !data.email) {
+        throw new Error('Google token missing sub or email');
+      }
+      const isVerified = data.email_verified === 'true' || data.email_verified === true;
+      if (!isVerified) {
+        throw new UnauthorizedError('El correo electrónico de Google no está verificado');
+      }
+      return {
+        sub: data.sub,
+        email: data.email.toLowerCase().trim(),
+        firstName: data.given_name || data.name || 'Paciente',
+        lastName: data.family_name || 'Google'
+      };
+    } catch (err) {
+      throw new UnauthorizedError('Token de autenticación de Google inválido o no verificado');
+    }
+  }
+
+  async googleLogin({ idToken, ipAddress, userAgent }) {
+    const googleUser = await this.verifyGoogleToken(idToken);
+    const { sub, email, firstName, lastName } = googleUser;
+
+    const patientRole = await authRepository.findRoleByName('patient');
+    if (!patientRole) {
+      throw new AppError('Rol de paciente no configurado', 500);
+    }
+
+    const { userId, patientId } = await executeTransaction(async (conn) => {
+      // 1. Buscar vinculación social existente
+      const [socialRows] = await conn.execute(`
+        SELECT user_id FROM social_accounts WHERE provider = 'google' AND provider_user_id = ?
+      `, [sub]);
+
+      let userId;
+      if (socialRows.length > 0) {
+        userId = socialRows[0].user_id;
+      } else {
+        // 2. Buscar si ya existe usuario con este email
+        const [userRows] = await conn.execute(`
+          SELECT id, is_active FROM users WHERE email = ?
+        `, [email]);
+
+        if (userRows.length > 0) {
+          userId = userRows[0].id;
+          await conn.execute(`
+            INSERT IGNORE INTO social_accounts (user_id, provider, provider_user_id) VALUES (?, 'google', ?)
+          `, [userId, sub]);
+        } else {
+          // 3. Crear nuevo usuario paciente con contraseña segura no adivinable
+          const randomSecret = crypto.randomBytes(32).toString('hex');
+          const passwordHash = await bcrypt.hash(randomSecret, 10);
+          const [newUser] = await conn.execute(`
+            INSERT INTO users (role_id, name, last_name, email, password_hash, is_active)
+            VALUES (?, ?, ?, ?, ?, 1)
+          `, [patientRole.id, firstName, lastName, email, passwordHash]);
+          userId = newUser.insertId;
+
+          await conn.execute(`
+            INSERT INTO social_accounts (user_id, provider, provider_user_id) VALUES (?, 'google', ?)
+          `, [userId, sub]);
+
+          // Comprobar ficha de paciente existente por email seguro
+          const [patientRows] = await conn.execute(`
+            SELECT id, user_id FROM patients WHERE email = ? AND is_active = 1 FOR UPDATE
+          `, [email]);
+
+          if (patientRows.length === 1 && patientRows[0].user_id === null) {
+            await conn.execute('UPDATE patients SET user_id = ? WHERE id = ?', [userId, patientRows[0].id]);
+          } else if (patientRows.length === 0) {
+            const fallbackDni = `G-${Date.now().toString().slice(-8)}`;
+            await conn.execute(`
+              INSERT INTO patients (first_name, last_name, dni, birth_date, phone, email, user_id, is_active)
+              VALUES (?, ?, ?, '2000-01-01', '', ?, ?, 1)
+            `, [firstName, lastName, fallbackDni, email, userId]);
+          }
+        }
+      }
+
+      let patientId = null;
+      const [pRows] = await conn.execute('SELECT id FROM patients WHERE user_id = ? AND is_active = 1 LIMIT 1', [userId]);
+      if (pRows.length > 0) {
+        patientId = pRows[0].id;
+      }
+
+      return { userId, patientId };
+    });
+
+    const user = await authRepository.findUserById(userId);
+    if (!user || !user.is_active) {
+      throw new UnauthorizedError('La cuenta se encuentra inactiva o suspendida');
+    }
+
+    await logAudit({
+      userId,
+      action: 'GOOGLE_LOGIN_SUCCESS',
+      entityType: 'user',
+      entityId: userId,
+      ipAddress
+    });
+
+    const tokens = await this._generateTokens(user, ipAddress, userAgent);
+    const { password_hash, ...safeUser } = user;
+    return { user: { ...safeUser, patientId }, tokens, patientId };
+  }
+
+  async socialAuth({ provider, idToken }) {
+    if (provider === 'google') {
+      return await this.googleLogin({ idToken });
+    }
     throw new AppError(`El proveedor OAuth ${provider} requiere credenciales activas del cliente en backend/.env`, 501, 'NOT_IMPLEMENTED');
   }
 

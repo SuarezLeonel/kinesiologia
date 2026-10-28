@@ -58,3 +58,10 @@ export const patientUpdateSchema = z.object({
     isActive: z.boolean().optional()
   })
 });
+
+export const patientCheckDuplicateSchema = z.object({
+  body: z.object({
+    dni: z.string().optional(),
+    email: z.string().optional()
+  })
+});

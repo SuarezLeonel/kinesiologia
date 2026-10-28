@@ -47,6 +47,28 @@ export class AppointmentsController {
       next(error);
     }
   }
+
+  async getRescheduleRequests(req, res, next) {
+    try {
+      const requests = await appointmentsService.getRescheduleRequests(req.body);
+      return sendSuccess(res, requests);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async respondRescheduleRequest(req, res, next) {
+    try {
+      const result = await appointmentsService.respondRescheduleRequest(
+        req.body.requestId,
+        { approved: req.body.approved, responseNotes: req.body.responseNotes },
+        req.user
+      );
+      return sendSuccess(res, result, req.body.approved ? 'Reprogramación aprobada y turno actualizado' : 'Reprogramación rechazada');
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const appointmentsController = new AppointmentsController();

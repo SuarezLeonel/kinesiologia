@@ -1,15 +1,17 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { apiClient } from '../api/client';
+import { API_BASE_URL } from '../api/config';
 
-export type UserRole = 'admin' | 'kinesiologo' | 'recepcionista';
+export type UserRole = 'admin' | 'kinesiologo' | 'recepcionista' | 'paciente';
 
 export const normalizeRole = (rawRole?: string): UserRole => {
-  if (!rawRole) return 'recepcionista'; // Menor privilegio por defecto
+  if (!rawRole) return 'recepcionista';
   const lower = String(rawRole).toLowerCase();
   if (lower === 'admin') return 'admin';
   if (lower === 'kinesiologo' || lower === 'kinesiologist') return 'kinesiologo';
   if (lower === 'recepcionista' || lower === 'receptionist') return 'recepcionista';
+  if (lower === 'paciente' || lower === 'patient') return 'paciente';
   return 'recepcionista';
 };
 
@@ -21,6 +23,17 @@ export interface User {
   email: string;
   role: UserRole;
   role_name?: string;
+  patientId?: number;
+}
+
+export interface RegisterPatientPayload {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  phone?: string;
+  dni?: string;
+  birthDate?: string;
 }
 
 interface AuthContextType {
@@ -29,7 +42,10 @@ interface AuthContextType {
   isAdmin: boolean;
   isKinesiologist: boolean;
   isReceptionist: boolean;
+  isPatient: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  registerPatient: (data: RegisterPatientPayload) => Promise<{ success: boolean; error?: string; linkedToExistingPatient?: boolean; message?: string }>;
+  googleLogin: (idToken: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
 }
 
@@ -114,7 +130,69 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       return { success: false, error: response.data?.error?.message || 'Error al iniciar sesión' };
     } catch (err: any) {
-      const msg = err.response?.data?.error?.message || 'No se pudo conectar con el servidor';
+      const isNetworkErr = err.code === 'ERR_NETWORK' || err.message === 'Network Error' || !err.response;
+      const msg = err.response?.data?.error?.message ||
+        (isNetworkErr
+          ? `Error de red al conectar con el servidor (${API_BASE_URL}). Asegúrese de que el celular y la PC estén en la misma red Wi-Fi.`
+          : err.message || 'No se pudo conectar con el servidor');
+      return { success: false, error: msg };
+    }
+  };
+
+  const registerPatient = async (data: RegisterPatientPayload) => {
+    try {
+      const response = await apiClient.post('/auth/register-patient', data);
+      if (response.data?.success) {
+        const { user: rawUser, tokens, linkedToExistingPatient } = response.data.data;
+        const normalizedUser: User = {
+          ...rawUser,
+          role: normalizeRole(rawUser.role || rawUser.role_name),
+          lastName: rawUser.lastName || rawUser.last_name || '',
+          patientId: response.data.data.patientId
+        };
+        if (tokens?.accessToken) {
+          await storage.setItem(ACCESS_TOKEN_KEY, tokens.accessToken);
+          await storage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
+          await storage.setItem(USER_STORAGE_KEY, JSON.stringify(normalizedUser));
+          setUser(normalizedUser);
+        }
+        return {
+          success: true,
+          linkedToExistingPatient,
+          message: linkedToExistingPatient
+            ? '¡Tu cuenta ha sido vinculada con éxito a tu ficha médica existente!'
+            : 'Tu cuenta de paciente ha sido creada exitosamente.'
+        };
+      }
+      return { success: false, error: response.data?.error?.message || 'Error al registrar paciente' };
+    } catch (err: any) {
+      const msg = err.response?.data?.error?.message || 'No se pudo procesar el registro';
+      return { success: false, error: msg };
+    }
+  };
+
+  const googleLogin = async (idToken: string) => {
+    try {
+      const response = await apiClient.post('/auth/google', { idToken });
+      if (response.data?.success) {
+        const { user: rawUser, tokens, patientId } = response.data.data;
+        const normalizedUser: User = {
+          ...rawUser,
+          role: normalizeRole(rawUser.role || rawUser.role_name),
+          lastName: rawUser.lastName || rawUser.last_name || '',
+          patientId
+        };
+        if (tokens?.accessToken) {
+          await storage.setItem(ACCESS_TOKEN_KEY, tokens.accessToken);
+          await storage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
+          await storage.setItem(USER_STORAGE_KEY, JSON.stringify(normalizedUser));
+          setUser(normalizedUser);
+        }
+        return { success: true };
+      }
+      return { success: false, error: response.data?.error?.message || 'Error al autenticar con Google' };
+    } catch (err: any) {
+      const msg = err.response?.data?.error?.message || 'Error al conectar con Google';
       return { success: false, error: msg };
     }
   };
@@ -137,9 +215,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isAdmin = user?.role === 'admin';
   const isKinesiologist = user?.role === 'kinesiologo';
   const isReceptionist = user?.role === 'recepcionista';
+  const isPatient = user?.role === 'paciente';
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, isAdmin, isKinesiologist, isReceptionist, login, logout }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isLoading,
+        isAdmin,
+        isKinesiologist,
+        isReceptionist,
+        isPatient,
+        login,
+        registerPatient,
+        googleLogin,
+        logout
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

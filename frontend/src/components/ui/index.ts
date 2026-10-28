@@ -4,3 +4,4 @@ export * from './Card';
 export * from './Input';
 export * from './ScreenHeader';
 export * from './ModalWrapper';
+export * from './DateInput';

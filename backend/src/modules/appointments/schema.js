@@ -57,7 +57,8 @@ export const appointmentCreateSchema = z.object({
       serviceId,
       startTime,
       endTime: endTime || startTime,
-      notes: val.notes || val.reason
+      notes: val.notes || val.reason,
+      agreedPrice: val.agreedPrice || val.agreed_price
     };
   }).refine((val) => Boolean(val.patientId && val.kinesiologistId && val.serviceId && val.startTime), {
     message: 'Paciente, profesional, prestación y horario son obligatorios'
@@ -75,4 +76,26 @@ export const appointmentUpdateSchema = z.object({
     notes: z.string().optional(),
     reason: z.string().optional()
   })
+});
+
+export const rescheduleRequestsSearchSchema = z.object({
+  body: z.object({
+    status: z.enum(['pending', 'approved', 'rejected']).optional(),
+    patientId: z.number().int().positive().optional(),
+    page: z.number().int().positive().default(1),
+    limit: z.number().int().positive().max(100).default(50)
+  })
+});
+
+export const rescheduleRespondSchema = z.object({
+  body: z.object({
+    requestId: z.number().int().positive('ID de solicitud requerido'),
+    approved: z.boolean().optional(),
+    action: z.enum(['approve', 'reject']).optional(),
+    responseNotes: z.string().optional()
+  }).transform((val) => ({
+    requestId: val.requestId,
+    approved: typeof val.approved === 'boolean' ? val.approved : val.action === 'approve',
+    responseNotes: val.responseNotes
+  }))
 });

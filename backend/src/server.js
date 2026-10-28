@@ -23,8 +23,8 @@ async function startServer() {
       console.warn('El servidor Express iniciará pero las consultas a la base de datos fallarán hasta que MySQL esté activo.');
     }
 
-    app.listen(config.port, () => {
-      console.log(`🚀 Servidor ejecutándose en http://localhost:${config.port}`);
+    app.listen(config.port, '0.0.0.0', () => {
+      console.log(`🚀 Servidor ejecutándose en http://0.0.0.0:${config.port}`);
       console.log(`📚 Documentación Swagger disponible en http://localhost:${config.port}/api/docs`);
       console.log(`🔒 Regla HTTP activa: Endpoints de negocio no permiten GET.`);
     });

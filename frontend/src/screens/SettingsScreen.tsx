@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { useAppTheme } from '../theme/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { spacing, radii, typography } from '../theme/tokens';
@@ -124,7 +124,7 @@ export const SettingsScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: spacing.xl
+    padding: Platform.OS === 'web' ? spacing.xl : spacing.md
   },
   card: {
     marginBottom: spacing.lg

@@ -9,7 +9,10 @@ export class AuthRepository {
       WHERE u.email = ?
       LIMIT 1
     `, [email]);
-    return rows[0] || null;
+    if (!rows[0]) return null;
+    const user = rows[0];
+    user.role = user.role_name;
+    return user;
   }
 
   async findUserById(id) {
@@ -23,6 +26,7 @@ export class AuthRepository {
     if (!rows[0]) return null;
 
     const user = rows[0];
+    user.role = user.role_name;
     const permRows = await query(`
       SELECT p.code
       FROM role_permissions rp

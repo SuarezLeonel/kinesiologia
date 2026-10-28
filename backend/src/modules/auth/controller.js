@@ -80,6 +80,32 @@ export class AuthController {
       next(error);
     }
   }
+
+  async registerPatient(req, res, next) {
+    try {
+      const ipAddress = req.ip;
+      const userAgent = req.headers['user-agent'];
+      const result = await authService.registerPatient(req.body, { ipAddress, userAgent });
+      return sendSuccess(res, result, 'Cuenta de paciente registrada con éxito', 201);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async google(req, res, next) {
+    try {
+      const ipAddress = req.ip;
+      const userAgent = req.headers['user-agent'];
+      const result = await authService.googleLogin({
+        idToken: req.body.idToken,
+        ipAddress,
+        userAgent
+      });
+      return sendSuccess(res, result, 'Inicio de sesión con Google exitoso');
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const authController = new AuthController();

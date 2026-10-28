@@ -10,7 +10,9 @@ import {
   refreshSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
-  socialLoginSchema
+  socialLoginSchema,
+  patientRegisterSchema,
+  googleAuthSchema
 } from './schema.js';
 
 export const authRouter = Router();
@@ -37,9 +39,12 @@ const resetPasswordLimiter = createLimiter(5, 15, 'Demasiados intentos de restab
 
 // Todos los endpoints usan POST según AGENTS.md y REQUISITOS.md
 authRouter.post('/register', validate(registerSchema), asyncHandler((req, res, next) => authController.register(req, res, next)));
+authRouter.post('/register-patient', validate(patientRegisterSchema), asyncHandler((req, res, next) => authController.registerPatient(req, res, next)));
 authRouter.post('/login', loginLimiter, validate(loginSchema), asyncHandler((req, res, next) => authController.login(req, res, next)));
+authRouter.post('/google', validate(googleAuthSchema), asyncHandler((req, res, next) => authController.google(req, res, next)));
 authRouter.post('/refresh', validate(refreshSchema), asyncHandler((req, res, next) => authController.refresh(req, res, next)));
 authRouter.post('/logout', validate(refreshSchema), asyncHandler((req, res, next) => authController.logout(req, res, next)));
 authRouter.post('/forgot-password', forgotPasswordLimiter, validate(forgotPasswordSchema), asyncHandler((req, res, next) => authController.forgotPassword(req, res, next)));
 authRouter.post('/reset-password', resetPasswordLimiter, validate(resetPasswordSchema), asyncHandler((req, res, next) => authController.resetPassword(req, res, next)));
 authRouter.post('/social', validate(socialLoginSchema), asyncHandler((req, res, next) => authController.social(req, res, next)));
+

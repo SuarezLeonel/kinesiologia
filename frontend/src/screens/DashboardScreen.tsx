@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, Platform } from 'react-native';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../theme/ThemeContext';
@@ -182,7 +182,7 @@ const styles = StyleSheet.create({
     flex: 1
   },
   content: {
-    padding: spacing.xl,
+    padding: Platform.OS === 'web' ? spacing.xl : spacing.md,
     paddingBottom: spacing.huge
   },
   headerAction: {

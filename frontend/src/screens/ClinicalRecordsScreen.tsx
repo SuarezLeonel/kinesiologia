@@ -7,7 +7,8 @@ import {
   RefreshControl,
   TouchableOpacity,
   TextInput,
-  ScrollView
+  ScrollView,
+  Platform
 } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -553,7 +554,7 @@ export const ClinicalRecordsScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: spacing.xl
+    padding: Platform.OS === 'web' ? spacing.xl : spacing.md
   },
   searchRow: {
     flexDirection: 'row',

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -7,6 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { spacing, radii, typography } from '../theme/tokens';
 import { Input, Button, Card } from '../components/ui';
+import { API_BASE_URL } from '../api/config';
 
 const loginSchema = z.object({
   email: z.string().email('Ingrese un correo electrónico válido'),
@@ -16,13 +18,15 @@ const loginSchema = z.object({
 type LoginFormData = z.infer<typeof loginSchema>;
 
 export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
-  const { login } = useAuth();
+  const { login, googleLogin } = useAuth();
   const { theme } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const [serverError, setServerError] = useState<string | null>(null);
 
   const {
     control,
     handleSubmit,
+    setValue,
     formState: { errors, isSubmitting }
   } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
@@ -37,13 +41,26 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
     }
   };
 
+  const fillDemoCredentials = (email: string) => {
+    setValue('email', email);
+    setValue('password', 'Password123!');
+    setServerError(null);
+  };
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={[styles.container, { backgroundColor: theme.background }]}
     >
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          {
+            paddingTop: Math.max(insets.top, 20) + spacing.md,
+            paddingBottom: Math.max(insets.bottom, 20) + spacing.xl,
+            paddingHorizontal: Platform.OS === 'web' ? spacing.xl : spacing.md
+          }
+        ]}
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.brandContainer}>
@@ -56,7 +73,7 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           </Text>
         </View>
 
-        <Card elevated style={styles.card} padding="xl">
+        <Card elevated style={styles.card} padding={Platform.OS === 'web' ? 'xl' : 'lg'}>
           <Text style={[styles.cardTitle, { color: theme.text }]}>Iniciar sesión</Text>
           <Text style={[styles.cardSubtitle, { color: theme.textSecondary }]}>
             Ingrese sus credenciales profesionales para acceder
@@ -124,9 +141,64 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             style={{ marginTop: spacing.md }}
           />
 
+          <View style={styles.dividerRow}>
+            <View style={[styles.line, { backgroundColor: theme.border }]} />
+            <Text style={[styles.orText, { color: theme.textMuted }]}>Portal de Pacientes</Text>
+            <View style={[styles.line, { backgroundColor: theme.border }]} />
+          </View>
+
+          <Button
+            title="Crear cuenta de Paciente"
+            variant="outline"
+            size="lg"
+            onPress={() => navigation?.navigate('Register')}
+            style={{ marginBottom: spacing.sm }}
+          />
+
+          <Button
+            title="Ingresar con Google"
+            variant="secondary"
+            size="md"
+            onPress={async () => {
+              setServerError(null);
+              const demoGoogleToken = 'google_demo_patient_token_' + Date.now();
+              const res = await googleLogin(demoGoogleToken);
+              if (!res.success) {
+                setServerError(res.error || 'Error al autenticar con Google');
+              }
+            }}
+          />
+
+          <View style={styles.demoBox}>
+            <Text style={[styles.demoTitle, { color: theme.textSecondary }]}>Cuentas demo (clic rápido):</Text>
+            <View style={styles.demoButtonsRow}>
+              <TouchableOpacity
+                onPress={() => fillDemoCredentials('admin@kinesiologia.com')}
+                style={[styles.demoChip, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
+              >
+                <Text style={[styles.demoChipText, { color: theme.primary }]}>Admin</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => fillDemoCredentials('carlos.kine@kinesiologia.com')}
+                style={[styles.demoChip, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
+              >
+                <Text style={[styles.demoChipText, { color: theme.primary }]}>Kinesiólogo</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => fillDemoCredentials('mariana.recep@kinesiologia.com')}
+                style={[styles.demoChip, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
+              >
+                <Text style={[styles.demoChipText, { color: theme.primary }]}>Recepción</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
           <View style={styles.footerNote}>
             <Text style={[styles.footerText, { color: theme.textMuted }]}>
               Acceso seguro con token cifrado y control de sesiones por rol.
+            </Text>
+            <Text style={[styles.serverInfoText, { color: theme.textMuted }]}>
+              Servidor API: {API_BASE_URL}
             </Text>
           </View>
         </Card>
@@ -141,13 +213,11 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: spacing.xl
+    alignItems: 'center'
   },
   brandContainer: {
     alignItems: 'center',
-    marginBottom: spacing.xxl
+    marginBottom: Platform.OS === 'web' ? spacing.xxl : spacing.lg
   },
   brandMark: {
     width: 44,
@@ -214,5 +284,53 @@ const styles = StyleSheet.create({
   forgotPasswordText: {
     fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.semibold
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: spacing.lg
+  },
+  line: {
+    flex: 1,
+    height: 1
+  },
+  orText: {
+    marginHorizontal: spacing.md,
+    fontSize: typography.fontSize.xs,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5
+  },
+  demoBox: {
+    marginTop: spacing.md,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: '#00000010'
+  },
+  demoTitle: {
+    fontSize: typography.fontSize.tiny,
+    fontWeight: typography.fontWeight.semibold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: spacing.xs
+  },
+  demoButtonsRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    flexWrap: 'wrap'
+  },
+  demoChip: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.sm,
+    borderWidth: 1
+  },
+  demoChipText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium
+  },
+  serverInfoText: {
+    fontSize: typography.fontSize.tiny,
+    marginTop: 4,
+    opacity: 0.7
   }
 });

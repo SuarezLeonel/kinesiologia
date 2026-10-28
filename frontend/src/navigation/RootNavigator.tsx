@@ -1,7 +1,9 @@
 import React from 'react';
+import { Platform, View, StatusBar as RNStatusBar } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../theme/ThemeContext';
@@ -9,7 +11,9 @@ import { typography, spacing } from '../theme/tokens';
 import { LoadingState } from '../components/FeedbackStates';
 
 import { LoginScreen } from '../screens/LoginScreen';
+import { RegisterScreen } from '../screens/RegisterScreen';
 import { ForgotPasswordScreen } from '../screens/ForgotPasswordScreen';
+import { PatientPortalScreen } from '../screens/PatientPortalScreen';
 import { DashboardScreen } from '../screens/DashboardScreen';
 import { PatientsScreen } from '../screens/PatientsScreen';
 import { AppointmentsScreen } from '../screens/AppointmentsScreen';
@@ -24,12 +28,16 @@ const Tab = createBottomTabNavigator();
 const MainTabs = () => {
   const { theme } = useAppTheme();
   const { isReceptionist, isKinesiologist } = useAuth();
+  const insets = useSafeAreaInsets();
+  const isWeb = Platform.OS === 'web';
+  const topInset = isWeb ? 0 : Math.max(insets.top, RNStatusBar.currentHeight || 0, 28);
 
   return (
-    <Tab.Navigator
+    <View style={{ flex: 1, paddingTop: topInset, backgroundColor: theme.background }}>
+      <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarPosition: 'top',
+        tabBarPosition: isWeb ? 'top' : 'bottom',
         tabBarShowIcon: true,
         tabBarShowLabel: true,
         tabBarIcon: ({ color }) => {
@@ -42,23 +50,28 @@ const MainTabs = () => {
           else if (route.name === 'Payments') iconName = 'payments';
           else if (route.name === 'Settings') iconName = 'tune';
 
-          return <MaterialIcons name={iconName} size={20} color={color} />;
+          return <MaterialIcons name={iconName} size={isWeb ? 20 : 22} color={color} />;
         },
         tabBarStyle: {
           backgroundColor: theme.surface,
+          borderTopColor: theme.border,
+          borderTopWidth: isWeb ? 0 : 1,
           borderBottomColor: theme.border,
-          borderBottomWidth: 1,
-          borderTopWidth: 0,
-          height: 62,
-          paddingTop: 4,
-          paddingBottom: 4
+          borderBottomWidth: isWeb ? 1 : 0,
+          height: isWeb ? 62 : 58 + Math.max(insets.bottom, 6),
+          paddingTop: 6,
+          paddingBottom: isWeb ? 6 : Math.max(insets.bottom, 6)
+        },
+        tabBarItemStyle: {
+          paddingHorizontal: 2
         },
         tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.textSecondary,
         tabBarLabelStyle: {
-          fontSize: typography.fontSize.tiny,
+          fontSize: isWeb ? typography.fontSize.tiny : 11,
           fontWeight: typography.fontWeight.semibold,
-          letterSpacing: 0.2
+          letterSpacing: 0.1,
+          marginTop: isWeb ? 0 : 2
         }
       })}
     >
@@ -75,7 +88,8 @@ const MainTabs = () => {
         <Tab.Screen name="Payments" component={PaymentsScreen} options={{ title: 'Pagos' }} />
       )}
       <Tab.Screen name="Settings" component={SettingsScreen} options={{ title: 'Ajustes' }} />
-    </Tab.Navigator>
+      </Tab.Navigator>
+    </View>
   );
 };
 
@@ -96,10 +110,15 @@ export const RootNavigator = () => {
         }}
       >
         {user ? (
-          <Stack.Screen name="MainApp" component={MainTabs} />
+          user.role === 'paciente' ? (
+            <Stack.Screen name="PatientPortal" component={PatientPortalScreen} />
+          ) : (
+            <Stack.Screen name="MainApp" component={MainTabs} />
+          )
         ) : (
           <>
             <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="Register" component={RegisterScreen} />
             <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
           </>
         )}

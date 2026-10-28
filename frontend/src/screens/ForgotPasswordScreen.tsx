@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   Linking
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -41,6 +42,7 @@ type ResetFormData = z.infer<typeof resetSchema>;
 
 export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { theme } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const [step, setStep] = useState<'request' | 'reset' | 'success'>('request');
   const [serverMessage, setServerMessage] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
@@ -125,7 +127,14 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
       style={[styles.container, { backgroundColor: theme.background }]}
     >
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          {
+            paddingTop: Math.max(insets.top, 20) + spacing.md,
+            paddingBottom: Math.max(insets.bottom, 20) + spacing.xl,
+            paddingHorizontal: Platform.OS === 'web' ? spacing.xl : spacing.md
+          }
+        ]}
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.brandContainer}>
@@ -143,7 +152,7 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
           </Text>
         </View>
 
-        <Card elevated style={styles.card} padding="xl">
+        <Card elevated style={styles.card} padding={Platform.OS === 'web' ? 'xl' : 'lg'}>
           {step === 'success' ? (
             <View style={styles.successContainer}>
               <View
@@ -432,9 +441,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: spacing.xl
+    alignItems: 'center'
   },
   brandContainer: {
     alignItems: 'center',

@@ -1,12 +1,15 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   RefreshControl,
   TouchableOpacity,
-  ScrollView
+  ScrollView,
+  Platform,
+  Dimensions
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -14,7 +17,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { apiClient } from '../api/client';
 import { useAppTheme } from '../theme/ThemeContext';
 import { spacing, radii, typography } from '../theme/tokens';
-import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper, BadgeVariant } from '../components/ui';
+import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper, BadgeVariant, DateInput } from '../components/ui';
 import { LoadingState, ErrorState } from '../components/FeedbackStates';
 
 const appointmentSchema = z.object({
@@ -88,6 +91,8 @@ export const AppointmentsScreen = () => {
   // Estado para el selector desplegable de pacientes
   const [patientSearch, setPatientSearch] = useState('');
   const [showPatientPicker, setShowPatientPicker] = useState(false);
+  const [apptDate, setApptDate] = useState<string>(() => formatDateISO(new Date()));
+  const [apptTime, setApptTime] = useState<string>('10:00');
 
   const {
     control,
@@ -166,6 +171,8 @@ export const AppointmentsScreen = () => {
     fetchPatientsList();
     const defaultPid = patients.length > 0 ? patients[0].id : 0;
     const initialDate = targetDateStr || formatDateISO(new Date());
+    setApptDate(initialDate);
+    setApptTime('10:00');
     reset({
       patient_id: defaultPid,
       kinesiologist_id: 2,
@@ -241,6 +248,50 @@ export const AppointmentsScreen = () => {
   const isCurrentWeek = useMemo(() => {
     return formatDateISO(currentWeekMonday) === formatDateISO(getMonday(new Date()));
   }, [currentWeekMonday]);
+
+  const horizontalScrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const scrollViewportWidthRef = useRef<number>(
+    Dimensions.get('window').width - (Platform.OS === 'web' ? spacing.xl * 2 : spacing.md * 2)
+  );
+
+  const centerOnToday = useCallback(
+    (animated = false) => {
+      if (!horizontalScrollRef.current) return;
+      const todayIndex = weekDays.findIndex((d) => d.isToday);
+      if (todayIndex === -1) {
+        horizontalScrollRef.current.scrollTo({ x: 0, animated });
+        return;
+      }
+      const columnWidth = 270;
+      const gap = spacing.md;
+      const viewportWidth = scrollViewportWidthRef.current;
+      const totalContentWidth = weekDays.length * columnWidth + (weekDays.length - 1) * gap;
+      const columnCenterX = todayIndex * (columnWidth + gap) + columnWidth / 2;
+      const maxScrollX = Math.max(0, totalContentWidth - viewportWidth);
+      const targetX = Math.max(0, Math.min(maxScrollX, columnCenterX - viewportWidth / 2));
+
+      horizontalScrollRef.current.scrollTo({ x: targetX, animated });
+    },
+    [weekDays]
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      const timer = setTimeout(() => {
+        centerOnToday(false);
+      }, 60);
+      return () => clearTimeout(timer);
+    }, [centerOnToday])
+  );
+
+  useEffect(() => {
+    if (!loading) {
+      const timer = setTimeout(() => {
+        centerOnToday(true);
+      }, 60);
+      return () => clearTimeout(timer);
+    }
+  }, [currentWeekMonday, loading, centerOnToday]);
 
   const goToPrevWeek = () => {
     const d = new Date(currentWeekMonday);
@@ -459,9 +510,17 @@ export const AppointmentsScreen = () => {
         }
       >
         <ScrollView
+          ref={horizontalScrollRef}
           horizontal
           showsHorizontalScrollIndicator={true}
           contentContainerStyle={styles.columnsContainer}
+          onLayout={(e) => {
+            scrollViewportWidthRef.current = e.nativeEvent.layout.width;
+            centerOnToday(false);
+          }}
+          onContentSizeChange={() => {
+            centerOnToday(false);
+          }}
         >
           {weekDays.map((day) => {
             const dayAppointments = appointmentsByDay[day.dateStr] || [];
@@ -823,20 +882,33 @@ export const AppointmentsScreen = () => {
           </View>
         </View>
 
-        <Controller
-          control={control}
-          name="scheduled_at"
-          render={({ field: { onChange, value } }) => (
-            <Input
-              label="Fecha y Hora (AAAA-MM-DD HH:MM:SS)"
-              value={value}
-              onChangeText={onChange}
-              placeholder="2026-10-29 10:00:00"
+        <View style={styles.formRow}>
+          <View style={styles.formCol}>
+            <DateInput
+              label="Fecha del turno"
+              value={apptDate}
+              min={formatDateISO(new Date())}
+              onChangeDate={(d) => {
+                setApptDate(d);
+                setValue('scheduled_at', `${d} ${apptTime}:00`, { shouldValidate: true });
+              }}
               error={formErrors.scheduled_at?.message}
               required
             />
-          )}
-        />
+          </View>
+          <View style={styles.formCol}>
+            <Input
+              label="Hora (HH:MM)"
+              value={apptTime}
+              onChangeText={(t) => {
+                setApptTime(t);
+                setValue('scheduled_at', `${apptDate} ${t.length === 5 ? t + ':00' : t}`, { shouldValidate: true });
+              }}
+              placeholder="10:00"
+              required
+            />
+          </View>
+        </View>
 
         <Controller
           control={control}
@@ -874,7 +946,14 @@ export const AppointmentsScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: spacing.xl
+    padding: Platform.OS === 'web' ? spacing.xl : spacing.md
+  },
+  formRow: {
+    flexDirection: Platform.OS === 'web' ? 'row' : 'column',
+    gap: Platform.OS === 'web' ? spacing.md : 0
+  },
+  formCol: {
+    flex: 1
   },
   filterRow: {
     flexDirection: 'row',

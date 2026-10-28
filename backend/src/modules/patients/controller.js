@@ -20,6 +20,15 @@ export class PatientsController {
     }
   }
 
+  async checkDuplicate(req, res, next) {
+    try {
+      const result = await patientsService.checkDuplicate(req.body);
+      return sendSuccess(res, result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async create(req, res, next) {
     try {
       const patient = await patientsService.create(req.body);

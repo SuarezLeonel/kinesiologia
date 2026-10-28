@@ -49,8 +49,23 @@ export class PatientsRepository {
   }
 
   async findByDni(dni) {
-    const rows = await query('SELECT id FROM patients WHERE dni = ? LIMIT 1', [dni]);
+    const rows = await query('SELECT id, first_name, last_name, dni, email, phone, user_id FROM patients WHERE dni = ? AND is_active = 1 LIMIT 1', [dni]);
     return rows[0] || null;
+  }
+
+  async findByEmail(email) {
+    if (!email) return null;
+    const rows = await query('SELECT id, first_name, last_name, dni, email, phone, user_id FROM patients WHERE email = ? AND is_active = 1 LIMIT 1', [email]);
+    return rows[0] || null;
+  }
+
+  async findByUserId(userId) {
+    const rows = await query('SELECT id, first_name, last_name, dni, birth_date, phone, email, address, assigned_kinesiologist_id, user_id, is_active FROM patients WHERE user_id = ? AND is_active = 1 LIMIT 1', [userId]);
+    return rows[0] || null;
+  }
+
+  async linkUser(patientId, userId) {
+    await query('UPDATE patients SET user_id = ? WHERE id = ?', [userId, patientId]);
   }
 
   async create(data) {
