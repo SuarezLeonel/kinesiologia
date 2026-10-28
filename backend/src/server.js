@@ -2,6 +2,14 @@ import { app } from './app.js';
 import { config } from './config/env.js';
 import { getPool } from './config/database.js';
 
+process.on('unhandledRejection', (reason) => {
+  console.error('[UNHANDLED_REJECTION]', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[UNCAUGHT_EXCEPTION]', err);
+});
+
 async function startServer() {
   try {
     // Probar conexión a MySQL

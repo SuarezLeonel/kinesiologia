@@ -15,7 +15,9 @@ export function getPool() {
       connectionLimit: config.db.connectionLimit,
       queueLimit: 0,
       decimalNumbers: true,
-      ssl: config.db.ssl
+      ssl: config.db.ssl,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 10000
     });
   }
   return pool;
@@ -23,8 +25,17 @@ export function getPool() {
 
 export async function query(sql, params = []) {
   const p = getPool();
-  const [rows] = await p.query(sql, params);
-  return rows;
+  try {
+    const [rows] = await p.query(sql, params);
+    return rows;
+  } catch (err) {
+    // Si la conexión se reinició en TiDB (ECONNRESET o PROTOCOL_CONNECTION_LOST), reintentar una vez
+    if (err.code === 'ECONNRESET' || err.code === 'PROTOCOL_CONNECTION_LOST') {
+      const [retryRows] = await p.query(sql, params);
+      return retryRows;
+    }
+    throw err;
+  }
 }
 
 export async function executeTransaction(callback) {
