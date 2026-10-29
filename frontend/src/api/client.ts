@@ -56,6 +56,8 @@ apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) =>
 });
 
 // Interceptor para manejo de renovación automática de tokens
+let refreshPromise: Promise<string | null> | null = null;
+
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
@@ -63,25 +65,39 @@ apiClient.interceptors.response.use(
 
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
       originalRequest._retry = true;
-      try {
-        const refreshToken = await getStorageItem(REFRESH_TOKEN_KEY);
-        if (refreshToken) {
-          const res = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
-          if (res.data?.success && res.data?.data?.accessToken) {
-            const newAccessToken = res.data.data.accessToken;
-            await setStorageItem(ACCESS_TOKEN_KEY, newAccessToken);
-            if (res.data.data.refreshToken) {
-              await setStorageItem(REFRESH_TOKEN_KEY, res.data.data.refreshToken);
+
+      if (!refreshPromise) {
+        refreshPromise = (async () => {
+          try {
+            const refreshToken = await getStorageItem(REFRESH_TOKEN_KEY);
+            if (!refreshToken) return null;
+
+            const res = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
+            if (res.data?.success && res.data?.data?.accessToken) {
+              const newAccessToken = res.data.data.accessToken;
+              await setStorageItem(ACCESS_TOKEN_KEY, newAccessToken);
+              if (res.data.data.refreshToken) {
+                await setStorageItem(REFRESH_TOKEN_KEY, res.data.data.refreshToken);
+              }
+              return newAccessToken;
             }
-            if (originalRequest.headers) {
-              originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-            }
-            return apiClient(originalRequest);
+            return null;
+          } catch (refreshErr) {
+            await deleteStorageItem(ACCESS_TOKEN_KEY);
+            await deleteStorageItem(REFRESH_TOKEN_KEY);
+            return null;
+          } finally {
+            refreshPromise = null;
           }
+        })();
+      }
+
+      const newAccessToken = await refreshPromise;
+      if (newAccessToken) {
+        if (originalRequest.headers) {
+          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
         }
-      } catch (refreshErr) {
-        await deleteStorageItem(ACCESS_TOKEN_KEY);
-        await deleteStorageItem(REFRESH_TOKEN_KEY);
+        return apiClient(originalRequest);
       }
     }
     return Promise.reject(error);

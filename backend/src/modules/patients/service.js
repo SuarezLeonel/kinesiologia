@@ -1,5 +1,7 @@
 import { patientsRepository } from './repository.js';
+import { authRepository } from '../auth/repository.js';
 import { NotFoundError, ConflictError } from '../../utils/errors.js';
+import bcrypt from 'bcryptjs';
 
 export class PatientsService {
   async search(filters, _currentUser) {
@@ -46,21 +48,63 @@ export class PatientsService {
   }
 
   async create(data) {
+    const normalizedEmail = data.email ? String(data.email).trim().toLowerCase() : null;
+    data.email = normalizedEmail;
+
     const existingDni = await patientsRepository.findByDni(data.dni);
     if (existingDni) {
       const err = new ConflictError(`Ya existe un paciente con el DNI ${data.dni}`);
       err.duplicatePatient = existingDni;
       throw err;
     }
-    if (data.email) {
-      const existingEmail = await patientsRepository.findByEmail(data.email);
+
+    if (normalizedEmail) {
+      const existingEmail = await patientsRepository.findByEmail(normalizedEmail);
       if (existingEmail) {
-        const err = new ConflictError(`Ya existe un paciente con el correo electrónico ${data.email}`);
+        const isPlaceholderDni = /^(P-|G-)/.test(String(existingEmail.dni || ''));
+        if (isPlaceholderDni) {
+          await patientsRepository.update(existingEmail.id, {
+            firstName: data.firstName,
+            lastName: data.lastName,
+            dni: data.dni,
+            birthDate: data.birthDate,
+            phone: data.phone,
+            email: normalizedEmail,
+            address: data.address,
+            assignedKinesiologistId: data.assignedKinesiologistId
+          });
+          return await patientsRepository.findById(existingEmail.id);
+        }
+        const err = new ConflictError(`Ya existe un paciente con el correo electrónico ${normalizedEmail}`);
         err.duplicatePatient = existingEmail;
         throw err;
       }
+
+      const existingUser = await patientsRepository.findPatientUserByEmail(normalizedEmail);
+      if (existingUser) {
+        data.userId = existingUser.id;
+      } else if (data.password && data.password.length >= 8) {
+        const anyExistingUser = await authRepository.findUserByEmail(normalizedEmail);
+        if (anyExistingUser) {
+          throw new ConflictError(`El correo electrónico ${normalizedEmail} ya pertenece a otra cuenta del sistema`);
+        }
+        const patientRole = await authRepository.findRoleByName('patient');
+        const roleId = patientRole ? patientRole.id : 4;
+        const salt = await bcrypt.genSalt(10);
+        const passwordHash = await bcrypt.hash(data.password, salt);
+        const createdUserId = await authRepository.createUser({
+          roleId,
+          name: data.firstName,
+          lastName: data.lastName,
+          dni: data.dni,
+          email: normalizedEmail,
+          passwordHash,
+          phone: data.phone
+        });
+        data.userId = createdUserId;
+      }
     }
-    // La ficha administrativa se crea sin cuenta de usuario ni credenciales
+
     const id = await patientsRepository.create(data);
     return await patientsRepository.findById(id);
   }

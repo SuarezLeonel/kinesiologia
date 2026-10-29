@@ -42,11 +42,11 @@ export class AuthRepository {
     return rows[0] || null;
   }
 
-  async createUser({ name, lastName, email, passwordHash, phone, roleId, isActive = true }) {
+  async createUser({ name, lastName, email, passwordHash, phone, roleId, dni = null, licenseNumber = null, specialty = null, isActive = true }) {
     const result = await query(`
-      INSERT INTO users (role_id, name, last_name, email, password_hash, phone, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, [roleId, name, lastName, email, passwordHash, phone || null, isActive ? 1 : 0]);
+      INSERT INTO users (role_id, name, last_name, dni, email, password_hash, phone, license_number, specialty, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [roleId, name, lastName, dni || null, email, passwordHash, phone || null, licenseNumber || null, specialty || null, isActive ? 1 : 0]);
     return result.insertId;
   }
 

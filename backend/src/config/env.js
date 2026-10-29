@@ -48,5 +48,20 @@ export const config = {
     pass: process.env.SMTP_PASS || null,
     from: process.env.SMTP_FROM || '"KinesioGestión" <no-reply@kinesiologia.com>',
     appUrl: process.env.APP_URL || 'http://localhost:8081'
+  },
+  oauth: {
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID || null,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET || null
+    },
+    microsoft: {
+      clientId: process.env.MICROSOFT_CLIENT_ID || null,
+      clientSecret: process.env.MICROSOFT_CLIENT_SECRET || null,
+      tenantId: process.env.MICROSOFT_TENANT_ID || 'common'
+    },
+    facebook: {
+      appId: process.env.FACEBOOK_APP_ID || null,
+      appSecret: process.env.FACEBOOK_APP_SECRET || null
+    }
   }
 };

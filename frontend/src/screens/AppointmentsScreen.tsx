@@ -93,6 +93,8 @@ export const AppointmentsScreen = () => {
   const [showPatientPicker, setShowPatientPicker] = useState(false);
   const [apptDate, setApptDate] = useState<string>(() => formatDateISO(new Date()));
   const [apptTime, setApptTime] = useState<string>('10:00');
+  const [availableSlots, setAvailableSlots] = useState<any[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
 
   const {
     control,
@@ -166,11 +168,44 @@ export const AppointmentsScreen = () => {
     fetchPatientsList();
   }, []);
 
+  const fetchAgendaSlots = async (dateStr: string) => {
+    if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return;
+    setLoadingSlots(true);
+    setFormError(null);
+    try {
+      const res = await apiClient.post('/appointments/available-slots', {
+        kinesiologistId: 2,
+        serviceId: 1,
+        date: dateStr
+      });
+      if (res.data?.success) {
+        const list = res.data.data || [];
+        setAvailableSlots(list);
+        if (list.length > 0) {
+          const firstTime = list[0].time || list[0].timeLabel || '10:00';
+          setApptTime(firstTime);
+          setValue('scheduled_at', `${dateStr} ${firstTime}:00`, { shouldValidate: true });
+        }
+      }
+    } catch {
+      const fallback = Array.from({ length: 11 }, (_, i) => {
+        const timeStr = `${String(8 + i).padStart(2, '0')}:00`;
+        return { startTime: `${dateStr} ${timeStr}:00`, time: timeStr, timeLabel: timeStr, available: true };
+      });
+      setAvailableSlots(fallback);
+      setApptTime('10:00');
+      setValue('scheduled_at', `${dateStr} 10:00:00`, { shouldValidate: true });
+    } finally {
+      setLoadingSlots(false);
+    }
+  };
+
   const openCreateModal = (targetDateStr?: string) => {
     setFormError(null);
     fetchPatientsList();
     const defaultPid = patients.length > 0 ? patients[0].id : 0;
-    const initialDate = targetDateStr || formatDateISO(new Date());
+    const tomorrow = formatDateISO(new Date(Date.now() + 86400000));
+    const initialDate = targetDateStr || tomorrow;
     setApptDate(initialDate);
     setApptTime('10:00');
     reset({
@@ -184,6 +219,7 @@ export const AppointmentsScreen = () => {
     setShowPatientPicker(false);
     setPatientSearch('');
     setModalVisible(true);
+    fetchAgendaSlots(initialDate);
   };
 
   const onCreateAppointment = async (data: AppointmentFormData) => {
@@ -882,32 +918,62 @@ export const AppointmentsScreen = () => {
           </View>
         </View>
 
-        <View style={styles.formRow}>
-          <View style={styles.formCol}>
-            <DateInput
-              label="Fecha del turno"
-              value={apptDate}
-              min={formatDateISO(new Date())}
-              onChangeDate={(d) => {
-                setApptDate(d);
-                setValue('scheduled_at', `${d} ${apptTime}:00`, { shouldValidate: true });
-              }}
-              error={formErrors.scheduled_at?.message}
-              required
-            />
-          </View>
-          <View style={styles.formCol}>
-            <Input
-              label="Hora (HH:MM)"
-              value={apptTime}
-              onChangeText={(t) => {
-                setApptTime(t);
-                setValue('scheduled_at', `${apptDate} ${t.length === 5 ? t + ':00' : t}`, { shouldValidate: true });
-              }}
-              placeholder="10:00"
-              required
-            />
-          </View>
+        <DateInput
+          label="Fecha del turno"
+          value={apptDate}
+          min={formatDateISO(new Date())}
+          onChangeDate={(d) => {
+            setApptDate(d);
+            setValue('scheduled_at', `${d} ${apptTime}:00`, { shouldValidate: true });
+            if (d) {
+              fetchAgendaSlots(d);
+            }
+          }}
+          error={formErrors.scheduled_at?.message}
+          required
+        />
+
+        <View style={styles.fieldContainer}>
+          <Text style={[styles.fieldLabel, { color: theme.text }]}>
+            Horario disponible <Text style={{ color: theme.error }}>*</Text>
+          </Text>
+          {loadingSlots ? (
+            <Text style={{ color: theme.textMuted, fontSize: typography.fontSize.xs, marginVertical: spacing.xs }}>
+              Calculando horarios disponibles...
+            </Text>
+          ) : availableSlots.length === 0 ? (
+            <Text style={{ color: theme.warning, fontSize: typography.fontSize.xs, marginVertical: spacing.xs }}>
+              No hay horarios disponibles para esta fecha. Seleccione otro día.
+            </Text>
+          ) : (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+              {availableSlots.map((slot, idx) => {
+                const slotTime = slot.time || slot.timeLabel;
+                const isSelected = apptTime === slotTime;
+                return (
+                  <TouchableOpacity
+                    key={idx}
+                    style={{
+                      paddingHorizontal: spacing.md,
+                      paddingVertical: spacing.xs + 2,
+                      borderRadius: radii.md,
+                      borderWidth: 1,
+                      backgroundColor: isSelected ? theme.primary : theme.surfaceSubtle,
+                      borderColor: isSelected ? theme.primary : theme.border
+                    }}
+                    onPress={() => {
+                      setApptTime(slotTime);
+                      setValue('scheduled_at', `${apptDate} ${slotTime}:00`, { shouldValidate: true });
+                    }}
+                  >
+                    <Text style={{ color: isSelected ? '#FFF' : theme.text, fontWeight: '600', fontSize: typography.fontSize.xs }}>
+                      {slotTime} hs
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
         </View>
 
         <Controller

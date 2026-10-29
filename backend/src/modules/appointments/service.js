@@ -163,6 +163,60 @@ export class AppointmentsService {
       return result;
     }
   }
+
+  async getProfessionals() {
+    return await appointmentsRepository.findProfessionals();
+  }
+
+  async getAvailableSlots({ kinesiologistId = 2, serviceId = 1, date }) {
+    const service = await servicesRepository.findById(serviceId);
+    const durationMinutes = service ? (service.duration_minutes || 45) : 45;
+    const targetDate = date || new Date().toISOString().slice(0, 10);
+
+    const existingAppointments = await appointmentsRepository.search({
+      kinesiologistId,
+      startDate: `${targetDate} 00:00:00`,
+      endDate: `${targetDate} 23:59:59`,
+      limit: 100
+    });
+
+    const activeAppointments = existingAppointments.filter((a) => a.status !== 'cancelled');
+    const slots = [];
+    const startHour = 8;
+    const endHour = 18;
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+    for (let h = startHour; h <= endHour; h++) {
+      const timeStr = `${String(h).padStart(2, '0')}:00`;
+      const slotTimeStr = `${targetDate} ${timeStr}:00`;
+      const slotStart = new Date(slotTimeStr.replace(' ', 'T'));
+      const slotEnd = new Date(slotStart.getTime() + durationMinutes * 60000);
+
+      if (targetDate === todayStr && now.getHours() < endHour && slotStart.getTime() <= now.getTime()) {
+        continue;
+      }
+
+      const hasConflict = activeAppointments.some((app) => {
+        const appStart = new Date(app.start_time);
+        const appEnd = new Date(app.end_time);
+        return (slotStart < appEnd && slotEnd > appStart);
+      });
+
+      if (!hasConflict) {
+        slots.push({
+          startTime: slotTimeStr,
+          time: timeStr,
+          timeLabel: timeStr,
+          durationMinutes,
+          available: true
+        });
+      }
+    }
+
+    return slots;
+  }
 }
 
 export const appointmentsService = new AppointmentsService();

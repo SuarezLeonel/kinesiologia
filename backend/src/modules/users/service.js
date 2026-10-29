@@ -17,21 +17,31 @@ export class UsersService {
     return user;
   }
 
-  async createUser({ roleId, name, lastName, email, password, phone }, currentUser = null) {
+  async createUser({ roleId, name, lastName, dni, email, password, phone, licenseNumber, specialty }, currentUser = null) {
     const existing = await authRepository.findUserByEmail(email);
     if (existing) {
       throw new ConflictError('El email ya está registrado');
     }
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
-    const id = await authRepository.createUser({ roleId, name, lastName, email, passwordHash, phone });
+    const id = await authRepository.createUser({
+      roleId,
+      name,
+      lastName,
+      dni,
+      email,
+      passwordHash,
+      phone,
+      licenseNumber,
+      specialty
+    });
 
     await logAudit({
       userId: currentUser?.id,
       action: 'USER_CREATED',
       entityType: 'user',
       entityId: id,
-      details: { roleId, email, name, lastName }
+      details: { roleId, email, name, lastName, dni, licenseNumber, specialty }
     });
 
     return await usersRepository.findById(id);

@@ -2,6 +2,7 @@
   "expo": {
     "name": "Kinesiología Gestión",
     "slug": "kinesiologia-app",
+    "scheme": "kinesiologia",
     "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
@@ -30,7 +31,8 @@
     },
     "owner": "leoboca12",
     "plugins": [
-      "expo-font"
+      "expo-font",
+      "expo-web-browser"
     ]
   }
 }

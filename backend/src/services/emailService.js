@@ -22,8 +22,8 @@ class EmailService {
         port: config.email.port,
         secure: config.email.secure,
         auth: {
-          user: config.email.user,
-          pass: config.email.pass
+          user: config.email.user.trim(),
+          pass: String(config.email.pass).replace(/\s+/g, '')
         }
       });
       return this.transporter;
@@ -72,7 +72,7 @@ class EmailService {
             <div style="padding: 20px; background-color: #F8FAFC; border-radius: 6px; border: 1px solid #EDF2F7; margin-bottom: 20px;">
               <p style="margin: 0 0 12px 0; color: #334155; font-size: 14px;">Estimado/a <strong>${name}</strong>,</p>
               <p style="margin: 0 0 16px 0; color: #475569; font-size: 14px; line-height: 22px;">
-                Hemos recibido una solicitud para restablecer la contraseña de su cuenta profesional. Utilice el siguiente código de verificación de 6 dígitos en la aplicación:
+                Hemos recibido una solicitud para restablecer la contraseña de su cuenta en KinesioGestión. Utilice el siguiente código de verificación de 6 dígitos en la aplicación:
               </p>
 
               <div style="text-align: center; margin: 24px 0;">

@@ -27,7 +27,7 @@ const Tab = createBottomTabNavigator();
 
 const MainTabs = () => {
   const { theme } = useAppTheme();
-  const { isReceptionist, isKinesiologist } = useAuth();
+  const { isAdmin, isReceptionist, isKinesiologist } = useAuth();
   const insets = useSafeAreaInsets();
   const isWeb = Platform.OS === 'web';
   const topInset = isWeb ? 0 : Math.max(insets.top, RNStatusBar.currentHeight || 0, 28);
@@ -77,12 +77,14 @@ const MainTabs = () => {
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} options={{ title: 'Inicio' }} />
       <Tab.Screen name="Appointments" component={AppointmentsScreen} options={{ title: 'Agenda' }} />
-      <Tab.Screen name="Patients" component={PatientsScreen} options={{ title: 'Pacientes' }} />
-      {/* Historias clínicas solo para kinesiólogos y administradores */}
+      <Tab.Screen name="Patients" component={PatientsScreen} options={{ title: isAdmin ? 'Personas' : 'Pacientes' }} />
+      {/* Historias clínicas y ejercicios solo para kinesiólogos y administradores */}
       {!isReceptionist && (
-        <Tab.Screen name="ClinicalRecords" component={ClinicalRecordsScreen} options={{ title: 'Historias' }} />
+        <>
+          <Tab.Screen name="ClinicalRecords" component={ClinicalRecordsScreen} options={{ title: 'Historias' }} />
+          <Tab.Screen name="Exercises" component={ExercisesScreen} options={{ title: 'Ejercicios' }} />
+        </>
       )}
-      <Tab.Screen name="Exercises" component={ExercisesScreen} options={{ title: 'Ejercicios' }} />
       {/* Pagos administrativos visibles para Admin y Recepcionista */}
       {!isKinesiologist && (
         <Tab.Screen name="Payments" component={PaymentsScreen} options={{ title: 'Pagos' }} />

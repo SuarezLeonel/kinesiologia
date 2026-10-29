@@ -69,6 +69,24 @@ export class AppointmentsController {
       next(error);
     }
   }
+
+  async getProfessionals(req, res, next) {
+    try {
+      const professionals = await appointmentsService.getProfessionals();
+      return sendSuccess(res, professionals);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getAvailableSlots(req, res, next) {
+    try {
+      const slots = await appointmentsService.getAvailableSlots(req.body || {});
+      return sendSuccess(res, slots);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const appointmentsController = new AppointmentsController();

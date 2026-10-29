@@ -4,16 +4,39 @@ import { servicesRepository } from '../services/repository.js';
 import { notificationsService } from '../notifications/service.js';
 import { NotFoundError, UnauthorizedError, ForbiddenError, ConflictError } from '../../utils/errors.js';
 import { logAudit } from '../../utils/auditLogger.js';
+import bcrypt from 'bcryptjs';
 
 export class PatientPortalService {
   async getPatientByUserId(userId) {
-    const rows = await query(`
+    let rows = await query(`
       SELECT p.*, u.email as account_email, u.name as user_name, u.last_name as user_last_name
       FROM patients p
       JOIN users u ON p.user_id = u.id
       WHERE p.user_id = ? AND p.is_active = 1
       LIMIT 1
     `, [userId]);
+
+    if (rows.length === 0) {
+      // Si el usuario tiene una ficha creada por recepción con el mismo email aún sin vincular, vincularla automáticamente
+      const userRows = await query('SELECT id, email FROM users WHERE id = ? AND is_active = 1 LIMIT 1', [userId]);
+      if (userRows.length > 0 && userRows[0].email) {
+        const normalizedEmail = String(userRows[0].email).trim().toLowerCase();
+        const unlinked = await query(
+          'SELECT id FROM patients WHERE LOWER(TRIM(email)) = ? AND user_id IS NULL AND is_active = 1 LIMIT 1',
+          [normalizedEmail]
+        );
+        if (unlinked.length === 1) {
+          await query('UPDATE patients SET user_id = ? WHERE id = ?', [userId, unlinked[0].id]);
+          rows = await query(`
+            SELECT p.*, u.email as account_email, u.name as user_name, u.last_name as user_last_name
+            FROM patients p
+            JOIN users u ON p.user_id = u.id
+            WHERE p.user_id = ? AND p.is_active = 1
+            LIMIT 1
+          `, [userId]);
+        }
+      }
+    }
 
     if (rows.length === 0) {
       throw new NotFoundError('Ficha de paciente no encontrada para esta cuenta de usuario');
@@ -122,15 +145,17 @@ export class PatientPortalService {
     };
   }
 
-  async availableSlots({ kinesiologistId, serviceId, date }) {
-    const service = await servicesRepository.findById(serviceId);
-    if (!service) throw new NotFoundError('Servicio no encontrado');
+  async availableSlots({ kinesiologistId = 2, serviceId = 1, date } = {}) {
+    const service = serviceId ? await servicesRepository.findById(serviceId) : null;
+    const durationMinutes = service ? (service.duration_minutes || 45) : 45;
 
-    const durationMinutes = service.duration_minutes || 45;
+    const targetDate = (date && /^\d{4}-\d{2}-\d{2}$/.test(date))
+      ? date
+      : this._formatLocalDateTime(new Date(Date.now() + 86400000)).slice(0, 10);
 
     // Buscar turnos existentes para ese profesional en esa fecha
-    const startOfDay = `${date} 00:00:00`;
-    const endOfDay = `${date} 23:59:59`;
+    const startOfDay = `${targetDate} 00:00:00`;
+    const endOfDay = `${targetDate} 23:59:59`;
 
     const existingAppointments = await query(`
       SELECT start_time, end_time
@@ -139,21 +164,22 @@ export class PatientPortalService {
         AND status NOT IN ('cancelled')
         AND start_time >= ? AND start_time <= ?
       ORDER BY start_time ASC
-    `, [kinesiologistId, startOfDay, endOfDay]);
+    `, [kinesiologistId || 2, startOfDay, endOfDay]);
 
-    // Horarios operativos: 08:00 a 19:00 (en intervalos de 45 o 60 minutos)
+    // Horarios operativos: 08:00 a 18:00
     const slots = [];
-    const stepMinutes = 60; // slots a cada hora en punto
     const startHour = 8;
     const endHour = 18;
+    const now = new Date();
+    const todayStr = this._formatLocalDateTime(now).slice(0, 10);
 
     for (let h = startHour; h <= endHour; h++) {
-      const slotTimeStr = `${date} ${String(h).padStart(2, '0')}:00:00`;
+      const slotTimeStr = `${targetDate} ${String(h).padStart(2, '0')}:00:00`;
       const slotStart = new Date(slotTimeStr.replace(' ', 'T'));
       const slotEnd = new Date(slotStart.getTime() + durationMinutes * 60000);
 
-      // Si es hoy, descartar slots pasados
-      if (slotStart.getTime() <= Date.now()) {
+      // Si es hoy dentro del horario laboral, descartar slots de hoy que ya pasaron
+      if (targetDate === todayStr && now.getHours() < endHour && slotStart.getTime() <= now.getTime()) {
         continue;
       }
 
@@ -165,9 +191,11 @@ export class PatientPortalService {
       });
 
       if (!hasConflict) {
+        const timeStr = `${String(h).padStart(2, '0')}:00`;
         slots.push({
           startTime: slotTimeStr,
-          timeLabel: `${String(h).padStart(2, '0')}:00`,
+          time: timeStr,
+          timeLabel: timeStr,
           durationMinutes,
           available: true
         });
@@ -175,6 +203,11 @@ export class PatientPortalService {
     }
 
     return slots;
+  }
+
+  _formatLocalDateTime(d) {
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   }
 
   async bookAppointment({ kinesiologistId, serviceId, startTime, notes }, userId) {
@@ -189,7 +222,7 @@ export class PatientPortalService {
     }
 
     const endD = new Date(startD.getTime() + duration * 60000);
-    const endTime = endD.toISOString().slice(0, 19).replace('T', ' ');
+    const endTime = this._formatLocalDateTime(endD);
 
     const id = await appointmentsRepository.create({
       patientId: patient.id,
@@ -317,18 +350,40 @@ export class PatientPortalService {
     return await this.getPatientByUserId(userId);
   }
 
-  async updateProfile(userId, { phone, address }) {
+  async updateProfile(userId, { phone }) {
     const patient = await this.getPatientByUserId(userId);
-    const updates = [];
-    const params = [];
-    if (phone) { updates.push('phone = ?'); params.push(phone); }
-    if (address) { updates.push('address = ?'); params.push(address); }
-
-    if (updates.length > 0) {
-      params.push(patient.id);
-      await query(`UPDATE patients SET ${updates.join(', ')} WHERE id = ?`, params);
+    if (phone) {
+      await query('UPDATE patients SET phone = ? WHERE id = ?', [phone.trim(), patient.id]);
+      await query('UPDATE users SET phone = ? WHERE id = ?', [phone.trim(), userId]);
     }
     return await this.getPatientByUserId(userId);
+  }
+
+  async changePassword(userId, { currentPassword, newPassword }) {
+    const rows = await query('SELECT id, password_hash FROM users WHERE id = ? AND is_active = 1 LIMIT 1', [userId]);
+    if (rows.length === 0) {
+      throw new NotFoundError('Usuario no encontrado');
+    }
+
+    const user = rows[0];
+    const isValid = user.password_hash ? await bcrypt.compare(currentPassword, user.password_hash) : false;
+    if (!isValid) {
+      throw new UnauthorizedError('La contraseña actual ingresada es incorrecta');
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const newHash = await bcrypt.hash(newPassword, salt);
+    await query('UPDATE users SET password_hash = ? WHERE id = ?', [newHash, userId]);
+
+    await logAudit({
+      userId,
+      action: 'PATIENT_PASSWORD_CHANGED',
+      entityType: 'user',
+      entityId: userId,
+      details: { method: 'current_password_verification' }
+    });
+
+    return { updated: true };
   }
 
   async myNotifications(userId) {

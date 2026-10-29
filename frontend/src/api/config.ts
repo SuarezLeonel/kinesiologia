@@ -4,7 +4,11 @@ import { Platform } from 'react-native';
 // Si corre en emulador Android o dispositivo físico, la IP no puede ser localhost
 const getLocalApiUrl = () => {
   if (Platform.OS === 'web') {
-    return 'http://localhost:3000/api/v1';
+    const host =
+      typeof window !== 'undefined' && window.location?.hostname
+        ? window.location.hostname
+        : 'localhost';
+    return `http://${host}:3000/api/v1`;
   }
 
   // En Expo Go / Dispositivo móvil físico:
@@ -17,13 +21,18 @@ const getLocalApiUrl = () => {
 
   if (hostUri) {
     const hostIp = hostUri.split(':')[0];
-    if (hostIp && hostIp !== 'localhost' && hostIp !== '127.0.0.1') {
+    if (
+      hostIp &&
+      hostIp !== 'localhost' &&
+      hostIp !== '127.0.0.1' &&
+      !hostIp.startsWith('192.168.56.')
+    ) {
       return `http://${hostIp}:3000/api/v1`;
     }
   }
 
-  // Fallback con la IP local de desarrollo para dispositivos físicos en la misma red Wi-Fi
-  return 'http://192.168.0.5:3000/api/v1';
+  // Fallback con la IP local actual de la PC para dispositivos físicos en la misma red Wi-Fi
+  return 'http://192.168.0.145:3000/api/v1';
 };
 
 export const API_BASE_URL =

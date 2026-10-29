@@ -15,16 +15,16 @@ export class PatientsRepository {
       params.push(isActive ? 1 : 0);
     }
     if (search) {
-      conditions.push('(p.first_name LIKE ? OR p.last_name LIKE ? OR p.dni LIKE ?)');
+      conditions.push('(p.first_name LIKE ? OR p.last_name LIKE ? OR p.dni LIKE ? OR p.email LIKE ?)');
       const term = `%${search}%`;
-      params.push(term, term, term);
+      params.push(term, term, term, term);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const sql = `
       SELECT p.id, p.first_name, p.last_name, p.dni, p.birth_date, p.phone, p.email, p.address,
              p.assigned_kinesiologist_id, u.name as kinesiologist_name, u.last_name as kinesiologist_last_name,
-             p.is_active, p.created_at
+             p.user_id, p.is_active, p.created_at
       FROM patients p
       LEFT JOIN users u ON p.assigned_kinesiologist_id = u.id
       ${whereClause}
@@ -39,7 +39,7 @@ export class PatientsRepository {
     const rows = await query(`
       SELECT p.id, p.first_name, p.last_name, p.dni, p.birth_date, p.phone, p.email, p.address,
              p.assigned_kinesiologist_id, u.name as kinesiologist_name, u.last_name as kinesiologist_last_name,
-             p.is_active, p.created_at, p.updated_at
+             p.user_id, p.is_active, p.created_at, p.updated_at
       FROM patients p
       LEFT JOIN users u ON p.assigned_kinesiologist_id = u.id
       WHERE p.id = ?
@@ -55,7 +55,21 @@ export class PatientsRepository {
 
   async findByEmail(email) {
     if (!email) return null;
-    const rows = await query('SELECT id, first_name, last_name, dni, email, phone, user_id FROM patients WHERE email = ? AND is_active = 1 LIMIT 1', [email]);
+    const normalized = String(email).trim().toLowerCase();
+    const rows = await query('SELECT id, first_name, last_name, dni, email, phone, user_id FROM patients WHERE LOWER(TRIM(email)) = ? AND is_active = 1 LIMIT 1', [normalized]);
+    return rows[0] || null;
+  }
+
+  async findPatientUserByEmail(email) {
+    if (!email) return null;
+    const normalized = String(email).trim().toLowerCase();
+    const rows = await query(`
+      SELECT u.id, u.email, u.name, u.last_name
+      FROM users u
+      JOIN roles r ON u.role_id = r.id
+      WHERE LOWER(TRIM(u.email)) = ? AND r.name = 'patient' AND u.is_active = 1
+      LIMIT 1
+    `, [normalized]);
     return rows[0] || null;
   }
 
@@ -70,17 +84,18 @@ export class PatientsRepository {
 
   async create(data) {
     const result = await query(`
-      INSERT INTO patients (first_name, last_name, dni, birth_date, phone, email, address, assigned_kinesiologist_id, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+      INSERT INTO patients (first_name, last_name, dni, birth_date, phone, email, address, assigned_kinesiologist_id, user_id, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
     `, [
       data.firstName,
       data.lastName,
       data.dni,
       data.birthDate,
       data.phone,
-      data.email || null,
+      data.email ? String(data.email).trim().toLowerCase() : null,
       data.address || null,
-      data.assignedKinesiologistId || null
+      data.assignedKinesiologistId || null,
+      data.userId || null
     ]);
     return result.insertId;
   }
@@ -91,10 +106,13 @@ export class PatientsRepository {
 
     if (fields.firstName !== undefined) { updates.push('first_name = ?'); params.push(fields.firstName); }
     if (fields.lastName !== undefined) { updates.push('last_name = ?'); params.push(fields.lastName); }
+    if (fields.dni !== undefined) { updates.push('dni = ?'); params.push(fields.dni); }
+    if (fields.birthDate !== undefined) { updates.push('birth_date = ?'); params.push(fields.birthDate); }
     if (fields.phone !== undefined) { updates.push('phone = ?'); params.push(fields.phone); }
-    if (fields.email !== undefined) { updates.push('email = ?'); params.push(fields.email); }
+    if (fields.email !== undefined) { updates.push('email = ?'); params.push(fields.email ? String(fields.email).trim().toLowerCase() : null); }
     if (fields.address !== undefined) { updates.push('address = ?'); params.push(fields.address); }
     if (fields.assignedKinesiologistId !== undefined) { updates.push('assigned_kinesiologist_id = ?'); params.push(fields.assignedKinesiologistId); }
+    if (fields.userId !== undefined) { updates.push('user_id = ?'); params.push(fields.userId); }
     if (fields.isActive !== undefined) { updates.push('is_active = ?'); params.push(fields.isActive ? 1 : 0); }
 
     if (updates.length === 0) return;

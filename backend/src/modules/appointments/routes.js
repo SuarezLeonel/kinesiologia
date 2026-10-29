@@ -20,6 +20,8 @@ appointmentsRouter.use(authorizeRoles('admin', 'kinesiologist', 'receptionist'))
 appointmentsRouter.use(authorizePermission('appointments:manage'));
 
 // Regla HTTP: Solo POST para consultas
+appointmentsRouter.post('/professionals', asyncHandler((req, res, next) => appointmentsController.getProfessionals(req, res, next)));
+appointmentsRouter.post('/available-slots', asyncHandler((req, res, next) => appointmentsController.getAvailableSlots(req, res, next)));
 appointmentsRouter.post('/search', validate(appointmentSearchSchema), asyncHandler((req, res, next) => appointmentsController.search(req, res, next)));
 appointmentsRouter.post('/detail', validate(appointmentDetailSchema), asyncHandler((req, res, next) => appointmentsController.detail(req, res, next)));
 appointmentsRouter.post('/reschedule-requests', validate(rescheduleRequestsSearchSchema), asyncHandler((req, res, next) => appointmentsController.getRescheduleRequests(req, res, next)));

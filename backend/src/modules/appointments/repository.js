@@ -301,6 +301,16 @@ export class AppointmentsRepository {
     `, [userId, responseNotes || 'No es posible reprogramar en el horario solicitado', requestId]);
     return { success: true };
   }
+
+  async findProfessionals() {
+    return await query(`
+      SELECT u.id, u.name, u.last_name, u.email, u.phone
+      FROM users u
+      JOIN roles r ON u.role_id = r.id
+      WHERE r.name = 'kinesiologist' AND u.is_active = 1
+      ORDER BY u.last_name ASC, u.name ASC
+    `);
+  }
 }
 
 export const appointmentsRepository = new AppointmentsRepository();

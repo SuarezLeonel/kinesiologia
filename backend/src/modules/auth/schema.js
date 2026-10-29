@@ -38,9 +38,19 @@ export const resetPasswordSchema = z.object({
 
 export const socialLoginSchema = z.object({
   body: z.object({
-    provider: z.enum(['google', 'facebook', 'apple']),
-    idToken: z.string().min(1, 'ID Token del proveedor es requerido')
+    provider: z.enum(['google', 'facebook', 'microsoft', 'apple']),
+    idToken: z.string().min(1).optional(),
+    accessToken: z.string().min(1).optional(),
+    code: z.string().min(1).optional(),
+    existingPassword: z.string().min(1).optional(),
+    confirmedEmail: z.string().email().optional()
+  }).refine((data) => Boolean(data.idToken || data.accessToken || data.code), {
+    message: 'Debe proporcionar un token de autenticación del proveedor (idToken o accessToken)'
   })
+});
+
+export const oauthConfigSchema = z.object({
+  body: z.record(z.any()).optional()
 });
 
 export const patientRegisterSchema = z.object({
@@ -52,13 +62,20 @@ export const patientRegisterSchema = z.object({
     phone: z.string().optional(),
     dni: z.string().max(20).optional(),
     birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido (AAAA-MM-DD)').optional(),
+    insuranceProvider: z.string().optional(),
+    address: z.string().optional(),
     role: z.string().optional() // Ignored on server, never grants admin
   })
 });
 
 export const googleAuthSchema = z.object({
   body: z.object({
-    idToken: z.string().min(10, 'Token de Google requerido')
+    idToken: z.string().min(1, 'Token de Google requerido').optional(),
+    email: z.string().email('Email no válido').optional(),
+    firstName: z.string().min(1).optional(),
+    lastName: z.string().min(1).optional()
+  }).refine((data) => Boolean(data.idToken || data.email), {
+    message: 'Token o correo electrónico de Google requerido'
   })
 });
 

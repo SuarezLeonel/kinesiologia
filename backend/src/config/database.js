@@ -4,7 +4,7 @@ import { config } from './env.js';
 let pool;
 
 export function getPool() {
-  if (!pool) {
+  if (!pool || pool._closed) {
     pool = mysql.createPool({
       host: config.db.host,
       port: config.db.port,

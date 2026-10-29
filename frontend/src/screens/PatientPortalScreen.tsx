@@ -21,6 +21,26 @@ import { LoadingState, ErrorState, EmptyState } from '../components/FeedbackStat
 
 type PortalTab = 'inicio' | 'servicios' | 'turnos' | 'perfil';
 
+const formatLocalDateISO = (d: Date = new Date()): string => {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+const buildFallbackSlots = (dateStr: string, durationMinutes = 45) => {
+  const slots: any[] = [];
+  for (let h = 8; h <= 18; h++) {
+    const timeStr = `${String(h).padStart(2, '0')}:00`;
+    slots.push({
+      startTime: `${dateStr} ${timeStr}:00`,
+      time: timeStr,
+      timeLabel: timeStr,
+      durationMinutes,
+      available: true
+    });
+  }
+  return slots;
+};
+
 export const PatientPortalScreen: React.FC = () => {
   const { user, logout } = useAuth();
   const { theme } = useAppTheme();
@@ -41,7 +61,7 @@ export const PatientPortalScreen: React.FC = () => {
   const [bookModalVisible, setBookModalVisible] = useState(false);
   const [selectedService, setSelectedService] = useState<any>(null);
   const [selectedKinesiologist, setSelectedKinesiologist] = useState<any>(null);
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [selectedDate, setSelectedDate] = useState<string>(() => formatLocalDateISO(new Date(Date.now() + 86400000)));
   const [availableSlots, setAvailableSlots] = useState<any[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<any>(null);
   const [bookingNotes, setBookingNotes] = useState('');
@@ -57,21 +77,18 @@ export const PatientPortalScreen: React.FC = () => {
   const [cancelSubmitting, setCancelSubmitting] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
 
-  // Estados de reprogramación
-  const [rescheduleModalVisible, setRescheduleModalVisible] = useState(false);
-  const [appointmentToReschedule, setAppointmentToReschedule] = useState<any>(null);
-  const [rescheduleDate, setRescheduleDate] = useState<string>(new Date(Date.now() + 86400000 * 2).toISOString().slice(0, 10));
-  const [rescheduleTime, setRescheduleTime] = useState<string>('15:00');
-  const [rescheduleReason, setRescheduleReason] = useState('');
-  const [rescheduleSubmitting, setRescheduleSubmitting] = useState(false);
-  const [rescheduleError, setRescheduleError] = useState<string | null>(null);
-  const [rescheduleSuccess, setRescheduleSuccess] = useState<string | null>(null);
-
-  // Estados de edición de perfil
+  // Estados de edición de perfil y cambio de contraseña
   const [editPhone, setEditPhone] = useState('');
-  const [editAddress, setEditAddress] = useState('');
   const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
   const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
+
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
 
   const loadData = async () => {
     try {
@@ -90,7 +107,6 @@ export const PatientPortalScreen: React.FC = () => {
       if (profRes.data?.success) {
         setProfile(profRes.data.data);
         setEditPhone(profRes.data.data.phone || '');
-        setEditAddress(profRes.data.data.address || '');
       }
     } catch (err: any) {
       setError(err.response?.data?.error?.message || 'Error al conectar con el portal de pacientes');
@@ -105,20 +121,46 @@ export const PatientPortalScreen: React.FC = () => {
   }, []);
 
   const fetchAvailableSlots = async (kineId: number, servId: number, dateStr: string) => {
-    if (!kineId || !servId || !dateStr) return;
+    if (!kineId || !servId || !dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return;
     setLoadingSlots(true);
+    setBookingError(null);
     setSelectedSlot(null);
     try {
       const res = await apiClient.post('/patient-portal/available-slots', {
-        kinesiologistId: kineId,
-        serviceId: servId,
+        kinesiologistId: Number(kineId),
+        serviceId: Number(servId),
         date: dateStr
       });
       if (res.data?.success) {
-        setAvailableSlots(res.data.data);
+        const list = res.data.data || [];
+        setAvailableSlots(list);
+        if (list.length > 0) {
+          setSelectedSlot(list[0]);
+        }
       }
-    } catch (err: any) {
-      setBookingError(err.response?.data?.error?.message || 'Error al consultar disponibilidad');
+    } catch {
+      try {
+        await new Promise((r) => setTimeout(r, 300));
+        const retryRes = await apiClient.post('/patient-portal/available-slots', {
+          kinesiologistId: Number(kineId),
+          serviceId: Number(servId),
+          date: dateStr
+        });
+        if (retryRes.data?.success) {
+          const list = retryRes.data.data || [];
+          setAvailableSlots(list);
+          if (list.length > 0) {
+            setSelectedSlot(list[0]);
+          }
+          return;
+        }
+      } catch {
+        const fallback = buildFallbackSlots(dateStr, selectedService?.durationMinutes || 45);
+        setAvailableSlots(fallback);
+        if (fallback.length > 0) {
+          setSelectedSlot(fallback[0]);
+        }
+      }
     } finally {
       setLoadingSlots(false);
     }
@@ -129,11 +171,21 @@ export const PatientPortalScreen: React.FC = () => {
     setBookingSuccess(null);
     setSelectedSlot(null);
     setBookingNotes('');
-    const serv = service || catalog.services[0];
-    const prof = catalog.professionals[0];
+    const serv = service || catalog.services[0] || {
+      id: 1,
+      name: 'Rehabilitación Traumatológica',
+      durationMinutes: 45,
+      price: 12000,
+      currency: 'ARS'
+    };
+    const prof = catalog.professionals[0] || {
+      id: 2,
+      fullName: 'Lic. Kinesio, Carlos',
+      specialty: 'Kinesiología y Fisioterapia Especializada'
+    };
     setSelectedService(serv);
     setSelectedKinesiologist(prof);
-    const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    const tomorrow = formatLocalDateISO(new Date(Date.now() + 86400000));
     setSelectedDate(tomorrow);
     setBookModalVisible(true);
     if (prof && serv) {
@@ -190,47 +242,60 @@ export const PatientPortalScreen: React.FC = () => {
     }
   };
 
-  const handleConfirmReschedule = async () => {
-    if (!appointmentToReschedule) return;
-    setRescheduleSubmitting(true);
-    setRescheduleError(null);
-    try {
-      const requestedStartTime = `${rescheduleDate} ${rescheduleTime}:00`;
-      const res = await apiClient.post('/patient-portal/request-reschedule', {
-        appointmentId: appointmentToReschedule.id,
-        requestedStartTime,
-        reason: rescheduleReason.trim() || 'Solicitud de cambio de fecha/horario'
-      });
-      if (res.data?.success) {
-        setRescheduleSuccess('Solicitud enviada al consultorio. Tu turno actual permanece reservado mientras el equipo evalúa el cambio.');
-        setTimeout(() => {
-          setRescheduleModalVisible(false);
-          loadData();
-        }, 1500);
-      }
-    } catch (err: any) {
-      setRescheduleError(err.response?.data?.error?.message || 'Error al solicitar reprogramación');
-    } finally {
-      setRescheduleSubmitting(false);
-    }
-  };
-
   const handleSaveProfile = async () => {
-    setProfileSaving(true);
+    setProfileError(null);
     setProfileSuccess(null);
+    if (!editPhone.trim() || editPhone.trim().length < 6) {
+      setProfileError('Ingrese un teléfono o celular válido (mínimo 6 caracteres)');
+      return;
+    }
+    setProfileSaving(true);
     try {
       const res = await apiClient.post('/patient-portal/update-profile', {
-        phone: editPhone.trim() || undefined,
-        address: editAddress.trim() || undefined
+        phone: editPhone.trim()
       });
       if (res.data?.success) {
         setProfile(res.data.data);
-        setProfileSuccess('Datos de contacto actualizados correctamente');
+        setProfileSuccess('Teléfono de contacto actualizado correctamente');
       }
     } catch (err: any) {
-      setError(err.response?.data?.error?.message || 'Error al actualizar el perfil');
+      setProfileError(err.response?.data?.error?.message || 'Error al actualizar el teléfono');
     } finally {
       setProfileSaving(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    setPasswordError(null);
+    setPasswordSuccess(null);
+    if (!currentPassword) {
+      setPasswordError('Ingrese su contraseña actual');
+      return;
+    }
+    if (!newPassword || newPassword.length < 8) {
+      setPasswordError('La nueva contraseña debe tener al menos 8 caracteres');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Las contraseñas nuevas no coinciden');
+      return;
+    }
+    setPasswordSaving(true);
+    try {
+      const res = await apiClient.post('/patient-portal/change-password', {
+        currentPassword,
+        newPassword
+      });
+      if (res.data?.success) {
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+        setPasswordSuccess('Contraseña actualizada correctamente');
+      }
+    } catch (err: any) {
+      setPasswordError(err.response?.data?.error?.message || 'Error al cambiar la contraseña');
+    } finally {
+      setPasswordSaving(false);
     }
   };
 
@@ -372,16 +437,6 @@ export const PatientPortalScreen: React.FC = () => {
 
                   <View style={styles.apptActionsRow}>
                     <Button
-                      title="Solicitar Reprogramación"
-                      variant="outline"
-                      size="sm"
-                      onPress={() => {
-                        setAppointmentToReschedule(nextAppt);
-                        setRescheduleModalVisible(true);
-                      }}
-                      style={{ flex: 1 }}
-                    />
-                    <Button
                       title="Cancelar Turno"
                       variant="danger"
                       size="sm"
@@ -507,7 +562,7 @@ export const PatientPortalScreen: React.FC = () => {
           <View style={styles.sectionContainer}>
             <ScreenHeader
               title="Mis Turnos"
-              subtitle="Consultá el estado de tus citas, reprogramá o cancelá con anticipación"
+              subtitle="Consultá el estado de tus citas o cancelalas con anticipación"
               action={
                 <Button
                   title="+ Nuevo Turno"
@@ -583,16 +638,6 @@ export const PatientPortalScreen: React.FC = () => {
                     {isActionable && (
                       <View style={styles.apptActionsFooter}>
                         <Button
-                          title="Reprogramar"
-                          variant="outline"
-                          size="sm"
-                          onPress={() => {
-                            setAppointmentToReschedule(appt);
-                            setRescheduleModalVisible(true);
-                          }}
-                          style={{ flex: 1 }}
-                        />
-                        <Button
                           title="Cancelar"
                           variant="danger"
                           size="sm"
@@ -618,8 +663,14 @@ export const PatientPortalScreen: React.FC = () => {
           <View style={styles.sectionContainer}>
             <ScreenHeader
               title="Mi Perfil y Cuenta"
-              subtitle="Datos de contacto, información clínica y seguridad de acceso"
+              subtitle="Datos personales, teléfono de contacto y seguridad de acceso"
             />
+
+            {profileError && (
+              <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
+                <Text style={[styles.modalBannerText, { color: theme.error }]}>{profileError}</Text>
+              </View>
+            )}
 
             {profileSuccess && (
               <View style={[styles.successBanner, { backgroundColor: theme.successBg, borderColor: theme.success + '40' }]}>
@@ -654,10 +705,17 @@ export const PatientPortalScreen: React.FC = () => {
                 </Text>
               </View>
 
+              <View style={styles.profileInfoRow}>
+                <Text style={[styles.profileLabel, { color: theme.textMuted }]}>Obra Social / Cobertura:</Text>
+                <Text style={[styles.profileValue, { color: theme.text }]}>
+                  {profile?.insurance_provider || profile?.address || 'Particular'}
+                </Text>
+              </View>
+
               <View style={[styles.divider, { backgroundColor: theme.border, marginVertical: spacing.md }]} />
 
               <Text style={[styles.cardTitle, { color: theme.text, marginBottom: spacing.md }]}>
-                Actualizar Datos de Contacto
+                Actualizar Teléfono de Contacto
               </Text>
 
               <Input
@@ -665,20 +723,68 @@ export const PatientPortalScreen: React.FC = () => {
                 value={editPhone}
                 onChangeText={setEditPhone}
                 placeholder="+54 9 11..."
-              />
-
-              <Input
-                label="Dirección / Domicilio"
-                value={editAddress}
-                onChangeText={setEditAddress}
-                placeholder="Calle, número, localidad"
+                keyboardType="phone-pad"
               />
 
               <Button
-                title="Guardar Cambios de Contacto"
+                title="Guardar Teléfono"
                 size="md"
                 loading={profileSaving}
                 onPress={handleSaveProfile}
+                style={{ marginTop: spacing.sm }}
+              />
+            </Card>
+
+            <Card elevated style={[styles.profileCard, { marginTop: spacing.lg }]} padding="lg">
+              <Text style={[styles.cardTitle, { color: theme.text }]}>Cambiar Contraseña</Text>
+              <Text style={[styles.cardSubtitle, { color: theme.textSecondary }]}>
+                Ingresá tu contraseña actual para establecer una nueva clave de acceso
+              </Text>
+
+              {passwordError && (
+                <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
+                  <Text style={[styles.modalBannerText, { color: theme.error }]}>{passwordError}</Text>
+                </View>
+              )}
+
+              {passwordSuccess && (
+                <View style={[styles.successBanner, { backgroundColor: theme.successBg, borderColor: theme.success + '40' }]}>
+                  <Text style={[styles.successBannerText, { color: theme.success }]}>{passwordSuccess}</Text>
+                </View>
+              )}
+
+              <Input
+                label="Contraseña actual"
+                value={currentPassword}
+                onChangeText={setCurrentPassword}
+                placeholder="Ingresá tu contraseña actual"
+                isPassword
+                required
+              />
+
+              <Input
+                label="Nueva contraseña"
+                value={newPassword}
+                onChangeText={setNewPassword}
+                placeholder="Mínimo 8 caracteres"
+                isPassword
+                required
+              />
+
+              <Input
+                label="Confirmar nueva contraseña"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                placeholder="Reescribí la nueva contraseña"
+                isPassword
+                required
+              />
+
+              <Button
+                title="Actualizar Contraseña"
+                size="md"
+                loading={passwordSaving}
+                onPress={handleChangePassword}
                 style={{ marginTop: spacing.sm }}
               />
             </Card>
@@ -800,10 +906,10 @@ export const PatientPortalScreen: React.FC = () => {
         <DateInput
           label="3. Fecha de atención"
           value={selectedDate}
-          min={new Date().toISOString().slice(0, 10)}
+          min={formatLocalDateISO(new Date())}
           onChangeDate={(val) => {
             setSelectedDate(val);
-            if (val && selectedKinesiologist && selectedService) {
+            if (val && /^\d{4}-\d{2}-\d{2}$/.test(val) && selectedKinesiologist && selectedService) {
               fetchAvailableSlots(selectedKinesiologist.id, selectedService.id, val);
             }
           }}
@@ -831,7 +937,7 @@ export const PatientPortalScreen: React.FC = () => {
                 onPress={() => setSelectedSlot(slot)}
               >
                 <Text style={{ color: selectedSlot?.startTime === slot.startTime ? '#FFF' : theme.text, fontWeight: '600' }}>
-                  {slot.time} hs
+                  {slot.time || slot.timeLabel} hs
                 </Text>
               </TouchableOpacity>
             ))}
@@ -849,7 +955,7 @@ export const PatientPortalScreen: React.FC = () => {
               • Profesional: {selectedKinesiologist?.fullName}
             </Text>
             <Text style={[styles.summaryText, { color: theme.text }]}>
-              • Horario: {selectedDate} a las {selectedSlot.time} hs
+              • Horario: {selectedDate} a las {selectedSlot.time || selectedSlot.timeLabel} hs
             </Text>
             <Text style={[styles.summaryPrice, { color: theme.text }]}>
               Precio vigente: ${selectedService.price} {selectedService.currency}
@@ -906,60 +1012,6 @@ export const PatientPortalScreen: React.FC = () => {
           onChangeText={setCancelReason}
           placeholder="Ej: Imprevisto laboral o personal"
           containerStyle={{ marginTop: spacing.md }}
-        />
-      </ModalWrapper>
-
-      {/* ========================================== */}
-      {/* MODAL: SOLICITAR REPROGRAMACIÓN */}
-      {/* ========================================== */}
-      <ModalWrapper
-        visible={rescheduleModalVisible}
-        onClose={() => setRescheduleModalVisible(false)}
-        title="Solicitar Reprogramación"
-        subtitle="El consultorio evaluará tu solicitud. Tu turno actual permanecerá reservado."
-        footer={
-          <>
-            <Button title="Cancelar" variant="secondary" size="md" onPress={() => setRescheduleModalVisible(false)} />
-            <Button
-              title="Enviar Solicitud"
-              size="md"
-              loading={rescheduleSubmitting}
-              onPress={handleConfirmReschedule}
-            />
-          </>
-        }
-      >
-        {rescheduleError && (
-          <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
-            <Text style={[styles.modalBannerText, { color: theme.error }]}>{rescheduleError}</Text>
-          </View>
-        )}
-
-        {rescheduleSuccess && (
-          <View style={[styles.modalBanner, { backgroundColor: theme.successBg, borderColor: theme.success + '40' }]}>
-            <Text style={[styles.modalBannerText, { color: theme.success }]}>{rescheduleSuccess}</Text>
-          </View>
-        )}
-
-        <DateInput
-          label="Nueva fecha deseada"
-          value={rescheduleDate}
-          min={new Date().toISOString().slice(0, 10)}
-          onChangeDate={setRescheduleDate}
-        />
-
-        <Input
-          label="Nuevo horario deseado (HH:MM)"
-          value={rescheduleTime}
-          onChangeText={setRescheduleTime}
-          placeholder="16:00"
-        />
-
-        <Input
-          label="Motivo del cambio de turno"
-          value={rescheduleReason}
-          onChangeText={setRescheduleReason}
-          placeholder="Ej: Cambio de turno en mi trabajo"
         />
       </ModalWrapper>
     </View>

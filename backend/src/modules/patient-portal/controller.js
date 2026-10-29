@@ -92,6 +92,15 @@ export class PatientPortalController {
     }
   }
 
+  async changePassword(req, res, next) {
+    try {
+      const result = await patientPortalService.changePassword(req.user.id, req.body);
+      return sendSuccess(res, result, 'Contraseña actualizada con éxito');
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async myNotifications(req, res, next) {
     try {
       const notifs = await patientPortalService.myNotifications(req.user.id);

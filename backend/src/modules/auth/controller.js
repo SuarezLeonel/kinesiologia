@@ -74,7 +74,13 @@ export class AuthController {
 
   async social(req, res, next) {
     try {
-      const result = await authService.socialAuth(req.body);
+      const ipAddress = req.ip;
+      const userAgent = req.headers['user-agent'];
+      const result = await authService.socialAuth({
+        ...req.body,
+        ipAddress,
+        userAgent
+      });
       return sendSuccess(res, result, 'Autenticación social procesada');
     } catch (error) {
       next(error);
@@ -98,10 +104,22 @@ export class AuthController {
       const userAgent = req.headers['user-agent'];
       const result = await authService.googleLogin({
         idToken: req.body.idToken,
+        email: req.body.email,
+        firstName: req.body.firstName,
+        lastName: req.body.lastName,
         ipAddress,
         userAgent
       });
       return sendSuccess(res, result, 'Inicio de sesión con Google exitoso');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async oauthConfig(req, res, next) {
+    try {
+      const result = authService.getOAuthConfig();
+      return sendSuccess(res, result, 'Configuración de proveedores OAuth');
     } catch (error) {
       next(error);
     }

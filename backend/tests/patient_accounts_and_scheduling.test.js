@@ -74,6 +74,10 @@ test('1. Recepcionista crea ficha administrativa sin crear cuenta de usuario ni 
 test('2. Recepcionista reserva turno para paciente sin cuenta y registra snapshot de precio acordado', async () => {
   assert.ok(createdPatientId, 'Se requiere patientId previo');
 
+  // Limpiar cualquier turno remanente de ejecuciones interrumpidas
+  const cleanPool = getPool();
+  await cleanPool.execute('DELETE FROM appointments WHERE start_time LIKE ?', ['2027-11-10%']);
+
   // Usamos el servicio 1 (Evaluación Kine Inicial, default_price = 15000.00)
   const startTime = '2027-11-10T10:00:00.000Z';
   const endTime = '2027-11-10T11:00:00.000Z';

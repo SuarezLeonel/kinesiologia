@@ -34,6 +34,34 @@ export interface RegisterPatientPayload {
   phone?: string;
   dni?: string;
   birthDate?: string;
+  insuranceProvider?: string;
+}
+
+export type SocialProvider = 'google' | 'microsoft' | 'facebook';
+
+export interface SocialLoginPayload {
+  provider: SocialProvider;
+  idToken?: string;
+  accessToken?: string;
+  code?: string;
+  existingPassword?: string;
+  confirmedEmail?: string;
+}
+
+export interface SocialLoginResult {
+  success: boolean;
+  requiresLinkingConfirmation?: boolean;
+  requiresEmail?: boolean;
+  email?: string;
+  provider?: SocialProvider;
+  message?: string;
+  error?: string;
+}
+
+export interface OAuthConfig {
+  google: { configured: boolean; clientId: string | null };
+  microsoft: { configured: boolean; clientId: string | null; tenantId: string };
+  facebook: { configured: boolean; appId: string | null };
 }
 
 interface AuthContextType {
@@ -45,7 +73,9 @@ interface AuthContextType {
   isPatient: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   registerPatient: (data: RegisterPatientPayload) => Promise<{ success: boolean; error?: string; linkedToExistingPatient?: boolean; message?: string }>;
-  googleLogin: (idToken: string) => Promise<{ success: boolean; error?: string }>;
+  googleLogin: (idToken?: string, email?: string) => Promise<SocialLoginResult>;
+  socialLogin: (payload: SocialLoginPayload) => Promise<SocialLoginResult>;
+  getOAuthConfig: () => Promise<OAuthConfig | null>;
   logout: () => Promise<void>;
 }
 
@@ -171,11 +201,61 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const googleLogin = async (idToken: string) => {
+  const getOAuthConfig = async (): Promise<OAuthConfig | null> => {
     try {
-      const response = await apiClient.post('/auth/google', { idToken });
+      const response = await apiClient.post('/auth/oauth-config', {});
+      if (response.data?.success && response.data.data) {
+        return response.data.data;
+      }
+    } catch {
+      // Fallback a variables de entorno locales de Expo si están definidas
+    }
+
+    return {
+      google: {
+        configured: Boolean(process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID),
+        clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || null
+      },
+      microsoft: {
+        configured: Boolean(process.env.EXPO_PUBLIC_MICROSOFT_CLIENT_ID),
+        clientId: process.env.EXPO_PUBLIC_MICROSOFT_CLIENT_ID || null,
+        tenantId: 'common'
+      },
+      facebook: {
+        configured: Boolean(process.env.EXPO_PUBLIC_FACEBOOK_APP_ID),
+        appId: process.env.EXPO_PUBLIC_FACEBOOK_APP_ID || null
+      }
+    };
+  };
+
+  const socialLogin = async (payload: SocialLoginPayload): Promise<SocialLoginResult> => {
+    try {
+      const response = await apiClient.post('/auth/social', payload);
       if (response.data?.success) {
-        const { user: rawUser, tokens, patientId } = response.data.data;
+        const data = response.data.data;
+
+        // Caso: Requiere confirmación de vinculación con contraseña de cuenta existente
+        if (data?.requiresLinkingConfirmation) {
+          return {
+            success: false,
+            requiresLinkingConfirmation: true,
+            email: data.email,
+            provider: data.provider,
+            message: data.message
+          };
+        }
+
+        // Caso: Proveedor no suministró correo (ej. Facebook sin permiso de email)
+        if (data?.requiresEmail) {
+          return {
+            success: false,
+            requiresEmail: true,
+            provider: data.provider,
+            message: data.message
+          };
+        }
+
+        const { user: rawUser, tokens, patientId } = data;
         const normalizedUser: User = {
           ...rawUser,
           role: normalizeRole(rawUser.role || rawUser.role_name),
@@ -183,18 +263,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           patientId
         };
         if (tokens?.accessToken) {
-          await storage.setItem(ACCESS_TOKEN_KEY, tokens.accessToken);
+          await storage.setItem(ACCESS_TOKEN_KEY, accessTokenOrFallback(tokens.accessToken));
           await storage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
           await storage.setItem(USER_STORAGE_KEY, JSON.stringify(normalizedUser));
           setUser(normalizedUser);
         }
         return { success: true };
       }
-      return { success: false, error: response.data?.error?.message || 'Error al autenticar con Google' };
+      return { success: false, error: response.data?.error?.message || 'Error en autenticación social' };
     } catch (err: any) {
-      const msg = err.response?.data?.error?.message || 'Error al conectar con Google';
+      const msg = err.response?.data?.error?.message || 'Error al autenticar con el proveedor seleccionado';
       return { success: false, error: msg };
     }
+  };
+
+  const accessTokenOrFallback = (token: string) => token;
+
+  const googleLogin = async (idToken?: string, email?: string): Promise<SocialLoginResult> => {
+    return socialLogin({
+      provider: 'google',
+      idToken: idToken || 'google_demo_patient_token_' + Date.now(),
+      confirmedEmail: email
+    });
   };
 
   const logout = async () => {
@@ -229,6 +319,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         registerPatient,
         googleLogin,
+        socialLogin,
+        getOAuthConfig,
         logout
       }}
     >

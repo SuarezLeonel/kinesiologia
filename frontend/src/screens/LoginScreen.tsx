@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { spacing, radii, typography } from '../theme/tokens';
-import { Input, Button, Card } from '../components/ui';
+import { Input, Button, Card, SocialAuthButtons } from '../components/ui';
 import { API_BASE_URL } from '../api/config';
 
 const loginSchema = z.object({
@@ -18,7 +18,7 @@ const loginSchema = z.object({
 type LoginFormData = z.infer<typeof loginSchema>;
 
 export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
-  const { login, googleLogin } = useAuth();
+  const { login } = useAuth();
   const { theme } = useAppTheme();
   const insets = useSafeAreaInsets();
   const [serverError, setServerError] = useState<string | null>(null);
@@ -155,51 +155,43 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             style={{ marginBottom: spacing.sm }}
           />
 
-          <Button
-            title="Ingresar con Google"
-            variant="secondary"
-            size="md"
-            onPress={async () => {
-              setServerError(null);
-              const demoGoogleToken = 'google_demo_patient_token_' + Date.now();
-              const res = await googleLogin(demoGoogleToken);
-              if (!res.success) {
-                setServerError(res.error || 'Error al autenticar con Google');
-              }
-            }}
-          />
+          <SocialAuthButtons mode="login" onError={setServerError} />
 
-          <View style={styles.demoBox}>
-            <Text style={[styles.demoTitle, { color: theme.textSecondary }]}>Cuentas demo (clic rápido):</Text>
-            <View style={styles.demoButtonsRow}>
-              <TouchableOpacity
-                onPress={() => fillDemoCredentials('admin@kinesiologia.com')}
-                style={[styles.demoChip, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
-              >
-                <Text style={[styles.demoChipText, { color: theme.primary }]}>Admin</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => fillDemoCredentials('carlos.kine@kinesiologia.com')}
-                style={[styles.demoChip, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
-              >
-                <Text style={[styles.demoChipText, { color: theme.primary }]}>Kinesiólogo</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => fillDemoCredentials('mariana.recep@kinesiologia.com')}
-                style={[styles.demoChip, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
-              >
-                <Text style={[styles.demoChipText, { color: theme.primary }]}>Recepción</Text>
-              </TouchableOpacity>
+          {__DEV__ && (
+            <View style={styles.demoBox}>
+              <Text style={[styles.demoTitle, { color: theme.textSecondary }]}>Cuentas demo (desarrollo):</Text>
+              <View style={styles.demoButtonsRow}>
+                <TouchableOpacity
+                  onPress={() => fillDemoCredentials('admin@kinesiologia.com')}
+                  style={[styles.demoChip, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
+                >
+                  <Text style={[styles.demoChipText, { color: theme.primary }]}>Admin</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => fillDemoCredentials('carlos.kine@kinesiologia.com')}
+                  style={[styles.demoChip, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
+                >
+                  <Text style={[styles.demoChipText, { color: theme.primary }]}>Kinesiólogo</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => fillDemoCredentials('mariana.recep@kinesiologia.com')}
+                  style={[styles.demoChip, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
+                >
+                  <Text style={[styles.demoChipText, { color: theme.primary }]}>Recepción</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          )}
 
           <View style={styles.footerNote}>
             <Text style={[styles.footerText, { color: theme.textMuted }]}>
               Acceso seguro con token cifrado y control de sesiones por rol.
             </Text>
-            <Text style={[styles.serverInfoText, { color: theme.textMuted }]}>
-              Servidor API: {API_BASE_URL}
-            </Text>
+            {__DEV__ && (
+              <Text style={[styles.serverInfoText, { color: theme.textMuted }]}>
+                Servidor API: {API_BASE_URL}
+              </Text>
+            )}
           </View>
         </Card>
       </ScrollView>

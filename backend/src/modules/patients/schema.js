@@ -26,21 +26,23 @@ export const patientCreateSchema = z.object({
     birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD').optional(),
     birth_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD').optional(),
     phone: z.string().min(6),
-    email: z.string().email().optional().nullable(),
+    email: z.string({ required_error: 'El correo electrónico es obligatorio' }).trim().toLowerCase().email('Ingrese un correo electrónico válido'),
     address: z.string().optional().nullable(),
-    assignedKinesiologistId: z.number().int().positive().optional().nullable(),
-    assigned_kinesiologist_id: z.number().int().positive().optional().nullable()
+    assignedKinesiologistId: z.coerce.number().int().positive().optional().nullable(),
+    assigned_kinesiologist_id: z.coerce.number().int().positive().optional().nullable(),
+    password: z.string().min(8).optional().or(z.literal(''))
   }).transform((val) => ({
     firstName: (val.firstName || val.first_name || '').trim(),
     lastName: (val.lastName || val.last_name || '').trim(),
     dni: val.dni.trim(),
     birthDate: val.birthDate || val.birth_date,
     phone: val.phone.trim(),
-    email: val.email || undefined,
+    email: val.email.trim().toLowerCase(),
     address: val.address || undefined,
-    assignedKinesiologistId: val.assignedKinesiologistId || val.assigned_kinesiologist_id || undefined
-  })).refine(val => Boolean(val.firstName) && Boolean(val.lastName) && Boolean(val.birthDate), {
-    message: 'Nombre, apellido y fecha de nacimiento son obligatorios'
+    assignedKinesiologistId: val.assignedKinesiologistId || val.assigned_kinesiologist_id || undefined,
+    password: val.password ? val.password.trim() : undefined
+  })).refine(val => Boolean(val.firstName) && Boolean(val.lastName) && Boolean(val.birthDate) && Boolean(val.email), {
+    message: 'Nombre, apellido, fecha de nacimiento y correo electrónico son obligatorios'
   })
 });
 

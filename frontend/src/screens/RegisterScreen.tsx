@@ -16,7 +16,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { spacing, radii, typography } from '../theme/tokens';
-import { Input, Button, Card, DateInput } from '../components/ui';
+import { Input, Button, Card, DateInput, InsuranceSelector, SocialAuthButtons } from '../components/ui';
 
 const registerSchema = z.object({
   firstName: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
@@ -25,22 +25,25 @@ const registerSchema = z.object({
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
   phone: z.string().min(6, 'Ingrese un teléfono de contacto válido').optional().or(z.literal('')),
   dni: z.string().max(20, 'Máximo 20 caracteres').optional().or(z.literal('')),
-  birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato inválido (AAAA-MM-DD)').optional().or(z.literal(''))
+  birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato inválido (AAAA-MM-DD)').optional().or(z.literal('')),
+  insuranceProvider: z.string().default('Particular'),
+  customInsuranceProvider: z.string().optional()
 });
 
 type RegisterFormData = z.infer<typeof registerSchema>;
 
 export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
-  const { registerPatient, googleLogin } = useAuth();
+  const { registerPatient } = useAuth();
   const { theme } = useAppTheme();
   const insets = useSafeAreaInsets();
   const [serverError, setServerError] = useState<string | null>(null);
   const [successInfo, setSuccessInfo] = useState<string | null>(null);
-  const [googleLoading, setGoogleLoading] = useState(false);
 
   const {
     control,
     handleSubmit,
+    setValue,
+    watch,
     formState: { errors, isSubmitting }
   } = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema) as any,
@@ -51,13 +54,24 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
       password: '',
       phone: '',
       dni: '',
-      birthDate: '1995-01-01'
+      birthDate: '1995-01-01',
+      insuranceProvider: 'Particular',
+      customInsuranceProvider: ''
     }
   });
+
+  const watchedCustomInsurance = watch('customInsuranceProvider');
 
   const onSubmit = async (data: RegisterFormData) => {
     setServerError(null);
     setSuccessInfo(null);
+    const selectedIns = data.insuranceProvider || 'Particular';
+    if (selectedIns === 'Otra' && (!data.customInsuranceProvider || !data.customInsuranceProvider.trim())) {
+      setServerError('Por favor especifique el nombre de su obra social en la opción "Otra"');
+      return;
+    }
+    const finalCoverage = selectedIns === 'Otra' ? data.customInsuranceProvider?.trim() : selectedIns;
+
     const result = await registerPatient({
       firstName: data.firstName.trim(),
       lastName: data.lastName.trim(),
@@ -65,7 +79,8 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
       password: data.password,
       phone: data.phone?.trim() || undefined,
       dni: data.dni?.trim() || undefined,
-      birthDate: data.birthDate?.trim() || undefined
+      birthDate: data.birthDate?.trim() || undefined,
+      insuranceProvider: finalCoverage || 'Particular'
     });
 
     if (!result.success) {
@@ -74,24 +89,6 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
       if (result.linkedToExistingPatient) {
         setSuccessInfo(result.message || '¡Ficha médica vinculada exitosamente!');
       }
-    }
-  };
-
-  const handleGoogleAuth = async () => {
-    setServerError(null);
-    setGoogleLoading(true);
-    try {
-      // En Web/Móvil se intercambia el ID Token de Google
-      // Para entornos sin cliente Google configurado, enviamos token firmado para desarrollo
-      const fallbackToken = 'google_demo_patient_token_' + Date.now();
-      const result = await googleLogin(fallbackToken);
-      if (!result.success) {
-        setServerError(result.error || 'Error al autenticar con Google');
-      }
-    } catch (err: any) {
-      setServerError('No se pudo completar el inicio de sesión con Google');
-    } finally {
-      setGoogleLoading(false);
     }
   };
 
@@ -271,6 +268,21 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
             )}
           />
 
+          <Controller
+            control={control}
+            name="insuranceProvider"
+            render={({ field: { onChange, value } }) => (
+              <InsuranceSelector
+                label="Obra social / Cobertura"
+                value={value || 'Particular'}
+                onChange={onChange}
+                customValue={watchedCustomInsurance || ''}
+                onChangeCustom={(val) => setValue('customInsuranceProvider', val)}
+                error={errors.insuranceProvider?.message}
+              />
+            )}
+          />
+
           <Button
             title="Crear mi cuenta de Paciente"
             onPress={() => handleSubmit(onSubmit)()}
@@ -285,14 +297,7 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
             <View style={[styles.line, { backgroundColor: theme.border }]} />
           </View>
 
-          <Button
-            title="Continuar con Google"
-            variant="outline"
-            size="lg"
-            loading={googleLoading}
-            onPress={handleGoogleAuth}
-            style={{ marginTop: spacing.sm }}
-          />
+          <SocialAuthButtons mode="register" onError={setServerError} />
 
           <View style={styles.footerRow}>
             <Text style={[styles.footerText, { color: theme.textSecondary }]}>

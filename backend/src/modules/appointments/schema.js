@@ -47,7 +47,12 @@ export const appointmentCreateSchema = z.object({
       const d = new Date(startTime.replace(' ', 'T'));
       if (!isNaN(d.getTime())) {
         const endD = new Date(d.getTime() + duration * 60000);
-        endTime = endD.toISOString().slice(0, 19).replace('T', ' ');
+        if (String(startTime).includes('Z')) {
+          endTime = endD.toISOString().slice(0, 19).replace('T', ' ');
+        } else {
+          const pad = (n) => String(n).padStart(2, '0');
+          endTime = `${endD.getFullYear()}-${pad(endD.getMonth() + 1)}-${pad(endD.getDate())} ${pad(endD.getHours())}:${pad(endD.getMinutes())}:${pad(endD.getSeconds())}`;
+        }
       }
     }
 
