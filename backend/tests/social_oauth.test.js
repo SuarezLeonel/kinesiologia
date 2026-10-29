@@ -162,7 +162,7 @@ test('OAuth 5. Bridge Callback /auth/oauth/callback redirige adecuadamente a Exp
     .query({ code: 'mock_code_abc', state: expoState });
 
   assert.strictEqual(resExpo.status, 200);
-  assert.match(resExpo.text, /exp:\/\/192\.168\.0\.145:8081\?code=mock_code_abc&amp;state=client_csrf_123/);
+  assert.match(resExpo.text, new RegExp(`exp:\\/\\/192\\.168\\.0\\.145:8081\\?code=mock_code_abc&amp;state=${expoState}`));
 
   // Caso B: Standalone APK (kinesiologia://)
   const apkState = Buffer.from(JSON.stringify({
@@ -176,7 +176,7 @@ test('OAuth 5. Bridge Callback /auth/oauth/callback redirige adecuadamente a Exp
     .query({ code: 'mock_code_xyz', state: apkState });
 
   assert.strictEqual(resApk.status, 200);
-  assert.match(resApk.text, /kinesiologia:\/\/oauth-callback\?code=mock_code_xyz&amp;state=client_csrf_456/);
+  assert.match(resApk.text, new RegExp(`kinesiologia:\\/\\/oauth-callback\\?code=mock_code_xyz&amp;state=${apkState}`));
 
   // Caso C: Protección contra Open Redirect (dominios externos sospechosos)
   const badState = Buffer.from(JSON.stringify({

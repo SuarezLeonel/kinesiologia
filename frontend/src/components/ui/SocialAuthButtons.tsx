@@ -201,7 +201,33 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
     }
 
     if (result.type === 'success' && result.url) {
-      return authRequest.parseReturnUrl(result.url);
+      const parsed = authRequest.parseReturnUrl(result.url) as any;
+
+      if (parsed.type === 'success') {
+        return parsed;
+      }
+
+      // Si parseReturnUrl dio error exclusivamente por disparidad en el state empaquetado del bridge,
+      // pero el proveedor OAuth retornó un código de autorización legítimo:
+      if (parsed.params && parsed.params.code) {
+        return {
+          type: 'success',
+          url: result.url,
+          params: parsed.params
+        } as any;
+      }
+
+      // Fallback de extracción directa en la URL devuelta
+      const codeMatch = result.url.match(/[?&]code=([^&#]+)/);
+      if (codeMatch && codeMatch[1]) {
+        return {
+          type: 'success',
+          url: result.url,
+          params: { code: decodeURIComponent(codeMatch[1]) }
+        } as any;
+      }
+
+      return parsed;
     }
 
     return { type: 'dismiss' };

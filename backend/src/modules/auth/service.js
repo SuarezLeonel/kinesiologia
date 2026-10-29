@@ -385,8 +385,9 @@ export class AuthService {
     if (code) {
       params.set('code', String(code));
     }
-    if (appState) {
-      params.set('state', appState);
+    if (state) {
+      // Devolver exactamente el mismo state recibido para satisfacer la verificación CSRF del cliente (AuthRequest)
+      params.set('state', String(state));
     }
     if (error) {
       params.set('error', String(error));
