@@ -9,12 +9,43 @@ const githubCodeExchangeResults = new Map();
 export class OAuthProviderService {
   /**
    * Verifica la identidad del usuario contra Google OAuth 2.0 / OpenID Connect.
-   * @param {{ idToken?: string, accessToken?: string }} params
+   * @param {{ idToken?: string, accessToken?: string, code?: string, redirectUri?: string }} params
    * @returns {Promise<{ provider: 'google', providerUserId: string, email: string, emailVerified: boolean, firstName: string, lastName: string, avatarUrl: string|null }>}
    */
-  async verifyGoogle({ idToken, accessToken }) {
-    if (!idToken && !accessToken) {
-      throw new UnauthorizedError('Token de autenticación de Google requerido');
+  async verifyGoogle({ idToken, accessToken, code, redirectUri }) {
+    if (!idToken && !accessToken && !code) {
+      throw new UnauthorizedError('Token o código de autenticación de Google requerido');
+    }
+
+    // 0. Si se proporciona un código de autorización (Authorization Code Flow), canjearlo por tokens
+    if (!idToken && !accessToken && code) {
+      if (!config.oauth?.google?.clientId || !config.oauth?.google?.clientSecret) {
+        throw new UnauthorizedError('Credenciales de Google no configuradas en el servidor');
+      }
+
+      const tokenParams = new URLSearchParams({
+        client_id: config.oauth.google.clientId,
+        client_secret: config.oauth.google.clientSecret,
+        code: String(code).trim(),
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri ? String(redirectUri).trim() : 'http://localhost:8081'
+      });
+
+      const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: tokenParams.toString()
+      });
+
+      if (!tokenRes.ok) {
+        const errText = await tokenRes.text();
+        console.error('Google token exchange error:', errText);
+        throw new UnauthorizedError('Error al canjear el código de autorización con Google');
+      }
+
+      const tokenData = await tokenRes.json();
+      idToken = tokenData.id_token;
+      accessToken = tokenData.access_token;
     }
 
     // 1. Verificación primaria mediante tokeninfo de OpenID Connect
@@ -274,22 +305,41 @@ export class OAuthProviderService {
 
   /**
    * Verifica la identidad del usuario contra Meta Graph API (Facebook Login).
-   * @param {{ accessToken: string }} params
+   * @param {{ accessToken?: string, code?: string, redirectUri?: string }} params
    * @returns {Promise<{ provider: 'facebook', providerUserId: string, email: string|null, emailVerified: boolean, firstName: string, lastName: string, avatarUrl: string|null }>}
    */
-  async verifyFacebook({ accessToken }) {
-    if (!accessToken) {
-      throw new UnauthorizedError('Token de autenticación de Facebook requerido');
+  async verifyFacebook({ accessToken, code, redirectUri }) {
+    let token = accessToken;
+
+    if (!token && code) {
+      if (!config.oauth?.facebook?.appId || !config.oauth?.facebook?.appSecret) {
+        throw new UnauthorizedError('Credenciales de Facebook no configuradas en el servidor');
+      }
+
+      const fbTokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${config.oauth.facebook.appId}&client_secret=${config.oauth.facebook.appSecret}&code=${encodeURIComponent(code)}&redirect_uri=${encodeURIComponent(redirectUri || '')}`;
+      const tokenRes = await fetch(fbTokenUrl);
+      if (tokenRes.ok) {
+        const tokenData = await tokenRes.json();
+        token = tokenData.access_token;
+      } else {
+        const errText = await tokenRes.text();
+        console.error('Facebook token exchange error:', errText);
+        throw new UnauthorizedError('Error al canjear el código de autorización con Facebook');
+      }
+    }
+
+    if (!token) {
+      throw new UnauthorizedError('Token o código de autenticación de Facebook requerido');
     }
 
     try {
-      let url = `https://graph.facebook.com/v19.0/me?fields=id,first_name,last_name,name,email,picture.width(200).height(200)&access_token=${encodeURIComponent(accessToken)}`;
+      let url = `https://graph.facebook.com/v19.0/me?fields=id,first_name,last_name,name,email,picture.width(200).height(200)&access_token=${encodeURIComponent(token)}`;
 
       // Si FACEBOOK_APP_SECRET está configurado, generar appsecret_proof para validación criptográfica contra Meta
       if (config.oauth?.facebook?.appSecret) {
         const appsecretProof = crypto
           .createHmac('sha256', config.oauth.facebook.appSecret)
-          .update(accessToken)
+          .update(token)
           .digest('hex');
         url += `&appsecret_proof=${appsecretProof}`;
       }
@@ -327,13 +377,13 @@ export class OAuthProviderService {
     const normalized = String(provider || '').toLowerCase();
     switch (normalized) {
       case 'google':
-        return await this.verifyGoogle({ idToken, accessToken });
+        return await this.verifyGoogle({ idToken, accessToken, code, redirectUri });
       case 'github':
         return await this.verifyGithub({ code, accessToken, redirectUri });
       case 'microsoft':
         return await this.verifyMicrosoft({ accessToken, idToken });
       case 'facebook':
-        return await this.verifyFacebook({ accessToken: accessToken || idToken });
+        return await this.verifyFacebook({ accessToken: accessToken || idToken, code, redirectUri });
       default:
         throw new UnauthorizedError(`Proveedor de autenticación no soportado: ${provider}`);
     }

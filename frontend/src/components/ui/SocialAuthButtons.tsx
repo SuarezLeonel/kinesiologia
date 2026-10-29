@@ -242,16 +242,12 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
           tokenEndpoint: 'https://oauth2.googleapis.com/token'
         };
 
-        const randomNonce = Math.random().toString(36).substring(2) + Date.now().toString(36);
         const authRequest = new AuthSession.AuthRequest({
           clientId,
           redirectUri,
           scopes: ['openid', 'profile', 'email'],
-          responseType: AuthSession.ResponseType.IdToken,
-          usePKCE: false,
-          extraParams: {
-            nonce: randomNonce
-          }
+          responseType: AuthSession.ResponseType.Code,
+          usePKCE: false
         });
 
         const result = await authRequest.promptAsync(discovery);
@@ -267,9 +263,11 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
         }
 
         if (result.type === 'success' && result.params) {
+          const code = result.params.code;
           const idToken = result.params.id_token;
           const accessToken = result.params.access_token;
           await processSocialAuthResponse(provider, {
+            code,
             idToken,
             accessToken,
             redirectUri: authRequest.redirectUri || redirectUri
@@ -323,7 +321,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
           clientId: appId,
           redirectUri,
           scopes: ['public_profile', 'email'],
-          responseType: AuthSession.ResponseType.Token
+          responseType: AuthSession.ResponseType.Code
         });
 
         const result = await authRequest.promptAsync(discovery);
@@ -339,8 +337,10 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
         }
 
         if (result.type === 'success' && result.params) {
+          const code = result.params.code;
           const accessToken = result.params.access_token;
           await processSocialAuthResponse(provider, {
+            code,
             accessToken,
             redirectUri: authRequest.redirectUri || redirectUri
           });
