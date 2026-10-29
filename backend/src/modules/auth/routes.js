@@ -48,4 +48,6 @@ authRouter.post('/forgot-password', forgotPasswordLimiter, validate(forgotPasswo
 authRouter.post('/reset-password', resetPasswordLimiter, validate(resetPasswordSchema), asyncHandler((req, res, next) => authController.resetPassword(req, res, next)));
 authRouter.post('/social', validate(socialLoginSchema), asyncHandler((req, res, next) => authController.social(req, res, next)));
 authRouter.post('/oauth-config', validate(oauthConfigSchema), asyncHandler((req, res, next) => authController.oauthConfig(req, res, next)));
+// Callback bridge OAuth para redirección universal de navegadores (Google, GitHub, Facebook) hacia Expo Go, Standalone APK y Web
+authRouter.get('/oauth/callback', asyncHandler((req, res, next) => authController.oauthCallback(req, res, next)));
 

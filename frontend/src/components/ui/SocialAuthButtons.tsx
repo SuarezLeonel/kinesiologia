@@ -109,6 +109,18 @@ const markAuthCodeAsProcessed = (code: string) => {
   }
 };
 
+const CLOUD_OAUTH_BRIDGE = 'https://kinesiologia-backend.onrender.com/api/v1/auth/oauth/callback';
+
+const encodeOAuthState = (returnUrl: string, clientState: string, provider: SocialProvider): string => {
+  const payload = JSON.stringify({ returnUrl, appState: clientState, provider });
+  try {
+    if (typeof btoa === 'function') {
+      return btoa(payload).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+  } catch {}
+  return clientState;
+};
+
 export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
   mode = 'login',
   onError,
@@ -160,12 +172,40 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
     error: string | null;
   } | null>(null);
 
-  // Obtener redirectUri oficial (en web se usa el origen exacto; en móvil el esquema de deep linking)
-  const redirectUri = Platform.OS === 'web' && typeof window !== 'undefined'
+  const isWeb = Platform.OS === 'web' && typeof window !== 'undefined';
+  const appReturnUrl = isWeb
     ? window.location.origin
     : AuthSession.makeRedirectUri({
         scheme: 'kinesiologia'
       });
+
+  // En web se usa el origen exacto (http://localhost:8081).
+  // En móvil (Expo Go y APK), usamos el bridge HTTPS oficial en Render para cumplir con las políticas
+  // de Google, GitHub y Facebook que prohíben esquemas privados 'exp://'.
+  const oauthRedirectUri = isWeb ? window.location.origin : CLOUD_OAUTH_BRIDGE;
+
+  const executeAuthSession = async (
+    authRequest: AuthSession.AuthRequest,
+    discovery: { authorizationEndpoint: string; tokenEndpoint: string }
+  ): Promise<AuthSession.AuthSessionResult> => {
+    if (isWeb) {
+      return await authRequest.promptAsync(discovery);
+    }
+
+    // Flujo móvil: generar la URL con el redirectUri del bridge HTTPS y escuchar el deep link interno
+    const authUrl = await authRequest.makeAuthUrlAsync(discovery);
+    const result = await WebBrowser.openAuthSessionAsync(authUrl, appReturnUrl);
+
+    if (result.type === 'opened' || result.type === 'cancel' || result.type === 'dismiss' || result.type === 'locked') {
+      return { type: result.type } as any;
+    }
+
+    if (result.type === 'success' && result.url) {
+      return authRequest.parseReturnUrl(result.url);
+    }
+
+    return { type: 'dismiss' };
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -242,15 +282,21 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
           tokenEndpoint: 'https://oauth2.googleapis.com/token'
         };
 
+        const clientState = Math.random().toString(36).substring(2, 15);
+        const statePayload = !isWeb
+          ? encodeOAuthState(appReturnUrl, clientState, provider)
+          : clientState;
+
         const authRequest = new AuthSession.AuthRequest({
           clientId,
-          redirectUri,
+          redirectUri: oauthRedirectUri,
           scopes: ['openid', 'profile', 'email'],
           responseType: AuthSession.ResponseType.Code,
+          state: statePayload,
           usePKCE: false
         });
 
-        const result = await authRequest.promptAsync(discovery);
+        const result = await executeAuthSession(authRequest, discovery);
 
         if (result.type === 'cancel' || result.type === 'dismiss') {
           onError?.('Inicio de sesión con Google cancelado.');
@@ -270,7 +316,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
             code,
             idToken,
             accessToken,
-            redirectUri: authRequest.redirectUri || redirectUri
+            redirectUri: oauthRedirectUri
           });
         }
       } else if (provider === 'github') {
@@ -280,15 +326,21 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
           tokenEndpoint: 'https://github.com/login/oauth/access_token'
         };
 
+        const clientState = Math.random().toString(36).substring(2, 15);
+        const statePayload = !isWeb
+          ? encodeOAuthState(appReturnUrl, clientState, provider)
+          : clientState;
+
         const authRequest = new AuthSession.AuthRequest({
           clientId,
-          redirectUri,
+          redirectUri: oauthRedirectUri,
           scopes: ['read:user', 'user:email'],
           responseType: AuthSession.ResponseType.Code,
+          state: statePayload,
           usePKCE: false
         });
 
-        const result = await authRequest.promptAsync(discovery);
+        const result = await executeAuthSession(authRequest, discovery);
 
         if (result.type === 'cancel' || result.type === 'dismiss') {
           onError?.('Inicio de sesión con GitHub cancelado.');
@@ -306,7 +358,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
             markAuthCodeAsProcessed(code);
             await processSocialAuthResponse(provider, {
               code,
-              redirectUri: authRequest.redirectUri || redirectUri
+              redirectUri: oauthRedirectUri
             });
           }
         }
@@ -317,14 +369,20 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
           tokenEndpoint: 'https://graph.facebook.com/v19.0/oauth/access_token'
         };
 
+        const clientState = Math.random().toString(36).substring(2, 15);
+        const statePayload = !isWeb
+          ? encodeOAuthState(appReturnUrl, clientState, provider)
+          : clientState;
+
         const authRequest = new AuthSession.AuthRequest({
           clientId: appId,
-          redirectUri,
+          redirectUri: oauthRedirectUri,
           scopes: ['public_profile', 'email'],
-          responseType: AuthSession.ResponseType.Code
+          responseType: AuthSession.ResponseType.Code,
+          state: statePayload
         });
 
-        const result = await authRequest.promptAsync(discovery);
+        const result = await executeAuthSession(authRequest, discovery);
 
         if (result.type === 'cancel' || result.type === 'dismiss') {
           onError?.('Inicio de sesión con Facebook cancelado.');
@@ -342,7 +400,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
           await processSocialAuthResponse(provider, {
             code,
             accessToken,
-            redirectUri: authRequest.redirectUri || redirectUri
+            redirectUri: oauthRedirectUri
           });
         }
       }
@@ -681,7 +739,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
                 2. Configura el siguiente URI de redirección autorizado:
               </Text>
               <View style={[styles.codeBox, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
-                <Text style={[styles.codeText, { color: theme.primary }]}>{redirectUri}</Text>
+                <Text style={[styles.codeText, { color: theme.primary }]}>{oauthRedirectUri}</Text>
               </View>
 
               <Text style={[styles.configStep, { color: theme.textSecondary }]}>

@@ -62,6 +62,10 @@ app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 // Middleware global para bloquear cualquier petición GET a endpoints de negocio
 app.use(`${config.apiPrefix}`, (req, res, next) => {
   if (req.method === 'GET') {
+    // Permitir exclusivamente el callback de redirección externa para navegadores de OAuth (Google, GitHub, Facebook)
+    if (req.path === '/auth/oauth/callback') {
+      return next();
+    }
     return res.status(405).json({
       success: false,
       error: {

@@ -353,6 +353,141 @@ export class AuthService {
     return oauthProviderService.getPublicConfig();
   }
 
+  handleOAuthBridgeCallback({ code, state, error, error_description }) {
+    let returnUrl = 'http://localhost:8081';
+    let appState = '';
+
+    if (state) {
+      try {
+        const decoded = JSON.parse(Buffer.from(String(state), 'base64url').toString('utf8'));
+        if (decoded?.returnUrl) {
+          returnUrl = String(decoded.returnUrl).trim();
+        }
+        if (decoded?.appState) {
+          appState = String(decoded.appState).trim();
+        }
+      } catch {
+        appState = String(state).trim();
+      }
+    }
+
+    // Validación estricta contra Open Redirect: solo esquemas de la app móvil o desarrollo local
+    const isSafeScheme = /^(exp|exps|kinesiologia):\/\//i.test(returnUrl) ||
+      /^https?:\/\/(localhost|127\.0.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?(\/.*)?$/i.test(returnUrl);
+
+    if (!isSafeScheme) {
+      returnUrl = 'http://localhost:8081';
+    }
+
+    const separator = returnUrl.includes('?') ? '&' : '?';
+    const params = new URLSearchParams();
+
+    if (code) {
+      params.set('code', String(code));
+    }
+    if (appState) {
+      params.set('state', appState);
+    }
+    if (error) {
+      params.set('error', String(error));
+      if (error_description) {
+        params.set('error_description', String(error_description));
+      }
+    }
+
+    const targetUrl = `${returnUrl}${separator}${params.toString()}`;
+
+    const escapeHtml = (str) => String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+
+    const safeTargetUrl = escapeHtml(targetUrl);
+    const safeJsTarget = JSON.stringify(targetUrl);
+
+    return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kinesiología - Autenticación</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 1.5rem;
+      box-sizing: border-box;
+    }
+    .card {
+      background: #1e293b;
+      padding: 2.25rem 2rem;
+      border-radius: 1rem;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4);
+      text-align: center;
+      max-width: 440px;
+      width: 100%;
+      border: 1px solid #334155;
+    }
+    .spinner {
+      border: 4px solid #334155;
+      border-top: 4px solid #0d9488;
+      border-radius: 50%;
+      width: 44px;
+      height: 44px;
+      animation: spin 0.9s linear infinite;
+      margin: 0 auto 1.5rem auto;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    h2 { margin: 0 0 0.5rem 0; font-size: 1.35rem; color: #ffffff; font-weight: 700; }
+    p { margin: 0 0 1.75rem 0; font-size: 0.95rem; color: #94a3b8; line-height: 1.5; }
+    .btn {
+      display: inline-block;
+      background: #0d9488;
+      color: #ffffff;
+      text-decoration: none;
+      padding: 0.85rem 1.75rem;
+      border-radius: 0.5rem;
+      font-weight: 600;
+      font-size: 1rem;
+      transition: background 0.2s;
+    }
+    .btn:hover { background: #0f766e; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="spinner"></div>
+    <h2>Autenticación completada</h2>
+    <p>Redirigiendo de vuelta a la aplicación de Kinesiología...</p>
+    <a id="redirect-btn" href="${safeTargetUrl}" class="btn">Volver a la app</a>
+  </div>
+  <script>
+    (function() {
+      var target = ${safeJsTarget};
+      try {
+        if (window.opener && typeof window.opener.postMessage === 'function') {
+          window.opener.postMessage({ url: target }, '*');
+        }
+      } catch (e) {}
+      try {
+        window.location.replace(target);
+      } catch (e) {
+        window.location.href = target;
+      }
+    })();
+  </script>
+</body>
+</html>`;
+  }
+
   async verifySocialIdentity({ provider, idToken, accessToken, code, redirectUri, confirmedEmail }) {
     const normalizedProvider = String(provider || 'google').toLowerCase();
     const isSimulatedToken = (idToken && (idToken.startsWith('google_demo_') || idToken.startsWith('social_dev_') || idToken.startsWith('oauth_sim_'))) ||

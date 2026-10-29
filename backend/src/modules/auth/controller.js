@@ -124,6 +124,17 @@ export class AuthController {
       next(error);
     }
   }
+
+  async oauthCallback(req, res, next) {
+    try {
+      const { code, state, error, error_description } = req.query;
+      const html = authService.handleOAuthBridgeCallback({ code, state, error, error_description });
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(200).send(html);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const authController = new AuthController();

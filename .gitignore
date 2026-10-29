@@ -25,4 +25,5 @@ Thumbs.db
 
 # Generated PDFs and temporary test files
 *.pdf
+*.apk
 backend/scripts/cleanup_test_users.js

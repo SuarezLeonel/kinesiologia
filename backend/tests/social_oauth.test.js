@@ -148,3 +148,47 @@ test('OAuth 4. Protección contra Account Takeover: no auto-vincula usuarios exi
   assert.strictEqual(goodPassRes.status, 200);
   assert.ok(goodPassRes.body.data.tokens.accessToken, 'Debe emitir accessToken tras vinculación');
 });
+
+test('OAuth 5. Bridge Callback /auth/oauth/callback redirige adecuadamente a Expo Go y APK nativo', async () => {
+  // Caso A: Expo Go (exp://)
+  const expoState = Buffer.from(JSON.stringify({
+    returnUrl: 'exp://192.168.0.145:8081',
+    appState: 'client_csrf_123',
+    provider: 'google'
+  })).toString('base64url');
+
+  const resExpo = await request(app)
+    .get('/api/v1/auth/oauth/callback')
+    .query({ code: 'mock_code_abc', state: expoState });
+
+  assert.strictEqual(resExpo.status, 200);
+  assert.match(resExpo.text, /exp:\/\/192\.168\.0\.145:8081\?code=mock_code_abc&amp;state=client_csrf_123/);
+
+  // Caso B: Standalone APK (kinesiologia://)
+  const apkState = Buffer.from(JSON.stringify({
+    returnUrl: 'kinesiologia://oauth-callback',
+    appState: 'client_csrf_456',
+    provider: 'github'
+  })).toString('base64url');
+
+  const resApk = await request(app)
+    .get('/api/v1/auth/oauth/callback')
+    .query({ code: 'mock_code_xyz', state: apkState });
+
+  assert.strictEqual(resApk.status, 200);
+  assert.match(resApk.text, /kinesiologia:\/\/oauth-callback\?code=mock_code_xyz&amp;state=client_csrf_456/);
+
+  // Caso C: Protección contra Open Redirect (dominios externos sospechosos)
+  const badState = Buffer.from(JSON.stringify({
+    returnUrl: 'https://evil-phishing-site.com',
+    appState: 'bad_state'
+  })).toString('base64url');
+
+  const resBad = await request(app)
+    .get('/api/v1/auth/oauth/callback')
+    .query({ code: 'mock_code_bad', state: badState });
+
+  assert.strictEqual(resBad.status, 200);
+  // Debe degradar a localhost seguro
+  assert.match(resBad.text, /http:\/\/localhost:8081/);
+});
