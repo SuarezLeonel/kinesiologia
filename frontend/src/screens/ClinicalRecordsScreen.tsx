@@ -20,6 +20,7 @@ import { useAuth } from '../context/AuthContext';
 import { spacing, radii, typography } from '../theme/tokens';
 import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper } from '../components/ui';
 import { LoadingState, ErrorState, EmptyState, AccessDeniedState } from '../components/FeedbackStates';
+import { PatientRoutinesModal } from '../components/treatments/PatientRoutinesModal';
 
 const clinicalRecordSchema = z.object({
   patient_id: z.coerce.number().positive('Debe seleccionar un paciente'),
@@ -44,6 +45,17 @@ export const ClinicalRecordsScreen = () => {
   const [error, setError] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [downloadFeedback, setDownloadFeedback] = useState<string | null>(null);
+
+  // Modal Plan Terapéutico y Rutinas Clínicas
+  const [routinesModalVisible, setRoutinesModalVisible] = useState(false);
+  const [targetPatientForRoutines, setTargetPatientForRoutines] = useState<any | null>(null);
+
+  const handleOpenRoutinesModal = (patientItem: any) => {
+    setTargetPatientForRoutines(patientItem);
+    setRoutinesModalVisible(true);
+  };
 
   // Selector de pacientes en el modal
   const [patientSearch, setPatientSearch] = useState('');
@@ -109,7 +121,7 @@ export const ClinicalRecordsScreen = () => {
 
   const fetchPatientsList = async () => {
     try {
-      const res = await apiClient.post('/patients/search', { page: 1, limit: 100 });
+      const res = await apiClient.post('/patients/search', { page: 1, limit: 300 });
       if (res.data?.success) {
         const list = res.data.data || [];
         setPatients(list);
@@ -146,6 +158,55 @@ export const ClinicalRecordsScreen = () => {
       }
     } catch (err: any) {
       setFormError(err.response?.data?.error?.message || 'Error al guardar nota clínica');
+    }
+  };
+
+  const onDownloadPdf = async (item: any) => {
+    try {
+      setDownloadingId(item.id);
+      setDownloadFeedback(null);
+
+      // REGLA HTTP ESTRICTA: POST para consultas y exportación
+      const res = await apiClient.post(
+        '/clinical-records/export-pdf',
+        { id: item.id, format: 'base64' }
+      );
+
+      if (res.data?.success && res.data.data?.pdfBase64) {
+        const { pdfBase64, filename } = res.data.data;
+        const actualFilename = filename || `Historia_Clinica_HC-${item.id}.pdf`;
+
+        if (Platform.OS === 'web') {
+          const binaryString = window.atob(pdfBase64);
+          const len = binaryString.length;
+          const bytes = new Uint8Array(len);
+          for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          const blob = new Blob([bytes], { type: 'application/pdf' });
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = actualFilename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          window.URL.revokeObjectURL(url);
+          setDownloadFeedback(`PDF descargado: ${actualFilename}`);
+          setTimeout(() => setDownloadFeedback(null), 5000);
+        } else {
+          setDownloadFeedback(`PDF médico generado: ${actualFilename}`);
+          setTimeout(() => setDownloadFeedback(null), 5000);
+        }
+      } else {
+        throw new Error('No se recibieron los datos del archivo PDF');
+      }
+    } catch (err: any) {
+      const msg = err.response?.data?.error?.message || err.message || 'Error al exportar la historia clínica';
+      setDownloadFeedback(msg);
+      setTimeout(() => setDownloadFeedback(null), 6000);
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -213,6 +274,16 @@ export const ClinicalRecordsScreen = () => {
         />
       </View>
 
+      {/* Banner de descarga de PDF */}
+      {downloadFeedback && (
+        <View style={[styles.downloadFeedbackBanner, { backgroundColor: theme.primaryLight + '35', borderColor: theme.primary + '60' }]}>
+          <MaterialIcons name="picture-as-pdf" size={18} color={theme.primary} style={{ marginRight: spacing.xs }} />
+          <Text style={[styles.downloadFeedbackText, { color: theme.text }]}>
+            {downloadFeedback}
+          </Text>
+        </View>
+      )}
+
       <FlatList
         data={records}
         keyExtractor={(item) => item.id.toString()}
@@ -275,12 +346,68 @@ export const ClinicalRecordsScreen = () => {
               </View>
 
               <View style={styles.cardFooter}>
-                <Text style={[styles.authorText, { color: theme.textMuted }]}>
-                  Profesional: Lic. {item.author_name} {item.author_last_name}
-                </Text>
-                <Text style={[styles.dateText, { color: theme.textMuted }]}>
-                  {dateStr}
-                </Text>
+                <View style={styles.authorInfoCol}>
+                  <Text style={[styles.authorText, { color: theme.textMuted }]}>
+                    Profesional: Lic. {item.author_name} {item.author_last_name}
+                  </Text>
+                  <Text style={[styles.dateText, { color: theme.textMuted }]}>
+                    {dateStr}
+                  </Text>
+                </View>
+
+                <View style={styles.cardActionsRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.routinesButton,
+                      {
+                        backgroundColor: theme.surface,
+                        borderColor: theme.border
+                      }
+                    ]}
+                    onPress={() => handleOpenRoutinesModal({
+                      id: item.patient_id,
+                      first_name: item.patient_first_name,
+                      last_name: item.patient_last_name,
+                      dni: item.patient_dni
+                    })}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Ver plan y rutinas de paciente ${item.patient_id}`}
+                  >
+                    <MaterialIcons
+                      name="fitness-center"
+                      size={16}
+                      color={theme.primary}
+                      style={{ marginRight: 5 }}
+                    />
+                    <Text style={[styles.downloadPdfText, { color: theme.primary }]}>
+                      Plan y Rutinas
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.downloadPdfButton,
+                      {
+                        backgroundColor: theme.primaryLight + '35',
+                        borderColor: theme.primary + '60'
+                      }
+                    ]}
+                    onPress={() => onDownloadPdf(item)}
+                    disabled={downloadingId === item.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Descargar PDF médico de historia clínica ${item.id}`}
+                  >
+                    <MaterialIcons
+                      name={downloadingId === item.id ? 'hourglass-top' : 'picture-as-pdf'}
+                      size={16}
+                      color={theme.primary}
+                      style={{ marginRight: 5 }}
+                    />
+                    <Text style={[styles.downloadPdfText, { color: theme.primary }]}>
+                      {downloadingId === item.id ? 'Generando...' : 'Descargar PDF'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </Card>
           );
@@ -547,6 +674,16 @@ export const ClinicalRecordsScreen = () => {
           )}
         />
       </ModalWrapper>
+
+      {/* MODAL: PLAN TERAPÉUTICO Y RUTINAS CLÍNICAS */}
+      <PatientRoutinesModal
+        visible={routinesModalVisible}
+        onClose={() => setRoutinesModalVisible(false)}
+        patient={targetPatientForRoutines}
+        onSuccess={() => {
+          fetchRecords(searchTerm);
+        }}
+      />
     </View>
   );
 };
@@ -560,6 +697,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginBottom: spacing.md,
     alignItems: 'center'
+  },
+  downloadFeedbackBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.sm,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    marginBottom: spacing.md
+  },
+  downloadFeedbackText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium,
+    flex: 1
   },
   searchInputContainer: {
     flex: 1
@@ -607,13 +757,45 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: 'rgba(0,0,0,0.06)',
     paddingTop: spacing.xs,
-    marginTop: spacing.sm
+    marginTop: spacing.sm,
+    flexWrap: 'wrap',
+    gap: spacing.xs
+  },
+  authorInfoCol: {
+    flex: 1,
+    minWidth: 160
   },
   authorText: {
     fontSize: typography.fontSize.xs
   },
   dateText: {
     fontSize: typography.fontSize.xs
+  },
+  cardActionsRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    flexWrap: 'wrap',
+    alignItems: 'center'
+  },
+  routinesButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 5,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radii.full,
+    borderWidth: 1
+  },
+  downloadPdfButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 5,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radii.full,
+    borderWidth: 1
+  },
+  downloadPdfText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.semibold
   },
   modalError: {
     padding: spacing.md,

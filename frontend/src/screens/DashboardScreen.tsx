@@ -139,26 +139,36 @@ export const DashboardScreen = () => {
       {/* Recaudación Financiera (si el usuario tiene permisos autorizados en el backend) */}
       {data?.financial && (
         <>
-          <Text style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: spacing.lg }]}>
-            COBROS Y CAJA DEL DÍA
-          </Text>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: spacing.lg }]}>
+              COBROS Y CAJA DEL DÍA
+            </Text>
+            {data?.date ? (
+              <Badge
+                label={`HOY: ${new Date(`${data.date}T12:00:00`).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}`}
+                variant="neutral"
+                size="sm"
+                style={{ marginTop: spacing.lg }}
+              />
+            ) : null}
+          </View>
           <Card elevated style={styles.financialCard} padding="xl">
             <View style={styles.financialRow}>
               <View>
-                <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>Recaudación Total</Text>
+                <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>Recaudación Hoy (Arqueo Diario)</Text>
                 <Text style={[styles.financialAmount, { color: theme.text }]}>
                   ${Number(data.financial.totalIncome).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                 </Text>
               </View>
               <Badge
-                label={`${data.financial.transactionsCount} TRANSACCIONES`}
-                variant="neutral"
+                label={`${data.financial.transactionsCount} ${data.financial.transactionsCount === 1 ? 'COBRO HOY' : 'COBROS HOY'}`}
+                variant={Number(data.financial.transactionsCount) > 0 ? 'success' : 'neutral'}
                 size="md"
               />
             </View>
             <View style={[styles.financialDivider, { backgroundColor: theme.borderSubtle }]} />
             <Text style={[styles.financialNote, { color: theme.textSecondary }]}>
-              Arqueo de ingresos por caja, tarjetas, transferencias y obras sociales.
+              Arqueo de cobros exclusivamente del día de hoy (efectivo, transferencias, tarjetas).
             </Text>
           </Card>
         </>
@@ -187,6 +197,11 @@ const styles = StyleSheet.create({
   },
   headerAction: {
     flexDirection: 'row',
+    alignItems: 'center'
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center'
   },
   sectionTitle: {

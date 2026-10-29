@@ -54,10 +54,9 @@ export const config = {
       clientId: process.env.GOOGLE_CLIENT_ID || null,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET || null
     },
-    microsoft: {
-      clientId: process.env.MICROSOFT_CLIENT_ID || null,
-      clientSecret: process.env.MICROSOFT_CLIENT_SECRET || null,
-      tenantId: process.env.MICROSOFT_TENANT_ID || 'common'
+    github: {
+      clientId: process.env.GITHUB_CLIENT_ID || null,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET || null
     },
     facebook: {
       appId: process.env.FACEBOOK_APP_ID || null,

@@ -72,6 +72,20 @@ export class PatientPortalService {
       WHERE patient_id = ?
     `, [patient.id]);
 
+    // Rutina terapéutica activa vigente
+    const activeRoutineRows = await query(`
+      SELECT r.id, r.name, r.version, r.valid_from, r.valid_until, r.notes,
+             u.name as kinesiologist_name, u.last_name as kinesiologist_last_name,
+             (SELECT COUNT(*) FROM routine_exercises re WHERE re.routine_id = r.id) as exercises_count,
+             (SELECT COUNT(DISTINCT pel.routine_exercise_id)
+              FROM patient_exercise_logs pel
+              WHERE pel.routine_id = r.id AND pel.patient_id = ? AND pel.completed_date = CURRENT_DATE) as completed_today_count
+      FROM treatment_routines r
+      JOIN users u ON r.kinesiologist_id = u.id
+      WHERE r.patient_id = ? AND r.is_current = 1 AND r.status = 'active'
+      LIMIT 1
+    `, [patient.id, patient.id]);
+
     return {
       patient: {
         id: patient.id,
@@ -82,6 +96,7 @@ export class PatientPortalService {
         email: patient.email || patient.account_email
       },
       nextAppointment: nextRows[0] || null,
+      activeRoutine: activeRoutineRows[0] || null,
       stats: countRows[0] || { total_appointments: 0, attended_count: 0, upcoming_count: 0 }
     };
   }
@@ -388,6 +403,144 @@ export class PatientPortalService {
 
   async myNotifications(userId) {
     return await notificationsService.getMyNotifications(userId);
+  }
+
+  // ========================================================
+  // --- RUTINAS Y CUMPLIMIENTO TERAPÉUTICO DEL PACIENTE ---
+  // ========================================================
+
+  async myRoutines(userId) {
+    const patient = await this.getPatientByUserId(userId);
+
+    // Obtener todas las rutinas asignadas al paciente ordenadas por vigencia
+    const routines = await query(`
+      SELECT r.id, r.treatment_id, r.name, r.description, r.status, r.version,
+             r.is_current, r.valid_from, r.valid_until, r.notes, r.created_at,
+             t.title as treatment_title,
+             u.name as kinesiologist_name, u.last_name as kinesiologist_last_name,
+             (SELECT COUNT(*) FROM routine_exercises re WHERE re.routine_id = r.id) as exercises_count
+      FROM treatment_routines r
+      LEFT JOIN treatments t ON r.treatment_id = t.id
+      JOIN users u ON r.kinesiologist_id = u.id
+      WHERE r.patient_id = ?
+      ORDER BY r.is_current DESC, r.created_at DESC
+    `, [patient.id]);
+
+    // Para cada rutina, cargar los ejercicios en orden con su estado de cumplimiento
+    for (const r of routines) {
+      r.exercises = await query(`
+        SELECT re.id as routine_exercise_id, re.routine_id, re.exercise_id,
+               re.sets, re.repetitions, re.duration_seconds, re.rest_seconds,
+               re.weekly_frequency, re.body_side, re.resistance_load,
+               re.custom_instructions, re.execution_order,
+               e.name, e.category, e.body_zone, e.muscle_group,
+               e.therapeutic_objective, e.difficulty_level, e.instructions,
+               e.contraindications, e.media_url,
+               (SELECT COUNT(*) FROM patient_exercise_logs pel
+                WHERE pel.routine_exercise_id = re.id AND pel.patient_id = ? AND pel.completed_date = CURRENT_DATE) as completed_today,
+               (SELECT MAX(completed_at) FROM patient_exercise_logs pel
+                WHERE pel.routine_exercise_id = re.id AND pel.patient_id = ?) as last_completed_at
+        FROM routine_exercises re
+        JOIN exercises e ON re.exercise_id = e.id
+        WHERE re.routine_id = ?
+        ORDER BY re.execution_order ASC, re.id ASC
+      `, [patient.id, patient.id, r.id]);
+    }
+
+    return routines;
+  }
+
+  async logExercise(userId, { routineExerciseId, completedDate, setsCompleted, repsCompleted, perceivedPainLevel, patientNotes }) {
+    const patient = await this.getPatientByUserId(userId);
+
+    // Verificar que el ejercicio pertenezca a una rutina de este paciente
+    const rows = await query(`
+      SELECT re.id, re.routine_id, re.exercise_id, tr.patient_id, tr.status
+      FROM routine_exercises re
+      JOIN treatment_routines tr ON re.routine_id = tr.id
+      WHERE re.id = ?
+      LIMIT 1
+    `, [routineExerciseId]);
+
+    if (!rows.length || rows[0].patient_id !== patient.id) {
+      throw new ForbiddenError('No tiene autorización para registrar cumplimiento sobre este ejercicio');
+    }
+
+    const target = rows[0];
+    const targetDate = completedDate || new Date().toISOString().slice(0, 10);
+
+    const result = await query(`
+      INSERT INTO patient_exercise_logs (
+        patient_id, user_id, routine_id, routine_exercise_id, exercise_id,
+        completed_date, sets_completed, reps_completed, perceived_pain_level, patient_notes
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      patient.id,
+      userId,
+      target.routine_id,
+      target.id,
+      target.exercise_id,
+      targetDate,
+      setsCompleted || null,
+      repsCompleted || null,
+      perceivedPainLevel ?? null,
+      patientNotes || null
+    ]);
+
+    await logAudit({
+      userId,
+      action: 'PATIENT_EXERCISE_COMPLETED',
+      entityType: 'patient_exercise_log',
+      entityId: result.insertId,
+      details: {
+        patientId: patient.id,
+        routineId: target.routine_id,
+        routineExerciseId: target.id,
+        completedDate: targetDate
+      }
+    });
+
+    return {
+      id: result.insertId,
+      routineExerciseId,
+      completedDate: targetDate,
+      completed: true,
+      message: 'Cumplimiento de ejercicio registrado correctamente.'
+    };
+  }
+
+  async myExerciseLogs(userId, filters = {}) {
+    const patient = await this.getPatientByUserId(userId);
+    const conditions = ['pel.patient_id = ?'];
+    const params = [patient.id];
+
+    if (filters.routineId) {
+      conditions.push('pel.routine_id = ?');
+      params.push(filters.routineId);
+    }
+    if (filters.fromDate) {
+      conditions.push('pel.completed_date >= ?');
+      params.push(filters.fromDate);
+    }
+    if (filters.toDate) {
+      conditions.push('pel.completed_date <= ?');
+      params.push(filters.toDate);
+    }
+
+    return await query(`
+      SELECT pel.id, pel.routine_id, pel.routine_exercise_id, pel.exercise_id,
+             pel.completed_date, pel.completed_at, pel.sets_completed, pel.reps_completed,
+             pel.perceived_pain_level, pel.patient_notes,
+             e.name as exercise_name, e.category as exercise_category,
+             tr.name as routine_name
+      FROM patient_exercise_logs pel
+      JOIN exercises e ON pel.exercise_id = e.id
+      JOIN treatment_routines tr ON pel.routine_id = tr.id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY pel.completed_at DESC
+      LIMIT 100
+    `, params);
   }
 }
 

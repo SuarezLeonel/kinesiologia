@@ -8,6 +8,10 @@ export class PaymentsService {
     return await paymentsRepository.search(filters);
   }
 
+  async getCajaSummary(date) {
+    return await paymentsRepository.getCajaSummary(date);
+  }
+
   async getDetail(id) {
     const payment = await paymentsRepository.findById(id);
     if (!payment) {

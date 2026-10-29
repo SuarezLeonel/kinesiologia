@@ -20,6 +20,27 @@ export class ClinicalRecordsController {
     }
   }
 
+  async exportPdf(req, res, next) {
+    try {
+      const { buffer, filename, record } = await clinicalRecordsService.exportPdf(req.body.id, req.user);
+
+      if (req.body.format === 'base64') {
+        return sendSuccess(res, {
+          pdfBase64: buffer.toString('base64'),
+          filename,
+          recordId: record.id
+        });
+      }
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Length', buffer.length);
+      return res.end(buffer);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async create(req, res, next) {
     try {
       const record = await clinicalRecordsService.create(req.body, req.user);

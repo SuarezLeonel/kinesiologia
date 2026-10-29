@@ -39,7 +39,16 @@ async function run() {
 
     const sql = fs.readFileSync(path.join(databaseRoot, 'seeds', '001_demo_data.sql'), 'utf8');
     await connection.query(sql);
+
+    const exercisesSqlPath = path.join(databaseRoot, 'seeds', '002_exercises_catalog.sql');
+    if (fs.existsSync(exercisesSqlPath)) {
+      const exercisesSql = fs.readFileSync(exercisesSqlPath, 'utf8');
+      await connection.query(exercisesSql);
+      console.log('Catálogo clínico inicial de 90 ejercicios de kinesiología sembrado con éxito.');
+    }
+
     console.log('Seeds de demostración aplicados (usuarios demo, servicios, pacientes, ejercicios).');
+
   } finally {
     await connection.end();
   }

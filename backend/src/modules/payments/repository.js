@@ -1,8 +1,9 @@
 import { query, executeTransaction } from '../../config/database.js';
 import { AppError } from '../../utils/errors.js';
+import { getClinicDayBounds } from '../../utils/date.js';
 
 export class PaymentsRepository {
-  async search({ patientId, page = 1, limit = 50 }) {
+  async search({ patientId, date, todayOnly, startDate, endDate, paymentMethod, page = 1, limit = 50 }) {
     const offset = (page - 1) * limit;
     const conditions = [];
     const params = [];
@@ -10,6 +11,26 @@ export class PaymentsRepository {
     if (patientId) {
       conditions.push('p.patient_id = ?');
       params.push(patientId);
+    }
+
+    if (todayOnly || date) {
+      const bounds = getClinicDayBounds(date);
+      conditions.push('p.payment_date >= ? AND p.payment_date <= ?');
+      params.push(bounds.start, bounds.end);
+    } else {
+      if (startDate) {
+        conditions.push('p.payment_date >= ?');
+        params.push(startDate);
+      }
+      if (endDate) {
+        conditions.push('p.payment_date <= ?');
+        params.push(endDate);
+      }
+    }
+
+    if (paymentMethod) {
+      conditions.push('p.payment_method = ?');
+      params.push(paymentMethod);
     }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -29,6 +50,47 @@ export class PaymentsRepository {
     `;
     params.push(limit, offset);
     return await query(sql, params);
+  }
+
+  async getCajaSummary(targetDate) {
+    const { date, start, end } = getClinicDayBounds(targetDate);
+
+    const rows = await query(`
+      SELECT
+        COALESCE(SUM(amount), 0) as totalIncome,
+        COUNT(*) as transactionsCount,
+        COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN amount ELSE 0 END), 0) as cashTotal,
+        COALESCE(SUM(CASE WHEN payment_method = 'transfer' THEN amount ELSE 0 END), 0) as transferTotal,
+        COALESCE(SUM(CASE WHEN payment_method = 'debit_card' THEN amount ELSE 0 END), 0) as debitTotal,
+        COALESCE(SUM(CASE WHEN payment_method = 'credit_card' THEN amount ELSE 0 END), 0) as creditTotal,
+        COALESCE(SUM(CASE WHEN payment_method = 'insurance' THEN amount ELSE 0 END), 0) as insuranceTotal
+      FROM payments
+      WHERE payment_date >= ? AND payment_date <= ?
+    `, [start, end]);
+
+    const row = rows[0] || {};
+    const cashTotal = Number(row.cashTotal || 0);
+    const transferTotal = Number(row.transferTotal || 0);
+    const debitTotal = Number(row.debitTotal || 0);
+    const creditTotal = Number(row.creditTotal || 0);
+    const insuranceTotal = Number(row.insuranceTotal || 0);
+    const totalIncome = Number(row.totalIncome || 0);
+    const transactionsCount = Number(row.transactionsCount || 0);
+
+    return {
+      date,
+      totalIncome,
+      transactionsCount,
+      cashTotal,
+      electronicTotal: transferTotal + debitTotal + creditTotal,
+      byMethod: {
+        cash: cashTotal,
+        transfer: transferTotal,
+        debit_card: debitTotal,
+        credit_card: creditTotal,
+        insurance: insuranceTotal
+      }
+    };
   }
 
   async findById(id) {

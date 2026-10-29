@@ -152,7 +152,7 @@ export const AppointmentsScreen = () => {
 
   const fetchPatientsList = async () => {
     try {
-      const res = await apiClient.post('/patients/search', { page: 1, limit: 100 });
+      const res = await apiClient.post('/patients/search', { page: 1, limit: 300 });
       if (res.data?.success) {
         const list = res.data.data || [];
         setPatients(list);

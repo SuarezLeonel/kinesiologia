@@ -32,13 +32,32 @@ export class ClinicalRecordsRepository {
 
   async findById(id) {
     const rows = await query(`
-      SELECT cr.*, u.name as author_name, u.last_name as author_last_name
+      SELECT cr.*,
+             u.name as author_name, u.last_name as author_last_name, u.email as author_email,
+             u.phone as author_phone, u.license_number as author_license, u.specialty as author_specialty,
+             p.first_name as patient_first_name, p.last_name as patient_last_name,
+             p.dni as patient_dni, p.birth_date as patient_birth_date,
+             p.phone as patient_phone, p.email as patient_email, p.address as patient_address
       FROM clinical_records cr
       JOIN users u ON cr.author_id = u.id
+      JOIN patients p ON cr.patient_id = p.id
       WHERE cr.id = ?
       LIMIT 1
     `, [id]);
     return rows[0] || null;
+  }
+
+  async findSessionsByClinicalRecordId(clinicalRecordId) {
+    return await query(`
+      SELECT ts.id, ts.session_number, ts.session_date, ts.performed_procedures,
+             ts.patient_evolution, ts.pain_level_reported, ts.observations,
+             u.name as kinesio_name, u.last_name as kinesio_last_name
+      FROM treatment_sessions ts
+      JOIN treatments t ON ts.treatment_id = t.id
+      JOIN users u ON ts.kinesiologist_id = u.id
+      WHERE t.clinical_record_id = ?
+      ORDER BY ts.session_number ASC
+    `, [clinicalRecordId]);
   }
 
   async create(data) {

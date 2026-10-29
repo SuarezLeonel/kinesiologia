@@ -7,7 +7,8 @@ import {
   clinicalRecordSearchSchema,
   clinicalRecordDetailSchema,
   clinicalRecordCreateSchema,
-  clinicalRecordUpdateSchema
+  clinicalRecordUpdateSchema,
+  clinicalRecordExportPdfSchema
 } from './schema.js';
 
 export const clinicalRecordsRouter = Router();
@@ -19,6 +20,7 @@ clinicalRecordsRouter.use(authorizeRoles('admin', 'kinesiologist'));
 // Regla HTTP: Solo POST para consultas de historias clínicas
 clinicalRecordsRouter.post('/search', authorizePermission('clinical_records:read'), validate(clinicalRecordSearchSchema), asyncHandler((req, res, next) => clinicalRecordsController.search(req, res, next)));
 clinicalRecordsRouter.post('/detail', authorizePermission('clinical_records:read'), validate(clinicalRecordDetailSchema), asyncHandler((req, res, next) => clinicalRecordsController.detail(req, res, next)));
+clinicalRecordsRouter.post('/export-pdf', authorizePermission('clinical_records:read'), validate(clinicalRecordExportPdfSchema), asyncHandler((req, res, next) => clinicalRecordsController.exportPdf(req, res, next)));
 clinicalRecordsRouter.post('/', authorizePermission('clinical_records:write'), validate(clinicalRecordCreateSchema), asyncHandler((req, res, next) => clinicalRecordsController.create(req, res, next)));
 clinicalRecordsRouter.post('/create', authorizePermission('clinical_records:write'), validate(clinicalRecordCreateSchema), asyncHandler((req, res, next) => clinicalRecordsController.create(req, res, next)));
 clinicalRecordsRouter.patch('/:id', authorizePermission('clinical_records:write'), validate(clinicalRecordUpdateSchema), asyncHandler((req, res, next) => clinicalRecordsController.update(req, res, next)));

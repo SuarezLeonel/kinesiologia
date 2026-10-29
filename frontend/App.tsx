@@ -2,9 +2,22 @@ import React, { useEffect } from 'react';
 import { Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import * as WebBrowser from 'expo-web-browser';
 import { ThemeProvider, useAppTheme } from './src/theme/ThemeContext';
 import { AuthProvider } from './src/context/AuthContext';
 import { RootNavigator } from './src/navigation/RootNavigator';
+
+// Intercepta el retorno de OAuth en ventana emergente (popup) sin afectar la ventana principal
+if (Platform.OS === 'web' && typeof window !== 'undefined') {
+  const completeResult = WebBrowser.maybeCompleteAuthSession();
+  if (completeResult.type === 'success' && window.opener) {
+    try {
+      window.close();
+    } catch {}
+  }
+} else {
+  WebBrowser.maybeCompleteAuthSession();
+}
 
 const AppContent = () => {
   const { isDark } = useAppTheme();

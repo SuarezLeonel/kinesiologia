@@ -8,7 +8,8 @@ import {
   TouchableOpacity,
   TextInput,
   ScrollView,
-  Platform
+  Platform,
+  ActivityIndicator
 } from 'react-native';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -31,11 +32,31 @@ const paymentSchema = z.object({
 
 type PaymentFormData = z.infer<typeof paymentSchema>;
 
+interface CajaSummary {
+  date: string;
+  totalIncome: number;
+  transactionsCount: number;
+  cashTotal: number;
+  electronicTotal: number;
+  byMethod: {
+    cash: number;
+    transfer: number;
+    debit_card: number;
+    credit_card: number;
+    insurance: number;
+  };
+}
+
 export const PaymentsScreen = () => {
   const { theme } = useAppTheme();
   const { isKinesiologist } = useAuth();
   const [payments, setPayments] = useState<any[]>([]);
+  const [cajaSummary, setCajaSummary] = useState<CajaSummary | null>(null);
+  const [viewFilter, setViewFilter] = useState<'today' | 'all'>('today');
   const [patients, setPatients] = useState<any[]>([]);
+  const [basePatients, setBasePatients] = useState<any[]>([]);
+  const [selectedPatientObj, setSelectedPatientObj] = useState<any>(null);
+  const [isSearchingPatients, setIsSearchingPatients] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -67,27 +88,52 @@ export const PaymentsScreen = () => {
   const selectedMethod = watch('payment_method');
   const selectedPatientId = watch('patient_id');
 
-  const selectedPatient = useMemo(
-    () => patients.find((p) => p.id === Number(selectedPatientId)),
-    [patients, selectedPatientId]
-  );
+  const selectedPatient = useMemo(() => {
+    if (!selectedPatientId || Number(selectedPatientId) === 0) return null;
+    return (
+      patients.find((p) => p.id === Number(selectedPatientId)) ||
+      basePatients.find((p) => p.id === Number(selectedPatientId)) ||
+      selectedPatientObj
+    );
+  }, [patients, basePatients, selectedPatientId, selectedPatientObj]);
 
   const filteredPatients = useMemo(() => {
-    if (!patientSearch.trim()) return patients;
+    if (!patientSearch.trim()) return basePatients;
     const q = patientSearch.toLowerCase().trim();
-    return patients.filter((p) => {
-      const fullName = `${p.last_name || ''} ${p.first_name || ''}`.toLowerCase();
+    const combined = [...basePatients];
+    for (const p of patients) {
+      if (!combined.some((item) => item.id === p.id)) {
+        combined.push(p);
+      }
+    }
+    return combined.filter((p) => {
+      const fullName = `${p.last_name || ''} ${p.first_name || ''} ${p.first_name || ''} ${p.last_name || ''}`.toLowerCase();
       const dni = String(p.dni || '');
-      return fullName.includes(q) || dni.includes(q);
+      const email = String(p.email || '').toLowerCase();
+      return fullName.includes(q) || dni.includes(q) || email.includes(q);
     });
-  }, [patients, patientSearch]);
+  }, [basePatients, patients, patientSearch]);
 
-  const fetchPayments = async () => {
+  const fetchCajaSummary = async () => {
+    if (isKinesiologist) return;
+    try {
+      // REGLA HTTP ESTRICTA: POST para consultas de métricas
+      const res = await apiClient.post('/payments/caja-summary', {});
+      if (res.data?.success) {
+        setCajaSummary(res.data.data);
+      }
+    } catch {
+      // Manejo silencioso para no bloquear la lista
+    }
+  };
+
+  const fetchPayments = async (filterMode: 'today' | 'all' = viewFilter) => {
     if (isKinesiologist) return;
     try {
       setError(null);
-      // REGLA HTTP ESTRICTA: POST para consultas
+      // REGLA HTTP ESTRICTA: POST para consultas con payload
       const res = await apiClient.post('/payments/search', {
+        todayOnly: filterMode === 'today',
         page: 1,
         limit: 50
       });
@@ -102,25 +148,59 @@ export const PaymentsScreen = () => {
     }
   };
 
-  const fetchPatientsList = async () => {
+  const fetchPatientsList = async (searchQuery?: string) => {
     try {
-      const res = await apiClient.post('/patients/search', { page: 1, limit: 100 });
+      if (searchQuery) {
+        setIsSearchingPatients(true);
+      }
+      // REGLA HTTP ESTRICTA: POST para consultas con filtros
+      const res = await apiClient.post('/patients/search', {
+        search: searchQuery?.trim() || undefined,
+        page: 1,
+        limit: 300
+      });
       if (res.data?.success) {
         const list = res.data.data || [];
-        setPatients(list);
-        if (list.length > 0 && (!selectedPatientId || selectedPatientId === 0)) {
-          setValue('patient_id', list[0].id, { shouldValidate: true });
+        if (!searchQuery) {
+          setBasePatients(list);
+          setPatients(list);
+        } else {
+          setPatients(list);
         }
       }
-    } catch (e) {}
+    } catch {
+      // Manejo silencioso
+    } finally {
+      setIsSearchingPatients(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!patientSearch.trim()) {
+      setIsSearchingPatients(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      fetchPatientsList(patientSearch.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [patientSearch]);
+
+  const loadAll = async (mode: 'today' | 'all' = viewFilter) => {
+    await Promise.all([fetchPayments(mode), fetchCajaSummary(), fetchPatientsList()]);
   };
 
   useEffect(() => {
     if (!isKinesiologist) {
-      fetchPayments();
-      fetchPatientsList();
+      loadAll();
     }
   }, [isKinesiologist]);
+
+  const handleFilterChange = (mode: 'today' | 'all') => {
+    setViewFilter(mode);
+    setLoading(true);
+    fetchPayments(mode);
+  };
 
   const onCreatePayment = async (data: PaymentFormData) => {
     setFormError(null);
@@ -129,7 +209,7 @@ export const PaymentsScreen = () => {
       if (response.data?.success) {
         setModalVisible(false);
         reset();
-        fetchPayments();
+        await Promise.all([fetchPayments(viewFilter), fetchCajaSummary()]);
       }
     } catch (err: any) {
       setFormError(err.response?.data?.error?.message || 'Error al registrar el cobro');
@@ -161,8 +241,8 @@ export const PaymentsScreen = () => {
     }
   };
 
-  if (loading && !refreshing) return <LoadingState message="Cargando cobros y pagos..." />;
-  if (error) return <ErrorState message={error} onRetry={fetchPayments} />;
+  if (loading && !refreshing) return <LoadingState message="Cargando cobros y caja del día..." />;
+  if (error) return <ErrorState message={error} onRetry={() => loadAll(viewFilter)} />;
 
   const paymentMethods: { key: PaymentFormData['payment_method']; label: string }[] = [
     { key: 'cash', label: 'Efectivo' },
@@ -172,23 +252,35 @@ export const PaymentsScreen = () => {
     { key: 'qr_mercadopago', label: 'QR / MP' }
   ];
 
+  const todayLabel = cajaSummary?.date
+    ? new Date(`${cajaSummary.date}T12:00:00`).toLocaleDateString('es-AR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      })
+    : new Date().toLocaleDateString('es-AR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <ScreenHeader
         title="Cobros y Caja"
-        subtitle="Registro de transacciones de aranceles y facturación"
+        subtitle="Control diario de aranceles, arqueo de ingresos y facturación"
         action={
           <Button
             title="+ Registrar Cobro"
             onPress={() => {
               setFormError(null);
               fetchPatientsList();
-              const defaultPid = patients.length > 0 ? patients[0].id : 0;
+              setSelectedPatientObj(null);
               reset({
-                patient_id: defaultPid,
+                patient_id: 0,
                 amount: 15000,
                 payment_method: 'cash',
-                receipt_number: `REC-${Date.now().toString().slice(-5)}`,
+                receipt_number: `REC-${Date.now().toString().slice(-6)}`,
                 notes: ''
               });
               setShowPatientPicker(false);
@@ -208,15 +300,193 @@ export const PaymentsScreen = () => {
             refreshing={refreshing}
             onRefresh={() => {
               setRefreshing(true);
-              fetchPayments();
+              loadAll(viewFilter);
             }}
             tintColor={theme.primary}
           />
         }
+        ListHeaderComponent={
+          <View style={styles.headerContainer}>
+            {/* TARJETA DE ARQUEO DIARIO DE CAJA */}
+            <Card elevated style={styles.cajaCard} padding="lg">
+              <View style={styles.cajaTopRow}>
+                <View style={styles.cajaHeaderTitleRow}>
+                  <MaterialIcons name="point-of-sale" size={22} color={theme.primary} style={{ marginRight: spacing.xs }} />
+                  <Text style={[styles.cajaCardTitle, { color: theme.text }]}>
+                    ARQUEO DE CAJA DEL DÍA
+                  </Text>
+                </View>
+                <Badge
+                  label={`JORNADA: ${todayLabel}`}
+                  variant="neutral"
+                  size="sm"
+                />
+              </View>
+
+              <View style={styles.cajaAmountRow}>
+                <View>
+                  <Text style={[styles.cajaAmountLabel, { color: theme.textSecondary }]}>
+                    Total Cobrado Hoy
+                  </Text>
+                  <Text style={[styles.cajaBigAmount, { color: theme.text }]}>
+                    ${Number(cajaSummary?.totalIncome || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                  </Text>
+                </View>
+                <View style={styles.txCountBadgeWrapper}>
+                  <Badge
+                    label={`${cajaSummary?.transactionsCount || 0} ${cajaSummary?.transactionsCount === 1 ? 'COBRO' : 'COBROS'}`}
+                    variant={Number(cajaSummary?.transactionsCount || 0) > 0 ? 'success' : 'neutral'}
+                    size="md"
+                  />
+                </View>
+              </View>
+
+              {/* DESGLOSE POR MÉTODO DE PAGO DE HOY */}
+              <View style={[styles.cajaDivider, { backgroundColor: theme.border }]} />
+              <Text style={[styles.cajaBreakdownTitle, { color: theme.textSecondary }]}>
+                DESGLOSE DE HOY POR MEDIO DE COBRO
+              </Text>
+
+              <View style={styles.methodsGrid}>
+                <View style={[styles.methodStatCard, { backgroundColor: theme.surfaceSubtle }]}>
+                  <View style={styles.methodStatHeader}>
+                    <MaterialIcons name="payments" size={16} color="#16A34A" />
+                    <Text style={[styles.methodStatLabel, { color: theme.textSecondary }]}>Efectivo</Text>
+                  </View>
+                  <Text style={[styles.methodStatValue, { color: theme.text }]}>
+                    ${Number(cajaSummary?.cashTotal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                  </Text>
+                </View>
+
+                <View style={[styles.methodStatCard, { backgroundColor: theme.surfaceSubtle }]}>
+                  <View style={styles.methodStatHeader}>
+                    <MaterialIcons name="qr-code-scanner" size={16} color="#0284C7" />
+                    <Text style={[styles.methodStatLabel, { color: theme.textSecondary }]}>Transferencia / MP</Text>
+                  </View>
+                  <Text style={[styles.methodStatValue, { color: theme.text }]}>
+                    ${Number(cajaSummary?.byMethod?.transfer || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                  </Text>
+                </View>
+
+                <View style={[styles.methodStatCard, { backgroundColor: theme.surfaceSubtle }]}>
+                  <View style={styles.methodStatHeader}>
+                    <MaterialIcons name="credit-card" size={16} color="#9333EA" />
+                    <Text style={[styles.methodStatLabel, { color: theme.textSecondary }]}>Tarjetas Déb/Créd</Text>
+                  </View>
+                  <Text style={[styles.methodStatValue, { color: theme.text }]}>
+                    ${Number((cajaSummary?.byMethod?.debit_card || 0) + (cajaSummary?.byMethod?.credit_card || 0)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                  </Text>
+                </View>
+
+                <View style={[styles.methodStatCard, { backgroundColor: theme.surfaceSubtle }]}>
+                  <View style={styles.methodStatHeader}>
+                    <MaterialIcons name="health-and-safety" size={16} color="#D97706" />
+                    <Text style={[styles.methodStatLabel, { color: theme.textSecondary }]}>Obra Social</Text>
+                  </View>
+                  <Text style={[styles.methodStatValue, { color: theme.text }]}>
+                    ${Number(cajaSummary?.byMethod?.insurance || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                  </Text>
+                </View>
+              </View>
+            </Card>
+
+            {/* SELECTOR DE VISTA: SOLO HOY VS HISTÓRICO */}
+            <View style={styles.filterSection}>
+              <View style={styles.filterTabsRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.filterTab,
+                    viewFilter === 'today'
+                      ? [styles.filterTabActive, { backgroundColor: theme.primary, borderColor: theme.primary }]
+                      : [styles.filterTabInactive, { backgroundColor: theme.surface, borderColor: theme.border }]
+                  ]}
+                  onPress={() => handleFilterChange('today')}
+                  accessibilityRole="button"
+                >
+                  <MaterialIcons
+                    name="today"
+                    size={16}
+                    color={viewFilter === 'today' ? '#FFFFFF' : theme.textSecondary}
+                    style={{ marginRight: spacing.xs }}
+                  />
+                  <Text
+                    style={[
+                      styles.filterTabText,
+                      { color: viewFilter === 'today' ? '#FFFFFF' : theme.text }
+                    ]}
+                  >
+                    Cobros de Hoy
+                  </Text>
+                  {Number(cajaSummary?.transactionsCount || 0) > 0 && (
+                    <View
+                      style={[
+                        styles.filterBadge,
+                        { backgroundColor: viewFilter === 'today' ? '#FFFFFF' : theme.primaryLight + '50' }
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.filterBadgeText,
+                          { color: viewFilter === 'today' ? theme.primary : '#FFFFFF' }
+                        ]}
+                      >
+                        {cajaSummary?.transactionsCount}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.filterTab,
+                    viewFilter === 'all'
+                      ? [styles.filterTabActive, { backgroundColor: theme.primary, borderColor: theme.primary }]
+                      : [styles.filterTabInactive, { backgroundColor: theme.surface, borderColor: theme.border }]
+                  ]}
+                  onPress={() => handleFilterChange('all')}
+                  accessibilityRole="button"
+                >
+                  <MaterialIcons
+                    name="history"
+                    size={16}
+                    color={viewFilter === 'all' ? '#FFFFFF' : theme.textSecondary}
+                    style={{ marginRight: spacing.xs }}
+                  />
+                  <Text
+                    style={[
+                      styles.filterTabText,
+                      { color: viewFilter === 'all' ? '#FFFFFF' : theme.text }
+                    ]}
+                  >
+                    Historial Completo
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.sectionNoticeRow}>
+                <MaterialIcons
+                  name={viewFilter === 'today' ? 'check-circle' : 'info'}
+                  size={15}
+                  color={viewFilter === 'today' ? theme.primary : theme.textSecondary}
+                  style={{ marginRight: 4 }}
+                />
+                <Text style={[styles.sectionNoticeText, { color: theme.textSecondary }]}>
+                  {viewFilter === 'today'
+                    ? `Mostrando exclusivamente cobros registrados hoy (${todayLabel})`
+                    : 'Mostrando historial general de cobros y comprobantes pasados'}
+                </Text>
+              </View>
+            </View>
+          </View>
+        }
         ListEmptyComponent={
           <EmptyState
-            title="Sin cobros registrados"
-            subtitle="Aún no se han asentado pagos o recibos en la caja."
+            title={viewFilter === 'today' ? 'Sin cobros asentados hoy' : 'Sin cobros registrados'}
+            subtitle={
+              viewFilter === 'today'
+                ? `Aún no se han cobrado aranceles en la fecha ${todayLabel}. Utilice "+ Registrar Cobro" para asentar un ingreso en la caja.`
+                : 'Aún no se han registrado cobros o comprobantes en el sistema.'
+            }
           />
         }
         renderItem={({ item }) => {
@@ -224,6 +494,7 @@ export const PaymentsScreen = () => {
             ? new Date(item.payment_date || item.created_at).toLocaleString('es-AR', {
                 day: '2-digit',
                 month: '2-digit',
+                year: 'numeric',
                 hour: '2-digit',
                 minute: '2-digit'
               })
@@ -237,7 +508,7 @@ export const PaymentsScreen = () => {
                     {item.patient_last_name}, {item.patient_first_name}
                   </Text>
                   <Text style={[styles.receiptText, { color: theme.textSecondary }]}>
-                    Comprobante: {item.receipt_number || 'S/N'} • {dateStr}
+                    Recibo: {item.receipt_number || 'S/N'} • {dateStr}
                   </Text>
                 </View>
 
@@ -273,7 +544,7 @@ export const PaymentsScreen = () => {
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
         title="Registrar Cobro"
-        subtitle="Seleccione el paciente y asiente el pago de aranceles"
+        subtitle="Seleccione el paciente y asiente el pago de aranceles en la caja"
         footer={
           <>
             <Button
@@ -351,13 +622,16 @@ export const PaymentsScreen = () => {
               <View style={[styles.searchBox, { borderBottomColor: theme.border }]}>
                 <MaterialIcons name="search" size={18} color={theme.textSecondary} style={{ marginRight: spacing.xs }} />
                 <TextInput
-                  placeholder="Buscar por nombre, apellido o DNI..."
+                  placeholder="Buscar por nombre, apellido, DNI o email..."
                   placeholderTextColor={theme.textMuted}
                   value={patientSearch}
                   onChangeText={setPatientSearch}
                   style={[styles.searchInput, { color: theme.text }]}
                   autoFocus
                 />
+                {isSearchingPatients && (
+                  <ActivityIndicator size="small" color={theme.primary} style={{ marginRight: spacing.xs }} />
+                )}
                 {patientSearch ? (
                   <TouchableOpacity onPress={() => setPatientSearch('')}>
                     <MaterialIcons name="close" size={16} color={theme.textMuted} />
@@ -365,11 +639,13 @@ export const PaymentsScreen = () => {
                 ) : null}
               </View>
 
-              <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+              <ScrollView style={styles.dropdownScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
                 {filteredPatients.length === 0 ? (
                   <View style={styles.dropdownEmpty}>
                     <Text style={[styles.dropdownEmptyText, { color: theme.textMuted }]}>
-                      No se encontraron pacientes que coincidan
+                      {isSearchingPatients
+                        ? 'Buscando pacientes en el consultorio...'
+                        : 'No se encontraron pacientes que coincidan'}
                     </Text>
                   </View>
                 ) : (
@@ -385,6 +661,7 @@ export const PaymentsScreen = () => {
                         ]}
                         onPress={() => {
                           setValue('patient_id', p.id, { shouldValidate: true });
+                          setSelectedPatientObj(p);
                           setShowPatientPicker(false);
                           setPatientSearch('');
                         }}
@@ -399,7 +676,7 @@ export const PaymentsScreen = () => {
                             {p.last_name}, {p.first_name}
                           </Text>
                           <Text style={[styles.patientRowDni, { color: theme.textSecondary }]}>
-                            DNI: {p.dni}
+                            DNI: {p.dni}{p.email ? ` • ${p.email}` : ''}
                           </Text>
                         </View>
                         {isSelected && (
@@ -498,6 +775,123 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: Platform.OS === 'web' ? spacing.xl : spacing.md
+  },
+  headerContainer: {
+    marginBottom: spacing.md
+  },
+  cajaCard: {
+    marginBottom: spacing.md
+  },
+  cajaTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm
+  },
+  cajaHeaderTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  cajaCardTitle: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold,
+    letterSpacing: 0.5
+  },
+  cajaAmountRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    marginVertical: spacing.xs
+  },
+  cajaAmountLabel: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium
+  },
+  cajaBigAmount: {
+    fontSize: 28,
+    fontWeight: typography.fontWeight.bold,
+    letterSpacing: -0.5,
+    marginTop: 2
+  },
+  txCountBadgeWrapper: {
+    marginBottom: 4
+  },
+  cajaDivider: {
+    height: 1,
+    marginVertical: spacing.md
+  },
+  cajaBreakdownTitle: {
+    fontSize: typography.fontSize.xs - 1,
+    fontWeight: typography.fontWeight.bold,
+    letterSpacing: 0.4,
+    marginBottom: spacing.sm
+  },
+  methodsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm
+  },
+  methodStatCard: {
+    flex: 1,
+    minWidth: 140,
+    padding: spacing.sm + 2,
+    borderRadius: radii.md
+  },
+  methodStatHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4
+  },
+  methodStatLabel: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium,
+    marginLeft: 4
+  },
+  methodStatValue: {
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.bold
+  },
+  filterSection: {
+    marginTop: spacing.xs,
+    marginBottom: spacing.xs
+  },
+  filterTabsRow: {
+    flexDirection: 'row',
+    gap: spacing.sm
+  },
+  filterTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.full,
+    borderWidth: 1
+  },
+  filterTabActive: {},
+  filterTabInactive: {},
+  filterTabText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold
+  },
+  filterBadge: {
+    marginLeft: spacing.xs,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: radii.full
+  },
+  filterBadgeText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold
+  },
+  sectionNoticeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.sm,
+    paddingHorizontal: 2
+  },
+  sectionNoticeText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium
   },
   paymentCard: {
     marginBottom: spacing.md
@@ -605,7 +999,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4
   },
   dropdownScroll: {
-    maxHeight: 180
+    maxHeight: 220
   },
   dropdownEmpty: {
     padding: spacing.md,

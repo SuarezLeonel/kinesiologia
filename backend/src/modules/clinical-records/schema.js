@@ -15,6 +15,13 @@ export const clinicalRecordDetailSchema = z.object({
   })
 });
 
+export const clinicalRecordExportPdfSchema = z.object({
+  body: z.object({
+    id: z.coerce.number().int().positive('ID de historia clínica requerido'),
+    format: z.enum(['binary', 'base64']).optional().default('binary')
+  })
+});
+
 export const clinicalRecordCreateSchema = z.object({
   body: z.object({
     patientId: z.coerce.number().int().positive().optional(),

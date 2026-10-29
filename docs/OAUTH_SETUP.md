@@ -62,47 +62,32 @@ EXPO_PUBLIC_GOOGLE_CLIENT_ID=xxxxxxxxxxxx-xxxxxxxxxxxxxxxx.apps.googleuserconten
 
 ---
 
-## 3. Microsoft Entra ID (Microsoft / Outlook / Hotmail Login)
+## 3. GitHub Developer Settings (GitHub Login)
 
-Microsoft utiliza Microsoft Identity Platform y OpenID Connect con soporte para cuentas personales de Outlook/Hotmail y cuentas organizativas de trabajo o escuela.
+GitHub utiliza OAuth 2.0 estándar con intercambio de código de autorización y validación segura en el backend contra la API oficial de GitHub (`https://api.github.com/user` y `https://api.github.com/user/emails`).
 
 ### Pasos de Configuración:
 
-1. Ingresa a [Microsoft Azure Portal](https://portal.azure.com/) o al [Centro de Administración de Microsoft Entra](https://entra.microsoft.com/).
-2. Ve a **Microsoft Entra ID** (o Azure Active Directory) > **Registro de aplicaciones** > **+ Nuevo registro**.
+1. Ingresa a [GitHub Developer Settings - OAuth Apps](https://github.com/settings/developers).
+2. Haz clic en **New OAuth App** (o **Register a new application**).
 3. Completa los campos:
-   - **Nombre**: `KinesioGestión Consultorio`.
-   - **Tipos de cuenta compatibles**: Selecciona la opción:
-     > **"Cuentas en cualquier directorio organizativo (cualquier inquilino de Microsoft Entra ID: multiinquilino) y cuentas personales de Microsoft (como Skype, Xbox, Outlook.com)"**
-     *(Esto permite que pacientes con correos personales @outlook.com, @hotmail.com o corporativos puedan acceder).*
-   - **URI de redirección**:
-     - Plataforma: **Web**
-     - URI: `http://localhost:8081`
-   - Clic en **Registrar**.
-4. En la página de Información general de la aplicación registrada, copia el **Id. de aplicación (cliente)**.
-5. Agrega el URI de redirección de Expo:
-   - En el menú lateral, ve a **Autenticación**.
-   - Bajo **URI de redireccionamiento**, agrega: `https://auth.expo.io/@leoboca12/kinesiologia-app`.
-   - En **Concesión implícita y flujos híbridos**, marca:
-     - [x] Tokens de acceso
-     - [x] Tokens de id
-   - Guarda los cambios.
-6. Genera el Secreto de cliente:
-   - Ve a **Certificados y secretos** > **+ Nuevo secreto de cliente**.
-   - Descripción: `KinesioGestion Backend Key`.
-   - Expiración: Recomendado 12 o 24 meses.
-   - Clic en **Agregar** y copia inmediatamente el **Valor** del secreto (no el ID del secreto).
+   - **Application name**: `KinesioGestión`.
+   - **Homepage URL**: `http://localhost:8081`.
+   - **Application description**: `Sistema de Gestión para Consultorio de Kinesiología y Fisioterapia`.
+   - **Authorization callback URL**: `http://localhost:8081` (para desarrollo web local).
+4. Haz clic en **Register application**.
+5. Copia el **Client ID**.
+6. En la sección **Client secrets**, haz clic en **Generate a new client secret** y copia el valor generado.
 
-### Variables de Entorno para Microsoft:
+### Variables de Entorno para GitHub:
 En `backend/.env`:
 ```env
-MICROSOFT_CLIENT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-MICROSOFT_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-MICROSOFT_TENANT_ID=common
+GITHUB_CLIENT_ID=Ov23lidJ8hmMaK5scQk8
+GITHUB_CLIENT_SECRET=9bd55a12cf34aa1282ea59137165d8880425da6d
 ```
-*(Opcional en `frontend/.env`)*:
+En `frontend/.env`:
 ```env
-EXPO_PUBLIC_MICROSOFT_CLIENT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+EXPO_PUBLIC_GITHUB_CLIENT_ID=Ov23lidJ8hmMaK5scQk8
 ```
 
 ---

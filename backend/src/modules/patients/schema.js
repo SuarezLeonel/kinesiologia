@@ -6,7 +6,7 @@ export const patientSearchSchema = z.object({
     assignedKinesiologistId: z.number().int().positive().optional(),
     isActive: z.boolean().optional(),
     page: z.number().int().positive().default(1),
-    limit: z.number().int().positive().max(100).default(20)
+    limit: z.number().int().positive().max(500).default(20)
   })
 });
 

@@ -8,6 +8,7 @@ import {
   RefreshControl,
   TouchableOpacity,
   Platform,
+  Linking,
   StatusBar as RNStatusBar
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,7 +20,7 @@ import { spacing, radii, typography } from '../theme/tokens';
 import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper, DateInput } from '../components/ui';
 import { LoadingState, ErrorState, EmptyState } from '../components/FeedbackStates';
 
-type PortalTab = 'inicio' | 'servicios' | 'turnos' | 'perfil';
+type PortalTab = 'inicio' | 'ejercicios' | 'turnos' | 'servicios' | 'perfil';
 
 const formatLocalDateISO = (d: Date = new Date()): string => {
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -56,6 +57,23 @@ export const PatientPortalScreen: React.FC = () => {
   const [myAppointments, setMyAppointments] = useState<any[]>([]);
   const [catalog, setCatalog] = useState<{ services: any[]; professionals: any[] }>({ services: [], professionals: [] });
   const [profile, setProfile] = useState<any>(null);
+
+  // Estados de rutinas terapéuticas y prescripción de ejercicios
+  const [myRoutines, setMyRoutines] = useState<any[]>([]);
+  const [selectedRoutineId, setSelectedRoutineId] = useState<number | null>(null);
+  const [complianceLogs, setComplianceLogs] = useState<any[]>([]);
+  const [showLogsHistory, setShowLogsHistory] = useState(false);
+
+  // Estados del modal de registro de ejercicio informado por el paciente
+  const [logModalVisible, setLogModalVisible] = useState(false);
+  const [exerciseToLog, setExerciseToLog] = useState<any>(null);
+  const [logSets, setLogSets] = useState('');
+  const [logReps, setLogReps] = useState('');
+  const [logPain, setLogPain] = useState<number | null>(0);
+  const [logNotes, setLogNotes] = useState('');
+  const [logSubmitting, setLogSubmitting] = useState(false);
+  const [logError, setLogError] = useState<string | null>(null);
+  const [logSuccess, setLogSuccess] = useState<string | null>(null);
 
   // Estados de reserva
   const [bookModalVisible, setBookModalVisible] = useState(false);
@@ -94,11 +112,12 @@ export const PatientPortalScreen: React.FC = () => {
     try {
       setError(null);
       // REGLA HTTP ESTRICTA: Consultas de negocio por POST
-      const [dashRes, apptsRes, catRes, profRes] = await Promise.all([
+      const [dashRes, apptsRes, catRes, profRes, routinesRes] = await Promise.all([
         apiClient.post('/patient-portal/dashboard', {}),
         apiClient.post('/patient-portal/my-appointments', {}),
         apiClient.post('/patient-portal/catalog', {}),
-        apiClient.post('/patient-portal/my-profile', {})
+        apiClient.post('/patient-portal/my-profile', {}),
+        apiClient.post('/patient-portal/my-routines', {})
       ]);
 
       if (dashRes.data?.success) setDashboardData(dashRes.data.data);
@@ -107,6 +126,16 @@ export const PatientPortalScreen: React.FC = () => {
       if (profRes.data?.success) {
         setProfile(profRes.data.data);
         setEditPhone(profRes.data.data.phone || '');
+      }
+      if (routinesRes.data?.success) {
+        const routinesList = routinesRes.data.data || [];
+        setMyRoutines(routinesList);
+        if (routinesList.length > 0) {
+          setSelectedRoutineId((prev) => {
+            if (prev && routinesList.some((r: any) => r.id === prev)) return prev;
+            return routinesList[0].id;
+          });
+        }
       }
     } catch (err: any) {
       setError(err.response?.data?.error?.message || 'Error al conectar con el portal de pacientes');
@@ -299,6 +328,60 @@ export const PatientPortalScreen: React.FC = () => {
     }
   };
 
+  const fetchComplianceLogs = async (routineId?: number) => {
+    try {
+      const res = await apiClient.post('/patient-portal/my-exercise-logs', {
+        routineId: routineId || undefined
+      });
+      if (res.data?.success) {
+        setComplianceLogs(res.data.data || []);
+      }
+    } catch {
+      // Ignorar error no crítico
+    }
+  };
+
+  const handleOpenLogExercise = (exercise: any) => {
+    setExerciseToLog(exercise);
+    setLogSets(exercise.sets ? String(exercise.sets) : '3');
+    setLogReps(exercise.repetitions ? String(exercise.repetitions) : '10');
+    setLogPain(0);
+    setLogNotes('');
+    setLogError(null);
+    setLogSuccess(null);
+    setLogModalVisible(true);
+  };
+
+  const handleConfirmLogExercise = async () => {
+    if (!exerciseToLog) return;
+    setLogSubmitting(true);
+    setLogError(null);
+    setLogSuccess(null);
+    try {
+      const res = await apiClient.post('/patient-portal/log-exercise', {
+        routineExerciseId: exerciseToLog.routine_exercise_id,
+        setsCompleted: logSets ? Number(logSets) : undefined,
+        repsCompleted: logReps ? Number(logReps) : undefined,
+        perceivedPainLevel: logPain !== null ? Number(logPain) : 0,
+        patientNotes: logNotes.trim() || undefined
+      });
+      if (res.data?.success) {
+        setLogSuccess('¡Excelente! El cumplimiento de tu ejercicio quedó registrado.');
+        setTimeout(() => {
+          setLogModalVisible(false);
+          loadData();
+          if (selectedRoutineId) {
+            fetchComplianceLogs(selectedRoutineId);
+          }
+        }, 1100);
+      }
+    } catch (err: any) {
+      setLogError(err.response?.data?.error?.message || 'Error al guardar el registro del ejercicio');
+    } finally {
+      setLogSubmitting(false);
+    }
+  };
+
   if (loading && !refreshing) return <LoadingState message="Cargando tu portal personal..." />;
   if (error) return <ErrorState message={error} onRetry={loadData} />;
 
@@ -354,6 +437,25 @@ export const PatientPortalScreen: React.FC = () => {
         </TouchableOpacity>
 
         <TouchableOpacity
+          style={[styles.tabItem, activeTab === 'ejercicios' && { borderBottomColor: theme.primary, borderBottomWidth: 3 }]}
+          onPress={() => {
+            setActiveTab('ejercicios');
+            if (selectedRoutineId) fetchComplianceLogs(selectedRoutineId);
+          }}
+        >
+          <MaterialIcons name="fitness-center" size={20} color={activeTab === 'ejercicios' ? theme.primary : theme.textMuted} />
+          <Text style={[styles.tabLabel, { color: activeTab === 'ejercicios' ? theme.primary : theme.textSecondary }]}>Ejercicios</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tabItem, activeTab === 'turnos' && { borderBottomColor: theme.primary, borderBottomWidth: 3 }]}
+          onPress={() => setActiveTab('turnos')}
+        >
+          <MaterialIcons name="event" size={20} color={activeTab === 'turnos' ? theme.primary : theme.textMuted} />
+          <Text style={[styles.tabLabel, { color: activeTab === 'turnos' ? theme.primary : theme.textSecondary }]}>Turnos</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
           style={[styles.tabItem, activeTab === 'servicios' && { borderBottomColor: theme.primary, borderBottomWidth: 3 }]}
           onPress={() => setActiveTab('servicios')}
         >
@@ -362,19 +464,11 @@ export const PatientPortalScreen: React.FC = () => {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.tabItem, activeTab === 'turnos' && { borderBottomColor: theme.primary, borderBottomWidth: 3 }]}
-          onPress={() => setActiveTab('turnos')}
-        >
-          <MaterialIcons name="event" size={20} color={activeTab === 'turnos' ? theme.primary : theme.textMuted} />
-          <Text style={[styles.tabLabel, { color: activeTab === 'turnos' ? theme.primary : theme.textSecondary }]}>Mis Turnos</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
           style={[styles.tabItem, activeTab === 'perfil' && { borderBottomColor: theme.primary, borderBottomWidth: 3 }]}
           onPress={() => setActiveTab('perfil')}
         >
           <MaterialIcons name="person-outline" size={20} color={activeTab === 'perfil' ? theme.primary : theme.textMuted} />
-          <Text style={[styles.tabLabel, { color: activeTab === 'perfil' ? theme.primary : theme.textSecondary }]}>Mi Perfil</Text>
+          <Text style={[styles.tabLabel, { color: activeTab === 'perfil' ? theme.primary : theme.textSecondary }]}>Perfil</Text>
         </TouchableOpacity>
       </View>
 
@@ -464,7 +558,91 @@ export const PatientPortalScreen: React.FC = () => {
               )}
             </Card>
 
-            {/* Accesos directos y servicios destacados */}
+            {/* Tarjeta de Rutina de Rehabilitación Vigente */}
+            <Card elevated style={styles.heroCard} padding="lg">
+              <View style={styles.cardHeaderRow}>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+                    <MaterialIcons name="fitness-center" size={20} color={theme.primary} />
+                    <Text style={[styles.cardTitle, { color: theme.text }]}>Mi Rutina de Rehabilitación</Text>
+                  </View>
+                  <Text style={[styles.cardSubtitle, { color: theme.textSecondary, marginBottom: 0, marginTop: 4 }]}>
+                    {dashboardData?.activeRoutine?.kinesiologist_name
+                      ? `Prescrita por Lic. ${dashboardData.activeRoutine.kinesiologist_name} ${dashboardData.activeRoutine.kinesiologist_last_name}`
+                      : 'Plan de ejercicios terapéuticos'}
+                  </Text>
+                </View>
+                {dashboardData?.activeRoutine && (
+                  <Badge label="Vigente" variant="success" />
+                )}
+              </View>
+
+              {dashboardData?.activeRoutine ? (
+                <View style={styles.routineOverviewBody}>
+                  <View style={[styles.routineOverviewBox, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
+                    <Text style={[styles.routineOverviewName, { color: theme.text }]}>
+                      {dashboardData.activeRoutine.name}
+                    </Text>
+                    {dashboardData.activeRoutine.valid_from && (
+                      <Text style={[styles.routineValidityText, { color: theme.textMuted }]}>
+                        Desde {new Date(dashboardData.activeRoutine.valid_from).toLocaleDateString('es-AR')}
+                        {dashboardData.activeRoutine.valid_until ? ` hasta ${new Date(dashboardData.activeRoutine.valid_until).toLocaleDateString('es-AR')}` : ' (Sin vencimiento definido)'}
+                      </Text>
+                    )}
+                    {dashboardData.activeRoutine.notes ? (
+                      <View style={[styles.indicationCallout, { backgroundColor: theme.infoBg, borderColor: theme.info + '30' }]}>
+                        <MaterialIcons name="info" size={16} color={theme.info} />
+                        <Text style={[styles.indicationText, { color: theme.text, flex: 1 }]}>
+                          {dashboardData.activeRoutine.notes}
+                        </Text>
+                      </View>
+                    ) : null}
+
+                    <View style={styles.routineProgressRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.progressCountText, { color: theme.text }]}>
+                          {dashboardData.activeRoutine.completed_today_count || 0} de {dashboardData.activeRoutine.exercises_count || 0} ejercicios realizados hoy
+                        </Text>
+                        <View style={[styles.progressBarBg, { backgroundColor: theme.border }]}>
+                          <View
+                            style={[
+                              styles.progressBarFill,
+                              {
+                                backgroundColor: Number(dashboardData.activeRoutine.completed_today_count) >= Number(dashboardData.activeRoutine.exercises_count) && Number(dashboardData.activeRoutine.exercises_count) > 0 ? theme.success : theme.primary,
+                                width: `${Math.min(100, Math.round(((Number(dashboardData.activeRoutine.completed_today_count) || 0) / Math.max(1, Number(dashboardData.activeRoutine.exercises_count) || 1)) * 100))}%`
+                              }
+                            ]}
+                          />
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+
+                  <Button
+                    title="Ver Ejercicios e Instrucciones"
+                    icon={<MaterialIcons name="arrow-forward" size={18} color="#FFF" />}
+                    size="md"
+                    onPress={() => {
+                      setActiveTab('ejercicios');
+                      if (dashboardData.activeRoutine?.id) {
+                        setSelectedRoutineId(dashboardData.activeRoutine.id);
+                        fetchComplianceLogs(dashboardData.activeRoutine.id);
+                      }
+                    }}
+                    style={{ marginTop: spacing.sm }}
+                  />
+                </View>
+              ) : (
+                <View style={styles.noApptBox}>
+                  <MaterialIcons name="fitness-center" size={36} color={theme.textMuted} style={{ marginBottom: spacing.xs }} />
+                  <Text style={[styles.noApptText, { color: theme.textSecondary }]}>
+                    No tenés una rutina asignada actualmente. Tu kinesiólogo prescribirá tus ejercicios en tu próxima consulta.
+                  </Text>
+                </View>
+              )}
+            </Card>
+
+            {/* Accesos directos */}
             <View style={styles.quickActionsRow}>
               <Card elevated style={[styles.actionCard, { flex: 1 }]} padding="md">
                 <MaterialIcons name="add-circle-outline" size={28} color={theme.primary} />
@@ -476,19 +654,357 @@ export const PatientPortalScreen: React.FC = () => {
               </Card>
 
               <Card elevated style={[styles.actionCard, { flex: 1 }]} padding="md">
+                <MaterialIcons name="fitness-center" size={28} color={theme.success} />
+                <Text style={[styles.actionTitle, { color: theme.text }]}>Mis Ejercicios</Text>
+                <Text style={[styles.actionDesc, { color: theme.textSecondary }]}>
+                  Consultá las rutinas e indicaciones de tu kinesiólogo.
+                </Text>
+                <Button
+                  title="Ver Rutina"
+                  variant="outline"
+                  size="sm"
+                  onPress={() => {
+                    setActiveTab('ejercicios');
+                    if (selectedRoutineId) fetchComplianceLogs(selectedRoutineId);
+                  }}
+                  style={{ marginTop: spacing.sm }}
+                />
+              </Card>
+
+              <Card elevated style={[styles.actionCard, { flex: 1 }]} padding="md">
                 <MaterialIcons name="history" size={28} color={theme.info} />
                 <Text style={[styles.actionTitle, { color: theme.text }]}>Mis Turnos</Text>
                 <Text style={[styles.actionDesc, { color: theme.textSecondary }]}>
                   Revisá tus citas anteriores y próximas reservas.
                 </Text>
-                <Button title="Ver Historial" variant="outline" size="sm" onPress={() => setActiveTab('turnos')} style={{ marginTop: spacing.sm }} />
+                <Button title="Historial" variant="outline" size="sm" onPress={() => setActiveTab('turnos')} style={{ marginTop: spacing.sm }} />
               </Card>
             </View>
           </View>
         )}
 
         {/* ========================================== */}
-        {/* PESTAÑA 2: PROFESIONALES Y SERVICIOS */}
+        {/* PESTAÑA 2: MIS EJERCICIOS Y RUTINAS */}
+        {/* ========================================== */}
+        {activeTab === 'ejercicios' && (
+          <View style={styles.sectionContainer}>
+            <ScreenHeader
+              title="Mis Ejercicios y Rutinas"
+              subtitle="Ejercicios prescritos por tu profesional para realizar en tu hogar o gimnasio"
+            />
+
+            {myRoutines.length === 0 ? (
+              <EmptyState
+                title="No tenés rutinas asignadas"
+                subtitle="Tu kinesiólogo prescribirá y cargará tu rutina de rehabilitación personalizada en tu próxima sesión."
+              />
+            ) : (
+              <>
+                {/* Selector de rutinas cuando existen múltiples versiones o tratamientos */}
+                {myRoutines.length > 1 && (
+                  <View style={{ marginBottom: spacing.xs }}>
+                    <Text style={[styles.inputLabel, { color: theme.text }]}>Seleccionar Rutina:</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      {myRoutines.map((r) => {
+                        const isSelected = selectedRoutineId === r.id;
+                        return (
+                          <TouchableOpacity
+                            key={r.id}
+                            onPress={() => {
+                              setSelectedRoutineId(r.id);
+                              fetchComplianceLogs(r.id);
+                            }}
+                            style={[
+                              styles.selectChip,
+                              {
+                                backgroundColor: isSelected ? theme.primary : theme.surfaceSubtle,
+                                borderColor: isSelected ? theme.primary : theme.border
+                              }
+                            ]}
+                          >
+                            <Text
+                              style={{
+                                color: isSelected ? '#FFF' : theme.text,
+                                fontWeight: isSelected ? '700' : '500',
+                                fontSize: typography.fontSize.xs
+                              }}
+                            >
+                              {r.name} {r.is_current ? '★ (Vigente)' : `(v${r.version})`}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                )}
+
+                {/* Rutina activa seleccionada */}
+                {(() => {
+                  const currentRoutine = myRoutines.find((r) => r.id === selectedRoutineId) || myRoutines[0];
+                  if (!currentRoutine) return null;
+
+                  return (
+                    <View style={{ gap: spacing.md }}>
+                      {/* Cabecera de la rutina */}
+                      <Card elevated padding="lg">
+                        <View style={styles.cardHeaderRow}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.cardTitle, { color: theme.text }]}>{currentRoutine.name}</Text>
+                            <Text style={[styles.cardSubtitle, { color: theme.textSecondary, marginBottom: 0 }]}>
+                              {currentRoutine.treatment_title ? `Plan: ${currentRoutine.treatment_title} • ` : ''}
+                              Lic. {currentRoutine.kinesiologist_name} {currentRoutine.kinesiologist_last_name}
+                            </Text>
+                          </View>
+                          <Badge
+                            label={currentRoutine.is_current ? 'Vigente' : currentRoutine.status === 'completed' ? 'Finalizada' : currentRoutine.status}
+                            variant={currentRoutine.is_current ? 'success' : 'info'}
+                          />
+                        </View>
+
+                        {currentRoutine.description ? (
+                          <Text style={[styles.routineDescText, { color: theme.textSecondary }]}>
+                            {currentRoutine.description}
+                          </Text>
+                        ) : null}
+
+                        <View style={[styles.divider, { backgroundColor: theme.border, marginVertical: spacing.sm }]} />
+
+                        <View style={styles.routineDatesRow}>
+                          <View style={styles.routineDateItem}>
+                            <MaterialIcons name="event" size={16} color={theme.textMuted} />
+                            <Text style={[styles.gridText, { color: theme.textMuted }]}>
+                              Desde: {currentRoutine.valid_from ? new Date(currentRoutine.valid_from).toLocaleDateString('es-AR') : 'Inicio del tratamiento'}
+                            </Text>
+                          </View>
+                          {currentRoutine.valid_until && (
+                            <View style={styles.routineDateItem}>
+                              <MaterialIcons name="event-available" size={16} color={theme.textMuted} />
+                              <Text style={[styles.gridText, { color: theme.textMuted }]}>
+                                Próxima revisión: {new Date(currentRoutine.valid_until).toLocaleDateString('es-AR')}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+
+                        {currentRoutine.notes ? (
+                          <View style={[styles.indicationCallout, { backgroundColor: theme.primaryLight + '25', borderColor: theme.primary + '40', marginTop: spacing.sm }]}>
+                            <MaterialIcons name="assignment" size={18} color={theme.primary} />
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.indicationTitle, { color: theme.primary }]}>Indicaciones del profesional:</Text>
+                              <Text style={[styles.indicationText, { color: theme.text }]}>{currentRoutine.notes}</Text>
+                            </View>
+                          </View>
+                        ) : null}
+                      </Card>
+
+                      {/* Lista de ejercicios en orden de ejecución */}
+                      <Text style={[styles.subHeaderTitle, { color: theme.text, marginTop: spacing.sm }]}>
+                        Ejercicios Prescritos ({currentRoutine.exercises?.length || 0})
+                      </Text>
+
+                      {(!currentRoutine.exercises || currentRoutine.exercises.length === 0) ? (
+                        <Card elevated padding="md">
+                          <Text style={[{ color: theme.textSecondary, textAlign: 'center' }]}>
+                            No hay ejercicios listados en esta versión de la rutina.
+                          </Text>
+                        </Card>
+                      ) : (
+                        currentRoutine.exercises.map((ex: any, idx: number) => {
+                          const isDoneToday = Boolean(ex.completed_today && ex.completed_today > 0);
+
+                          return (
+                            <Card key={ex.routine_exercise_id || idx} elevated style={styles.exerciseCard} padding="md">
+                              {/* Fila superior: orden secuencial + nombre + badges */}
+                              <View style={styles.exerciseHeaderRow}>
+                                <View style={[styles.orderBadge, { backgroundColor: theme.primaryLight }]}>
+                                  <Text style={[styles.orderBadgeText, { color: theme.primary }]}>#{ex.execution_order || idx + 1}</Text>
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={[styles.exerciseName, { color: theme.text }]}>{ex.name}</Text>
+                                  <View style={styles.badgeRow}>
+                                    {ex.category && <Badge label={ex.category} variant="info" size="sm" />}
+                                    {ex.body_zone && <Badge label={ex.body_zone} variant="default" size="sm" />}
+                                    {ex.difficulty_level && <Badge label={ex.difficulty_level} variant="neutral" size="sm" />}
+                                  </View>
+                                </View>
+                                {isDoneToday ? (
+                                  <Badge label="✓ Realizado hoy" variant="success" size="sm" />
+                                ) : (
+                                  <Badge label="Pendiente hoy" variant="warning" size="sm" />
+                                )}
+                              </View>
+
+                              {/* Grilla de Parámetros Prescritos */}
+                              <View style={[styles.paramsGrid, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
+                                {ex.sets ? (
+                                  <View style={styles.paramItem}>
+                                    <Text style={[styles.paramLabel, { color: theme.textMuted }]}>Series</Text>
+                                    <Text style={[styles.paramValue, { color: theme.text }]}>{ex.sets}</Text>
+                                  </View>
+                                ) : null}
+                                {ex.repetitions ? (
+                                  <View style={styles.paramItem}>
+                                    <Text style={[styles.paramLabel, { color: theme.textMuted }]}>Reps</Text>
+                                    <Text style={[styles.paramValue, { color: theme.text }]}>{ex.repetitions}</Text>
+                                  </View>
+                                ) : null}
+                                {ex.duration_seconds ? (
+                                  <View style={styles.paramItem}>
+                                    <Text style={[styles.paramLabel, { color: theme.textMuted }]}>Duración</Text>
+                                    <Text style={[styles.paramValue, { color: theme.text }]}>{ex.duration_seconds}s</Text>
+                                  </View>
+                                ) : null}
+                                {ex.rest_seconds ? (
+                                  <View style={styles.paramItem}>
+                                    <Text style={[styles.paramLabel, { color: theme.textMuted }]}>Descanso</Text>
+                                    <Text style={[styles.paramValue, { color: theme.text }]}>{ex.rest_seconds}s</Text>
+                                  </View>
+                                ) : null}
+                                {ex.weekly_frequency ? (
+                                  <View style={styles.paramItem}>
+                                    <Text style={[styles.paramLabel, { color: theme.textMuted }]}>Frecuencia</Text>
+                                    <Text style={[styles.paramValue, { color: theme.text }]}>{ex.weekly_frequency}</Text>
+                                  </View>
+                                ) : null}
+                                {ex.body_side && ex.body_side !== 'No aplica' ? (
+                                  <View style={styles.paramItem}>
+                                    <Text style={[styles.paramLabel, { color: theme.textMuted }]}>Lado</Text>
+                                    <Text style={[styles.paramValue, { color: theme.text }]}>{ex.body_side}</Text>
+                                  </View>
+                                ) : null}
+                                {ex.resistance_load ? (
+                                  <View style={styles.paramItem}>
+                                    <Text style={[styles.paramLabel, { color: theme.textMuted }]}>Carga</Text>
+                                    <Text style={[styles.paramValue, { color: theme.text }]}>{ex.resistance_load}</Text>
+                                  </View>
+                                ) : null}
+                              </View>
+
+                              {/* Indicaciones personalizadas del kinesiólogo */}
+                              {ex.custom_instructions ? (
+                                <View style={[styles.indicationCallout, { backgroundColor: theme.primaryLight + '20', borderColor: theme.primary + '30' }]}>
+                                  <MaterialIcons name="medical-services" size={18} color={theme.primary} />
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={[styles.indicationTitle, { color: theme.primary }]}>Indicación particular para ti:</Text>
+                                    <Text style={[styles.indicationText, { color: theme.text }]}>{ex.custom_instructions}</Text>
+                                  </View>
+                                </View>
+                              ) : null}
+
+                              {/* Instrucciones técnicas */}
+                              {ex.instructions ? (
+                                <View style={styles.instructionsBox}>
+                                  <Text style={[styles.instructionsTitle, { color: theme.text }]}>Técnica de ejecución:</Text>
+                                  <Text style={[styles.instructionsText, { color: theme.textSecondary }]}>{ex.instructions}</Text>
+                                </View>
+                              ) : null}
+
+                              {/* Precauciones / Contraindicaciones */}
+                              {ex.contraindications ? (
+                                <View style={[styles.indicationCallout, { backgroundColor: theme.warningBg, borderColor: theme.warning + '40' }]}>
+                                  <MaterialIcons name="warning" size={18} color={theme.warning} />
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={[styles.indicationTitle, { color: theme.warning }]}>Precauciones / Detener si:</Text>
+                                    <Text style={[styles.indicationText, { color: theme.text }]}>{ex.contraindications}</Text>
+                                  </View>
+                                </View>
+                              ) : null}
+
+                              {/* Video demostrativo opcional */}
+                              {ex.media_url ? (
+                                <TouchableOpacity
+                                  style={[styles.mediaLinkBtn, { borderColor: theme.info, backgroundColor: theme.infoBg }]}
+                                  onPress={() => {
+                                    if (ex.media_url) Linking.openURL(ex.media_url);
+                                  }}
+                                >
+                                  <MaterialIcons name="play-circle-outline" size={20} color={theme.info} />
+                                  <Text style={[styles.mediaLinkText, { color: theme.info }]}>Ver video demostrativo del ejercicio</Text>
+                                </TouchableOpacity>
+                              ) : null}
+
+                              {/* Botón de cumplimiento informado */}
+                              <View style={[styles.exerciseActionRow, { borderTopColor: theme.border }]}>
+                                <Button
+                                  title={isDoneToday ? "Registrar nueva realización" : "Marcar como realizado"}
+                                  variant={isDoneToday ? "outline" : "primary"}
+                                  icon={<MaterialIcons name={isDoneToday ? "check-circle" : "check"} size={18} color={isDoneToday ? theme.primary : '#FFF'} />}
+                                  size="sm"
+                                  onPress={() => handleOpenLogExercise(ex)}
+                                  style={{ flex: 1 }}
+                                />
+                              </View>
+                            </Card>
+                          );
+                        })
+                      )}
+
+                      {/* Historial de cumplimiento informado por el paciente */}
+                      <View style={{ marginTop: spacing.md }}>
+                        <TouchableOpacity
+                          style={[styles.historyToggleRow, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                          onPress={() => {
+                            if (!showLogsHistory && complianceLogs.length === 0 && currentRoutine?.id) {
+                              fetchComplianceLogs(currentRoutine.id);
+                            }
+                            setShowLogsHistory(!showLogsHistory);
+                          }}
+                        >
+                          <MaterialIcons name="history" size={20} color={theme.primary} />
+                          <Text style={[styles.historyToggleText, { color: theme.text, flex: 1 }]}>
+                            Mi Historial de Realización ({complianceLogs.length} registros)
+                          </Text>
+                          <MaterialIcons name={showLogsHistory ? "expand-less" : "expand-more"} size={22} color={theme.textMuted} />
+                        </TouchableOpacity>
+
+                        {showLogsHistory && (
+                          <View style={{ marginTop: spacing.sm, gap: spacing.xs }}>
+                            {complianceLogs.length === 0 ? (
+                              <Card elevated padding="md">
+                                <Text style={[{ color: theme.textSecondary, textAlign: 'center', fontSize: typography.fontSize.xs }]}>
+                                  Aún no tenés registros de realización para esta rutina. Podés marcar un ejercicio al completarlo.
+                                </Text>
+                              </Card>
+                            ) : (
+                              complianceLogs.map((log: any) => (
+                                <Card key={log.id} elevated padding="sm" style={styles.historyLogCard}>
+                                  <View style={styles.cardHeaderRow}>
+                                    <Text style={[styles.logExerciseName, { color: theme.text }]}>{log.exercise_name}</Text>
+                                    <Text style={[styles.logDateText, { color: theme.textMuted }]}>
+                                      {new Date(log.completed_at || log.completed_date).toLocaleDateString('es-AR')}
+                                    </Text>
+                                  </View>
+                                  <View style={styles.logMetaRow}>
+                                    <Text style={[styles.logMetaItem, { color: theme.textSecondary }]}>
+                                      {log.sets_completed ? `${log.sets_completed} series` : ''} {log.reps_completed ? `x ${log.reps_completed} reps` : ''}
+                                    </Text>
+                                    <Badge
+                                      label={`Molestia: ${log.perceived_pain_level ?? 0}/10`}
+                                      variant={log.perceived_pain_level > 5 ? 'error' : log.perceived_pain_level > 2 ? 'warning' : 'success'}
+                                      size="sm"
+                                    />
+                                  </View>
+                                  {log.patient_notes ? (
+                                    <Text style={[styles.logNotesText, { color: theme.textMuted }]}>
+                                      "{log.patient_notes}"
+                                    </Text>
+                                  ) : null}
+                                </Card>
+                              ))
+                            )}
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  );
+                })()}
+              </>
+            )}
+          </View>
+        )}
+
+        {/* ========================================== */}
+        {/* PESTAÑA 3: PROFESIONALES Y SERVICIOS */}
         {/* ========================================== */}
         {activeTab === 'servicios' && (
           <View style={styles.sectionContainer}>
@@ -1014,6 +1530,105 @@ export const PatientPortalScreen: React.FC = () => {
           containerStyle={{ marginTop: spacing.md }}
         />
       </ModalWrapper>
+
+      {/* ========================================== */}
+      {/* MODAL: REGISTRAR CUMPLIMIENTO DE EJERCICIO */}
+      {/* ========================================== */}
+      <ModalWrapper
+        visible={logModalVisible}
+        onClose={() => setLogModalVisible(false)}
+        title="Registrar Ejercicio Realizado"
+        subtitle={exerciseToLog ? `${exerciseToLog.name} (Paso #${exerciseToLog.execution_order})` : ''}
+        footer={
+          <>
+            <Button title="Cancelar" variant="secondary" size="md" onPress={() => setLogModalVisible(false)} />
+            <Button
+              title="Guardar Registro"
+              size="md"
+              loading={logSubmitting}
+              onPress={handleConfirmLogExercise}
+            />
+          </>
+        }
+      >
+        {logError && (
+          <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
+            <Text style={[styles.modalBannerText, { color: theme.error }]}>{logError}</Text>
+          </View>
+        )}
+
+        {logSuccess && (
+          <View style={[styles.modalBanner, { backgroundColor: theme.successBg, borderColor: theme.success + '40' }]}>
+            <Text style={[styles.modalBannerText, { color: theme.success }]}>{logSuccess}</Text>
+          </View>
+        )}
+
+        <Text style={[styles.modalBodyText, { color: theme.text, marginBottom: spacing.md }]}>
+          Completá los datos reales de tu sesión. Esta información permite a tu kinesiólogo evaluar tu evolución.
+        </Text>
+
+        <View style={{ flexDirection: 'row', gap: spacing.md }}>
+          <View style={{ flex: 1 }}>
+            <Input
+              label="Series completadas"
+              value={logSets}
+              onChangeText={setLogSets}
+              keyboardType="numeric"
+              placeholder="Ej: 3"
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Input
+              label="Repeticiones"
+              value={logReps}
+              onChangeText={setLogReps}
+              keyboardType="numeric"
+              placeholder="Ej: 12"
+            />
+          </View>
+        </View>
+
+        <Text style={[styles.inputLabel, { color: theme.text, marginTop: spacing.md }]}>
+          Nivel de molestia / dolor percibido (0 = Ninguno, 10 = Máximo):
+        </Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: spacing.xs }}>
+          {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((score) => {
+            const isSelected = logPain === score;
+            const color = score === 0 ? theme.success : score <= 3 ? theme.info : score <= 6 ? theme.warning : theme.error;
+            return (
+              <TouchableOpacity
+                key={score}
+                onPress={() => setLogPain(score)}
+                style={[
+                  styles.painChip,
+                  {
+                    backgroundColor: isSelected ? color : theme.surfaceSubtle,
+                    borderColor: isSelected ? color : theme.border
+                  }
+                ]}
+              >
+                <Text style={{ color: isSelected ? '#FFF' : theme.text, fontWeight: '700', fontSize: typography.fontSize.sm }}>
+                  {score}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+        <Text style={[styles.painHintText, { color: theme.textMuted }]}>
+          {logPain === 0 ? 'Sin molestias ni dolor durante el ejercicio' :
+           logPain !== null && logPain <= 3 ? 'Molestia o tensión leve bien tolerada' :
+           logPain !== null && logPain <= 6 ? 'Dolor moderado que dificulta el movimiento' :
+           'Dolor agudo o intenso (informar inmediatamente al profesional)'}
+        </Text>
+
+        <Input
+          label="Observaciones o sensaciones (opcional)"
+          value={logNotes}
+          onChangeText={setLogNotes}
+          placeholder="Ej: Sentí una ligera molestia en la última serie"
+          containerStyle={{ marginTop: spacing.md }}
+        />
+      </ModalWrapper>
     </View>
   );
 };
@@ -1370,5 +1985,207 @@ const styles = StyleSheet.create({
   modalBodyText: {
     fontSize: typography.fontSize.sm,
     lineHeight: 20
+  },
+  routineOverviewBody: {
+    gap: spacing.md
+  },
+  routineOverviewBox: {
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    gap: spacing.xs
+  },
+  routineOverviewName: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold
+  },
+  routineValidityText: {
+    fontSize: typography.fontSize.xs
+  },
+  routineProgressRow: {
+    marginTop: spacing.xs
+  },
+  progressCountText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium,
+    marginBottom: 4
+  },
+  progressBarBg: {
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden'
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 4
+  },
+  routineDescText: {
+    fontSize: typography.fontSize.xs,
+    lineHeight: 18,
+    marginTop: 2
+  },
+  routineDatesRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    flexWrap: 'wrap'
+  },
+  routineDateItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4
+  },
+  indicationCallout: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: spacing.sm,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    gap: spacing.xs,
+    marginVertical: 4
+  },
+  indicationTitle: {
+    fontSize: typography.fontSize.tiny,
+    fontWeight: typography.fontWeight.bold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 2
+  },
+  indicationText: {
+    fontSize: typography.fontSize.xs,
+    lineHeight: 16
+  },
+  exerciseCard: {
+    marginBottom: spacing.md
+  },
+  exerciseHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm
+  },
+  orderBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  orderBadgeText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold
+  },
+  exerciseName: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    gap: 4,
+    flexWrap: 'wrap',
+    marginTop: 4
+  },
+  paramsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    marginVertical: spacing.sm
+  },
+  paramItem: {
+    alignItems: 'center',
+    minWidth: 55
+  },
+  paramLabel: {
+    fontSize: typography.fontSize.tiny,
+    textTransform: 'uppercase',
+    fontWeight: typography.fontWeight.medium
+  },
+  paramValue: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold,
+    marginTop: 1
+  },
+  instructionsBox: {
+    paddingVertical: spacing.xs
+  },
+  instructionsTitle: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold,
+    marginBottom: 2
+  },
+  instructionsText: {
+    fontSize: typography.fontSize.xs,
+    lineHeight: 18
+  },
+  mediaLinkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    marginVertical: spacing.xs
+  },
+  mediaLinkText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.semibold
+  },
+  exerciseActionRow: {
+    flexDirection: 'row',
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    marginTop: spacing.xs
+  },
+  historyToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    gap: spacing.sm
+  },
+  historyToggleText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold
+  },
+  historyLogCard: {
+    marginBottom: spacing.xs
+  },
+  logExerciseName: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold
+  },
+  logDateText: {
+    fontSize: typography.fontSize.tiny
+  },
+  logMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 2
+  },
+  logMetaItem: {
+    fontSize: typography.fontSize.xs
+  },
+  logNotesText: {
+    fontSize: typography.fontSize.tiny,
+    fontStyle: 'italic',
+    marginTop: 2
+  },
+  painChip: {
+    width: 32,
+    height: 36,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 6
+  },
+  painHintText: {
+    fontSize: typography.fontSize.xs,
+    marginVertical: 4
   }
 });

@@ -35,23 +35,36 @@ export interface RegisterPatientPayload {
   dni?: string;
   birthDate?: string;
   insuranceProvider?: string;
+  insuranceNumber?: string;
 }
 
-export type SocialProvider = 'google' | 'microsoft' | 'facebook';
+export type SocialProvider = 'google' | 'github' | 'microsoft' | 'facebook';
 
 export interface SocialLoginPayload {
   provider: SocialProvider;
   idToken?: string;
   accessToken?: string;
   code?: string;
+  redirectUri?: string;
   existingPassword?: string;
   confirmedEmail?: string;
+  firstName?: string;
+  lastName?: string;
+  dni?: string;
+  phone?: string;
+  birthDate?: string;
+  insuranceProvider?: string;
+  insuranceNumber?: string;
+  address?: string;
 }
 
 export interface SocialLoginResult {
   success: boolean;
   requiresLinkingConfirmation?: boolean;
   requiresEmail?: boolean;
+  requiresProfileCompletion?: boolean;
+  firstName?: string;
+  lastName?: string;
   email?: string;
   provider?: SocialProvider;
   message?: string;
@@ -60,7 +73,7 @@ export interface SocialLoginResult {
 
 export interface OAuthConfig {
   google: { configured: boolean; clientId: string | null };
-  microsoft: { configured: boolean; clientId: string | null; tenantId: string };
+  github: { configured: boolean; clientId: string | null };
   facebook: { configured: boolean; appId: string | null };
 }
 
@@ -216,10 +229,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         configured: Boolean(process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID),
         clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || null
       },
-      microsoft: {
-        configured: Boolean(process.env.EXPO_PUBLIC_MICROSOFT_CLIENT_ID),
-        clientId: process.env.EXPO_PUBLIC_MICROSOFT_CLIENT_ID || null,
-        tenantId: 'common'
+      github: {
+        configured: Boolean(process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID),
+        clientId: process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID || null
       },
       facebook: {
         configured: Boolean(process.env.EXPO_PUBLIC_FACEBOOK_APP_ID),
@@ -241,6 +253,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             requiresLinkingConfirmation: true,
             email: data.email,
             provider: data.provider,
+            message: data.message
+          };
+        }
+
+        // Caso: Registro nuevo requiere completar datos de perfil (nombre, apellido, DNI, teléfono, obra social)
+        if (data?.requiresProfileCompletion) {
+          return {
+            success: false,
+            requiresProfileCompletion: true,
+            email: data.email,
+            provider: data.provider,
+            firstName: data.firstName,
+            lastName: data.lastName,
             message: data.message
           };
         }

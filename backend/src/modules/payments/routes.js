@@ -8,7 +8,8 @@ import {
   paymentDetailSchema,
   paymentCreateSchema,
   sessionConsumeSchema,
-  packageSearchSchema
+  packageSearchSchema,
+  cajaSummarySchema
 } from './schema.js';
 
 export const paymentsRouter = Router();
@@ -20,6 +21,7 @@ paymentsRouter.use(authorizePermission('payments:manage'));
 
 // REGLA HTTP ESTRICTA: Solo POST para consultas de pagos
 paymentsRouter.post('/search', validate(paymentSearchSchema), asyncHandler((req, res, next) => paymentsController.search(req, res, next)));
+paymentsRouter.post('/caja-summary', validate(cajaSummarySchema), asyncHandler((req, res, next) => paymentsController.cajaSummary(req, res, next)));
 paymentsRouter.post('/detail', validate(paymentDetailSchema), asyncHandler((req, res, next) => paymentsController.detail(req, res, next)));
 paymentsRouter.post('/', validate(paymentCreateSchema), asyncHandler((req, res, next) => paymentsController.create(req, res, next)));
 paymentsRouter.post('/create', validate(paymentCreateSchema), asyncHandler((req, res, next) => paymentsController.create(req, res, next)));

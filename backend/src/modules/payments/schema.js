@@ -3,9 +3,20 @@ import { z } from 'zod';
 export const paymentSearchSchema = z.object({
   body: z.object({
     patientId: z.number().int().positive().optional(),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido (YYYY-MM-DD)').optional(),
+    todayOnly: z.boolean().optional(),
+    startDate: z.string().optional(),
+    endDate: z.string().optional(),
+    paymentMethod: z.enum(['cash', 'transfer', 'debit_card', 'credit_card', 'insurance']).optional(),
     page: z.number().int().positive().default(1),
     limit: z.number().int().positive().max(100).default(50)
   })
+});
+
+export const cajaSummarySchema = z.object({
+  body: z.object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido (YYYY-MM-DD)').optional()
+  }).default({})
 });
 
 export const paymentDetailSchema = z.object({

@@ -3,6 +3,7 @@ import { patientsRepository } from '../patients/repository.js';
 import { query } from '../../config/database.js';
 import { NotFoundError, ForbiddenError } from '../../utils/errors.js';
 import { logAudit } from '../../utils/auditLogger.js';
+import { generateClinicalRecordPdf } from './pdfGenerator.js';
 
 export class ClinicalRecordsService {
   async searchByPatient(params, currentUser) {
@@ -21,6 +22,43 @@ export class ClinicalRecordsService {
       throw new NotFoundError('Historia clínica no encontrada');
     }
     return record;
+  }
+
+  async exportPdf(id, currentUser) {
+    if (currentUser.role === 'receptionist') {
+      throw new ForbiddenError('El rol de recepcionista no tiene acceso a historias clínicas ni diagnósticos');
+    }
+
+    const record = await clinicalRecordsRepository.findById(id);
+    if (!record) {
+      throw new NotFoundError('Historia clínica no encontrada');
+    }
+
+    if (currentUser.role === 'kinesiologist' && record.author_id !== currentUser.id) {
+      const rel = await query(
+        'SELECT id FROM appointments WHERE patient_id = ? AND kinesiologist_id = ? LIMIT 1',
+        [record.patient_id, currentUser.id]
+      );
+      if (!rel.length) {
+        throw new ForbiddenError('No posee autorización clínica sobre pacientes no asignados');
+      }
+    }
+
+    const sessions = await clinicalRecordsRepository.findSessionsByClinicalRecordId(id);
+    const buffer = await generateClinicalRecordPdf(record, sessions);
+
+    const safePatient = (record.patient_last_name || 'Paciente').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `Historia_Clinica_${safePatient}_HC-${String(record.id).padStart(6, '0')}.pdf`;
+
+    await logAudit({
+      userId: currentUser.id,
+      action: 'CLINICAL_RECORD_EXPORTED_PDF',
+      entityType: 'clinical_record',
+      entityId: id,
+      details: { patientId: record.patient_id, filename }
+    });
+
+    return { buffer, filename, record };
   }
 
   async create(data, currentUser) {

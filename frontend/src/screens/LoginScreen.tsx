@@ -1,13 +1,25 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity } from 'react-native';
+import {
+  View,
+  Text,
+  TextInput,
+  StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  TouchableOpacity,
+  Image,
+  ActivityIndicator
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../theme/ThemeContext';
-import { spacing, radii, typography } from '../theme/tokens';
-import { Input, Button, Card, SocialAuthButtons } from '../components/ui';
+import { spacing, radii } from '../theme/tokens';
+import { SocialAuthButtons } from '../components/ui';
 import { API_BASE_URL } from '../api/config';
 
 const loginSchema = z.object({
@@ -22,6 +34,9 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   const { theme } = useAppTheme();
   const insets = useSafeAreaInsets();
   const [serverError, setServerError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [emailFocused, setEmailFocused] = useState<boolean>(false);
+  const [passFocused, setPassFocused] = useState<boolean>(false);
 
   const {
     control,
@@ -42,158 +57,261 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   };
 
   const fillDemoCredentials = (email: string) => {
-    setValue('email', email);
-    setValue('password', 'Password123!');
+    setValue('email', email, { shouldValidate: true });
+    setValue('password', 'Password123!', { shouldValidate: true });
     setServerError(null);
   };
 
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={[styles.container, { backgroundColor: theme.background }]}
+      style={styles.container}
     >
+      {/* Siluetas orgánicas de hojas en el fondo para diseño botánico/médico */}
+      <View style={styles.bgLeafTopRight} pointerEvents="none" />
+      <View style={styles.bgLeafTopRightInner} pointerEvents="none" />
+      <View style={styles.bgLeafTopLeft} pointerEvents="none" />
+
       <ScrollView
         contentContainerStyle={[
           styles.scrollContent,
           {
-            paddingTop: Math.max(insets.top, 20) + spacing.md,
-            paddingBottom: Math.max(insets.bottom, 20) + spacing.xl,
+            paddingTop: Math.max(insets.top, 24) + spacing.md,
+            paddingBottom: Math.max(insets.bottom, 24) + spacing.xl,
             paddingHorizontal: Platform.OS === 'web' ? spacing.xl : spacing.md
           }
         ]}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
+        {/* Cabecera con Logo Oficial y Nombre de la Marca */}
         <View style={styles.brandContainer}>
-          <View style={[styles.brandMark, { backgroundColor: theme.primaryLight, borderColor: theme.primary + '30' }]}>
-            <Text style={[styles.brandMarkText, { color: theme.primary }]}>KG</Text>
+          <View style={styles.logoCard}>
+            <Image
+              source={require('../../assets/logoKinesio.webp')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
           </View>
-          <Text style={[styles.brandTitle, { color: theme.text }]}>KinesioGestión</Text>
-          <Text style={[styles.brandSubtitle, { color: theme.textSecondary }]}>
+          <Text style={styles.brandTitle}>
+            Kinesio<Text style={styles.brandTitleAccent}>Gestión</Text>
+          </Text>
+          <Text style={styles.brandSubtitle}>
             Sistema Integral para Consultorio y Fisioterapia
           </Text>
         </View>
 
-        <Card elevated style={styles.card} padding={Platform.OS === 'web' ? 'xl' : 'lg'}>
-          <Text style={[styles.cardTitle, { color: theme.text }]}>Iniciar sesión</Text>
-          <Text style={[styles.cardSubtitle, { color: theme.textSecondary }]}>
+        {/* Tarjeta de Autenticación Principal */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Iniciar sesión</Text>
+          <Text style={styles.cardSubtitle}>
             Ingrese sus credenciales profesionales para acceder
           </Text>
 
           {serverError && (
-            <View style={[styles.errorBanner, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
-              <Text style={[styles.errorBannerText, { color: theme.error }]}>{serverError}</Text>
+            <View style={styles.errorBanner}>
+              <Text style={styles.errorBannerText}>{serverError}</Text>
             </View>
           )}
 
-          <Controller
-            control={control}
-            name="email"
-            render={({ field: { onChange, onBlur, value } }) => (
-              <Input
-                label="Correo electrónico"
-                placeholder="profesional@kinesiologia.com"
-                value={value}
-                onChangeText={onChange}
-                onBlur={onBlur}
-                error={errors.email?.message}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                autoComplete="email"
-                required
+          {/* Campo Correo Electrónico */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>
+              Correo electrónico <Text style={styles.requiredAsterisk}>*</Text>
+            </Text>
+            <View
+              style={[
+                styles.inputBox,
+                emailFocused && styles.inputBoxFocused,
+                Boolean(errors.email) && styles.inputBoxError
+              ]}
+            >
+              <MaterialIcons
+                name="mail-outline"
+                size={18}
+                color={emailFocused ? '#58B988' : '#60796C'}
+                style={styles.inputLeftIcon}
               />
-            )}
-          />
-
-          <Controller
-            control={control}
-            name="password"
-            render={({ field: { onChange, onBlur, value } }) => (
-              <Input
-                label="Contraseña"
-                placeholder="••••••••"
-                value={value}
-                onChangeText={onChange}
-                onBlur={onBlur}
-                error={errors.password?.message}
-                isPassword
-                required
+              <Controller
+                control={control}
+                name="email"
+                render={({ field: { onChange, onBlur, value } }) => (
+                  <TextInput
+                    style={styles.textInputField}
+                    placeholder="tu@correo.com"
+                    placeholderTextColor="#4D6357"
+                    value={value}
+                    onChangeText={onChange}
+                    onFocus={() => setEmailFocused(true)}
+                    onBlur={() => {
+                      setEmailFocused(false);
+                      onBlur();
+                    }}
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    autoComplete="email"
+                  />
+                )}
               />
+            </View>
+            {errors.email && (
+              <Text style={styles.fieldErrorText}>{errors.email.message}</Text>
             )}
-          />
+          </View>
 
-          <View style={styles.forgotPasswordRow}>
+          {/* Campo Contraseña */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>
+              Contraseña <Text style={styles.requiredAsterisk}>*</Text>
+            </Text>
+            <View
+              style={[
+                styles.inputBox,
+                passFocused && styles.inputBoxFocused,
+                Boolean(errors.password) && styles.inputBoxError
+              ]}
+            >
+              <MaterialIcons
+                name="lock-outline"
+                size={18}
+                color={passFocused ? '#58B988' : '#60796C'}
+                style={styles.inputLeftIcon}
+              />
+              <Controller
+                control={control}
+                name="password"
+                render={({ field: { onChange, onBlur, value } }) => (
+                  <TextInput
+                    style={styles.textInputField}
+                    placeholder="Tu contraseña"
+                    placeholderTextColor="#4D6357"
+                    value={value}
+                    onChangeText={onChange}
+                    onFocus={() => setPassFocused(true)}
+                    onBlur={() => {
+                      setPassFocused(false);
+                      onBlur();
+                    }}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                  />
+                )}
+              />
+              <TouchableOpacity
+                onPress={() => setShowPassword(!showPassword)}
+                style={styles.eyeIconButton}
+                accessibilityRole="button"
+                accessibilityLabel={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+              >
+                <Ionicons
+                  name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+                  size={19}
+                  color="#6B8678"
+                />
+              </TouchableOpacity>
+            </View>
+            {errors.password && (
+              <Text style={styles.fieldErrorText}>{errors.password.message}</Text>
+            )}
+          </View>
+
+          {/* Enlace Olvidó su contraseña */}
+          <View style={styles.forgotPasswordContainer}>
             <TouchableOpacity
               onPress={() => navigation?.navigate('ForgotPassword')}
               accessibilityRole="button"
               accessibilityLabel="Recuperar contraseña"
             >
-              <Text style={[styles.forgotPasswordText, { color: theme.primary }]}>
-                ¿Olvidó su contraseña?
-              </Text>
+              <Text style={styles.forgotPasswordLink}>¿Olvidó su contraseña?</Text>
             </TouchableOpacity>
           </View>
 
-          <Button
-            title="Ingresar al sistema"
+          {/* Botón Principal: Ingresar al sistema */}
+          <TouchableOpacity
+            activeOpacity={0.85}
             onPress={() => handleSubmit(onSubmit)()}
-            loading={isSubmitting}
-            size="lg"
-            style={{ marginTop: spacing.md }}
-          />
+            disabled={isSubmitting}
+            style={styles.submitButton}
+            accessibilityRole="button"
+            accessibilityLabel="Ingresar al sistema"
+          >
+            {isSubmitting ? (
+              <ActivityIndicator size="small" color="#0E241A" />
+            ) : (
+              <>
+                <Text style={styles.submitButtonText}>Ingresar al sistema</Text>
+                <MaterialIcons name="arrow-forward" size={18} color="#0E241A" style={{ marginLeft: 6 }} />
+              </>
+            )}
+          </TouchableOpacity>
 
+          {/* Separador 1: Cuentas Externas */}
           <View style={styles.dividerRow}>
-            <View style={[styles.line, { backgroundColor: theme.border }]} />
-            <Text style={[styles.orText, { color: theme.textMuted }]}>Portal de Pacientes</Text>
-            <View style={[styles.line, { backgroundColor: theme.border }]} />
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>O ingrese con una cuenta externa</Text>
+            <View style={styles.dividerLine} />
           </View>
 
-          <Button
-            title="Crear cuenta de Paciente"
-            variant="outline"
-            size="lg"
-            onPress={() => navigation?.navigate('Register')}
-            style={{ marginBottom: spacing.sm }}
-          />
-
+          {/* Botones Sociales con Diseño Oscuro y Logotipos Oficiales */}
           <SocialAuthButtons mode="login" onError={setServerError} />
 
-          {__DEV__ && (
-            <View style={styles.demoBox}>
-              <Text style={[styles.demoTitle, { color: theme.textSecondary }]}>Cuentas demo (desarrollo):</Text>
-              <View style={styles.demoButtonsRow}>
-                <TouchableOpacity
-                  onPress={() => fillDemoCredentials('admin@kinesiologia.com')}
-                  style={[styles.demoChip, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
-                >
-                  <Text style={[styles.demoChipText, { color: theme.primary }]}>Admin</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => fillDemoCredentials('carlos.kine@kinesiologia.com')}
-                  style={[styles.demoChip, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
-                >
-                  <Text style={[styles.demoChipText, { color: theme.primary }]}>Kinesiólogo</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => fillDemoCredentials('mariana.recep@kinesiologia.com')}
-                  style={[styles.demoChip, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
-                >
-                  <Text style={[styles.demoChipText, { color: theme.primary }]}>Recepción</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
+          {/* Separador 2: Portal de Pacientes */}
+          <View style={styles.dividerRow}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.patientPortalDividerText}>PORTAL DE PACIENTES</Text>
+            <View style={styles.dividerLine} />
+          </View>
 
-          <View style={styles.footerNote}>
-            <Text style={[styles.footerText, { color: theme.textMuted }]}>
+          {/* Botón Crear Cuenta de Paciente */}
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => navigation?.navigate('Register')}
+            style={styles.patientPortalButton}
+            accessibilityRole="button"
+            accessibilityLabel="Crear cuenta de Paciente"
+          >
+            <Ionicons name="person-outline" size={18} color="#58B988" style={{ marginRight: 8 }} />
+            <Text style={styles.patientPortalButtonText}>Crear cuenta de Paciente</Text>
+          </TouchableOpacity>
+
+          {/* Acceso Rápido Cuentas Demo */}
+          <View style={styles.demoSection}>
+            <Text style={styles.demoSectionTitle}>CUENTAS DEMO (CLIC RÁPIDO):</Text>
+            <View style={styles.demoPillsRow}>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => fillDemoCredentials('admin@kinesiologia.com')}
+                style={styles.demoPill}
+              >
+                <Text style={styles.demoPillText}>Admin</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => fillDemoCredentials('carlos.kine@kinesiologia.com')}
+                style={styles.demoPill}
+              >
+                <Text style={styles.demoPillText}>Kinesiólogo</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => fillDemoCredentials('mariana.recep@kinesiologia.com')}
+                style={styles.demoPill}
+              >
+                <Text style={styles.demoPillText}>Recepción</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Pie de Pantalla */}
+          <View style={styles.footerContainer}>
+            <Text style={styles.footerNoteText}>
               Acceso seguro con token cifrado y control de sesiones por rol.
             </Text>
-            {__DEV__ && (
-              <Text style={[styles.serverInfoText, { color: theme.textMuted }]}>
-                Servidor API: {API_BASE_URL}
-              </Text>
-            )}
+            <Text style={styles.footerServerText}>
+              Servidor API: {API_BASE_URL}
+            </Text>
           </View>
-        </Card>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -201,7 +319,53 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1
+    flex: 1,
+    backgroundColor: '#0C1813',
+    position: 'relative',
+    overflow: 'hidden'
+  },
+  /* Hojas orgánicas decorativas de fondo */
+  bgLeafTopRight: {
+    position: 'absolute',
+    top: -50,
+    right: -70,
+    width: 240,
+    height: 340,
+    borderTopLeftRadius: 170,
+    borderBottomRightRadius: 170,
+    borderTopRightRadius: 20,
+    borderBottomLeftRadius: 20,
+    backgroundColor: '#12281D',
+    opacity: 0.5,
+    transform: [{ rotate: '-25deg' }]
+  },
+  bgLeafTopRightInner: {
+    position: 'absolute',
+    top: 20,
+    right: -40,
+    width: 180,
+    height: 260,
+    borderTopLeftRadius: 130,
+    borderBottomRightRadius: 130,
+    borderTopRightRadius: 15,
+    borderBottomLeftRadius: 15,
+    backgroundColor: '#163325',
+    opacity: 0.35,
+    transform: [{ rotate: '-10deg' }]
+  },
+  bgLeafTopLeft: {
+    position: 'absolute',
+    top: 30,
+    left: -80,
+    width: 220,
+    height: 300,
+    borderTopRightRadius: 150,
+    borderBottomLeftRadius: 150,
+    borderTopLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    backgroundColor: '#12281D',
+    opacity: 0.4,
+    transform: [{ rotate: '35deg' }]
   },
   scrollContent: {
     flexGrow: 1,
@@ -209,120 +373,240 @@ const styles = StyleSheet.create({
   },
   brandContainer: {
     alignItems: 'center',
-    marginBottom: Platform.OS === 'web' ? spacing.xxl : spacing.lg
+    marginBottom: 16
   },
-  brandMark: {
-    width: 44,
-    height: 44,
-    borderRadius: radii.md,
-    borderWidth: 1,
+  logoCard: {
+    width: 86,
+    height: 86,
+    borderRadius: 22,
+    backgroundColor: '#13281E',
+    borderWidth: 1.5,
+    borderColor: '#224C39',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: spacing.md
+    marginBottom: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8
   },
-  brandMarkText: {
-    fontSize: typography.fontSize.lg,
-    fontWeight: typography.fontWeight.bold,
-    letterSpacing: 0.5
+  logoImage: {
+    width: 72,
+    height: 72
   },
   brandTitle: {
-    fontSize: typography.fontSize.xxl,
-    fontWeight: typography.fontWeight.bold,
-    letterSpacing: -0.5
+    fontSize: 26,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+    textAlign: 'center'
+  },
+  brandTitleAccent: {
+    color: '#56B988'
   },
   brandSubtitle: {
-    fontSize: typography.fontSize.sm,
-    marginTop: spacing.xs,
+    fontSize: 13,
+    color: '#7E978A',
+    marginTop: 4,
     textAlign: 'center'
   },
   card: {
     width: '100%',
-    maxWidth: 420
+    maxWidth: 420,
+    backgroundColor: '#102019',
+    borderWidth: 1,
+    borderColor: '#1B3528',
+    borderRadius: 20,
+    paddingHorizontal: 22,
+    paddingVertical: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 6
   },
   cardTitle: {
-    fontSize: typography.fontSize.lg,
-    fontWeight: typography.fontWeight.bold,
-    marginBottom: 2
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 4
   },
   cardSubtitle: {
-    fontSize: typography.fontSize.sm,
-    marginBottom: spacing.lg
+    fontSize: 13,
+    color: '#7E978A',
+    marginBottom: 20
   },
   errorBanner: {
     padding: spacing.md,
     borderRadius: radii.md,
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
     borderWidth: 1,
-    marginBottom: spacing.lg
+    borderColor: 'rgba(239, 68, 68, 0.4)',
+    marginBottom: 16
   },
   errorBannerText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.medium
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#EF4444'
   },
-  footerNote: {
-    marginTop: spacing.xl,
-    paddingTop: spacing.md,
+  fieldGroup: {
+    marginBottom: 14
+  },
+  fieldLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#D0DED5',
+    marginBottom: 6
+  },
+  requiredAsterisk: {
+    color: '#E05252'
+  },
+  inputBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 48,
+    backgroundColor: '#15261F',
+    borderWidth: 1,
+    borderColor: '#1F382B',
+    borderRadius: 10,
+    paddingHorizontal: 12
+  },
+  inputBoxFocused: {
+    borderColor: '#58B988'
+  },
+  inputBoxError: {
+    borderColor: '#EF4444'
+  },
+  inputLeftIcon: {
+    marginRight: 10
+  },
+  textInputField: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 14,
+    height: 48,
+    paddingVertical: 0
+  },
+  eyeIconButton: {
+    padding: 6,
+    justifyContent: 'center',
     alignItems: 'center'
   },
-  footerText: {
-    fontSize: typography.fontSize.xs,
-    textAlign: 'center',
-    lineHeight: 16
+  fieldErrorText: {
+    fontSize: 11,
+    color: '#EF4444',
+    marginTop: 4,
+    fontWeight: '500'
   },
-  forgotPasswordRow: {
+  forgotPasswordContainer: {
     alignItems: 'flex-end',
-    marginTop: -spacing.xs,
-    marginBottom: spacing.sm
+    marginTop: 2,
+    marginBottom: 18
   },
-  forgotPasswordText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.semibold
+  forgotPasswordLink: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#56B988'
+  },
+  submitButton: {
+    height: 50,
+    backgroundColor: '#72BA97',
+    borderRadius: 10,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  submitButtonText: {
+    color: '#0E241A',
+    fontSize: 15,
+    fontWeight: '700'
   },
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: spacing.lg
+    marginVertical: 18
   },
-  line: {
+  dividerLine: {
     flex: 1,
-    height: 1
+    height: 1,
+    backgroundColor: '#1B3326'
   },
-  orText: {
-    marginHorizontal: spacing.md,
-    fontSize: typography.fontSize.xs,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5
+  dividerText: {
+    marginHorizontal: 10,
+    fontSize: 12,
+    color: '#657D70'
   },
-  demoBox: {
-    marginTop: spacing.md,
-    paddingTop: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: '#00000010'
+  patientPortalDividerText: {
+    marginHorizontal: 10,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.8,
+    color: '#657D70'
   },
-  demoTitle: {
-    fontSize: typography.fontSize.tiny,
-    fontWeight: typography.fontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: spacing.xs
-  },
-  demoButtonsRow: {
+  patientPortalButton: {
+    height: 46,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#2B5742',
+    backgroundColor: 'transparent',
     flexDirection: 'row',
-    gap: spacing.xs,
-    flexWrap: 'wrap'
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20
   },
-  demoChip: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radii.sm,
-    borderWidth: 1
+  patientPortalButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#58B988'
   },
-  demoChipText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.medium
+  demoSection: {
+    marginBottom: 16
   },
-  serverInfoText: {
-    fontSize: typography.fontSize.tiny,
-    marginTop: 4,
-    opacity: 0.7
+  demoSectionTitle: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#657D70',
+    letterSpacing: 0.5,
+    marginBottom: 8
+  },
+  demoPillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8
+  },
+  demoPill: {
+    backgroundColor: '#13251E',
+    borderWidth: 1,
+    borderColor: '#1E3B2E',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 6
+  },
+  demoPillText: {
+    color: '#58B988',
+    fontSize: 12,
+    fontWeight: '500'
+  },
+  footerContainer: {
+    alignItems: 'center',
+    paddingTop: 8
+  },
+  footerNoteText: {
+    fontSize: 11,
+    color: '#587063',
+    textAlign: 'center',
+    lineHeight: 16
+  },
+  footerServerText: {
+    fontSize: 11,
+    color: '#587063',
+    textAlign: 'center',
+    marginTop: 4
   }
 });

@@ -1,9 +1,11 @@
 import { query } from '../../config/database.js';
+import { getClinicDayBounds } from '../../utils/date.js';
 
 export class DashboardRepository {
   async getAppointmentsMetrics(targetDate, kinesiologistId = null) {
-    const conditions = ['DATE(start_time) = ?'];
-    const params = [targetDate];
+    const { start, end } = getClinicDayBounds(targetDate);
+    const conditions = ['start_time >= ? AND start_time <= ?'];
+    const params = [start, end];
 
     if (kinesiologistId) {
       conditions.push('kinesiologist_id = ?');
@@ -49,13 +51,17 @@ export class DashboardRepository {
   }
 
   async getFinancialMetrics(targetDate) {
+    const { start, end } = getClinicDayBounds(targetDate);
     const rows = await query(`
       SELECT COALESCE(SUM(amount), 0) as totalIncome, COUNT(*) as transactionsCount
       FROM payments
-      WHERE DATE(payment_date) = ?
-    `, [targetDate]);
+      WHERE payment_date >= ? AND payment_date <= ?
+    `, [start, end]);
 
-    return rows[0] || { totalIncome: 0, transactionsCount: 0 };
+    return {
+      totalIncome: Number(rows[0]?.totalIncome || 0),
+      transactionsCount: Number(rows[0]?.transactionsCount || 0)
+    };
   }
 }
 

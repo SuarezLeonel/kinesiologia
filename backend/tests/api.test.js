@@ -218,7 +218,7 @@ test('12. Idempotencia de pagos: Recibo duplicado rechaza con 409 Conflict', asy
     { expiresIn: '15m' }
   );
 
-  const uniqueReceipt = `REC-${Date.now()}`;
+  const uniqueReceipt = `REC-TEST-${Date.now()}`;
   const paymentPayload = {
     patientId: 1,
     amount: 15000,
@@ -226,20 +226,26 @@ test('12. Idempotencia de pagos: Recibo duplicado rechaza con 409 Conflict', asy
     receiptNumber: uniqueReceipt
   };
 
-  const res1 = await request(app)
-    .post('/api/v1/payments')
-    .set('Authorization', `Bearer ${adminToken}`)
-    .send(paymentPayload);
+  try {
+    const res1 = await request(app)
+      .post('/api/v1/payments')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send(paymentPayload);
 
-  assert.strictEqual(res1.status, 201);
+    assert.strictEqual(res1.status, 201);
 
-  // Reintento con el mismo recibo
-  const res2 = await request(app)
-    .post('/api/v1/payments')
-    .set('Authorization', `Bearer ${adminToken}`)
-    .send(paymentPayload);
+    // Reintento con el mismo recibo
+    const res2 = await request(app)
+      .post('/api/v1/payments')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send(paymentPayload);
 
-  assert.strictEqual(res2.status, 409);
+    assert.strictEqual(res2.status, 409);
+  } finally {
+    // Limpieza de datos de prueba para mantener la caja del consultorio limpia y verídica
+    const { query } = await import('../src/config/database.js');
+    await query('DELETE FROM payments WHERE receipt_number = ?', [uniqueReceipt]);
+  }
 });
 
 test('13. Dashboard modular: Oculta datos financieros al kinesiólogo', async () => {
@@ -256,4 +262,85 @@ test('13. Dashboard modular: Oculta datos financieros al kinesiólogo', async ()
 
   assert.strictEqual(res.status, 200);
   assert.strictEqual(res.body.data.financial, null, 'El kinesiólogo no debe tener acceso al resumen financiero');
+});
+
+test('14. Caja del Día: Consulta verídica de arqueo diario por POST /payments/caja-summary', async () => {
+  const adminToken = jwt.sign(
+    { type: 'access', userId: 1, role: 'admin', email: 'admin@kinesiologia.com' },
+    config.jwt.accessSecret,
+    { expiresIn: '15m' }
+  );
+
+  const res = await request(app)
+    .post('/api/v1/payments/caja-summary')
+    .set('Authorization', `Bearer ${adminToken}`)
+    .send({});
+
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(res.body.success, true);
+  assert.ok(typeof res.body.data.totalIncome === 'number');
+  assert.ok(typeof res.body.data.transactionsCount === 'number');
+  assert.ok(typeof res.body.data.cashTotal === 'number');
+  assert.ok(typeof res.body.data.electronicTotal === 'number');
+  assert.ok(typeof res.body.data.byMethod === 'object');
+});
+
+test('15. Búsqueda de cobros: Filtro todayOnly limita a transacciones de la jornada actual', async () => {
+  const recepToken = jwt.sign(
+    { type: 'access', userId: 3, role: 'receptionist', email: 'mariana.recep@kinesiologia.com' },
+    config.jwt.accessSecret,
+    { expiresIn: '15m' }
+  );
+
+  const res = await request(app)
+    .post('/api/v1/payments/search')
+    .set('Authorization', `Bearer ${recepToken}`)
+    .send({ todayOnly: true, limit: 10 });
+
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(res.body.success, true);
+  assert.ok(Array.isArray(res.body.data));
+});
+
+test('16. Historias Clínicas: Exportación de PDF formal médico mediante POST /clinical-records/export-pdf', async () => {
+  const adminToken = jwt.sign(
+    { type: 'access', userId: 1, role: 'admin', email: 'admin@kinesiologia.com' },
+    config.jwt.accessSecret,
+    { expiresIn: '15m' }
+  );
+
+  const recepToken = jwt.sign(
+    { type: 'access', userId: 3, role: 'receptionist', email: 'mariana.recep@kinesiologia.com' },
+    config.jwt.accessSecret,
+    { expiresIn: '15m' }
+  );
+
+  // 1. Recepcionista bloqueada con 403 Forbidden
+  const forbiddenRes = await request(app)
+    .post('/api/v1/clinical-records/export-pdf')
+    .set('Authorization', `Bearer ${recepToken}`)
+    .send({ id: 30001 });
+
+  assert.strictEqual(forbiddenRes.status, 403);
+
+  // 2. Admin exporta en formato binario PDF (Content-Type: application/pdf)
+  const binaryRes = await request(app)
+    .post('/api/v1/clinical-records/export-pdf')
+    .set('Authorization', `Bearer ${adminToken}`)
+    .send({ id: 30001 });
+
+  assert.strictEqual(binaryRes.status, 200);
+  assert.ok(binaryRes.headers['content-type'].includes('application/pdf'));
+  assert.ok(binaryRes.headers['content-disposition'].includes('.pdf'));
+
+  // 3. Admin exporta en formato JSON base64
+  const base64Res = await request(app)
+    .post('/api/v1/clinical-records/export-pdf')
+    .set('Authorization', `Bearer ${adminToken}`)
+    .send({ id: 30001, format: 'base64' });
+
+  assert.strictEqual(base64Res.status, 200);
+  assert.strictEqual(base64Res.body.success, true);
+  assert.ok(typeof base64Res.body.data.pdfBase64 === 'string');
+  assert.ok(base64Res.body.data.pdfBase64.length > 500);
 });

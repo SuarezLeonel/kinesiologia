@@ -1,8 +1,9 @@
 import { dashboardRepository } from './repository.js';
+import { getClinicDateString } from '../../utils/date.js';
 
 export class DashboardService {
   async getSummary({ date, currentUser }) {
-    const targetDate = date || new Date().toISOString().slice(0, 10);
+    const targetDate = date || getClinicDateString();
     const isKine = currentUser.role === 'kinesiologist';
     const kineId = isKine ? currentUser.id : null;
 

@@ -38,12 +38,22 @@ export const resetPasswordSchema = z.object({
 
 export const socialLoginSchema = z.object({
   body: z.object({
-    provider: z.enum(['google', 'facebook', 'microsoft', 'apple']),
+    provider: z.enum(['google', 'facebook', 'github', 'microsoft', 'apple']),
     idToken: z.string().min(1).optional(),
     accessToken: z.string().min(1).optional(),
     code: z.string().min(1).optional(),
+    redirectUri: z.string().optional(),
     existingPassword: z.string().min(1).optional(),
-    confirmedEmail: z.string().email().optional()
+    confirmedEmail: z.string().email().optional(),
+    // Datos de perfil para completar registro nuevo (todo excepto correo y contraseña)
+    firstName: z.string().min(2, 'El nombre debe tener al menos 2 caracteres').optional(),
+    lastName: z.string().min(2, 'El apellido debe tener al menos 2 caracteres').optional(),
+    dni: z.string().max(20).optional(),
+    phone: z.string().optional(),
+    birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido (AAAA-MM-DD)').optional(),
+    insuranceProvider: z.string().optional(),
+    insuranceNumber: z.string().optional(),
+    address: z.string().optional()
   }).refine((data) => Boolean(data.idToken || data.accessToken || data.code), {
     message: 'Debe proporcionar un token de autenticación del proveedor (idToken o accessToken)'
   })
@@ -63,6 +73,7 @@ export const patientRegisterSchema = z.object({
     dni: z.string().max(20).optional(),
     birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido (AAAA-MM-DD)').optional(),
     insuranceProvider: z.string().optional(),
+    insuranceNumber: z.string().optional(),
     address: z.string().optional(),
     role: z.string().optional() // Ignored on server, never grants admin
   })

@@ -44,3 +44,22 @@ export const changePasswordSchema = z.object({
     newPassword: z.string().min(8, 'La nueva contraseña debe tener al menos 8 caracteres')
   })
 });
+
+export const logExerciseSchema = z.object({
+  body: z.object({
+    routineExerciseId: z.coerce.number().int().positive('ID de ejercicio en rutina requerido'),
+    completedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido (AAAA-MM-DD)').optional(),
+    setsCompleted: z.coerce.number().int().positive().optional().nullable(),
+    repsCompleted: z.coerce.number().int().positive().optional().nullable(),
+    perceivedPainLevel: z.coerce.number().int().min(0).max(10).optional().nullable(),
+    patientNotes: z.string().max(500, 'Máximo 500 caracteres').optional().nullable()
+  })
+});
+
+export const myExerciseLogsSchema = z.object({
+  body: z.object({
+    routineId: z.coerce.number().int().positive().optional(),
+    fromDate: z.string().optional(),
+    toDate: z.string().optional()
+  })
+});

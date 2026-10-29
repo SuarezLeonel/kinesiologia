@@ -20,6 +20,7 @@ import { useAppTheme } from '../theme/ThemeContext';
 import { spacing, radii, typography } from '../theme/tokens';
 import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper, DateInput, InsuranceSelector } from '../components/ui';
 import { LoadingState, ErrorState, EmptyState } from '../components/FeedbackStates';
+import { PatientRoutinesModal } from '../components/treatments/PatientRoutinesModal';
 
 const patientSchema = z.object({
   dni: z.string().min(7, 'El DNI debe tener al menos 7 dígitos').max(20, 'Máximo 20 caracteres'),
@@ -65,7 +66,7 @@ const SPECIALTY_SUGGESTIONS = [
 
 export const PatientsScreen = () => {
   const { theme } = useAppTheme();
-  const { isAdmin } = useAuth();
+  const { isAdmin, isReceptionist } = useAuth();
   const [patients, setPatients] = useState<any[]>([]);
   const [staffUsers, setStaffUsers] = useState<any[]>([]);
   const [roleFilter, setRoleFilter] = useState<'todos' | PersonRoleType>('todos');
@@ -73,6 +74,15 @@ export const PatientsScreen = () => {
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+
+  // Modal Plan Terapéutico y Rutinas Clínicas
+  const [routinesModalVisible, setRoutinesModalVisible] = useState(false);
+  const [targetPatientForRoutines, setTargetPatientForRoutines] = useState<any | null>(null);
+
+  const handleOpenRoutinesModal = (patientItem: any) => {
+    setTargetPatientForRoutines(patientItem);
+    setRoutinesModalVisible(true);
+  };
 
   // Modal Alta de Persona (Paciente / Kinesiólogo)
   const [modalVisible, setModalVisible] = useState(false);
@@ -674,8 +684,17 @@ export const PatientsScreen = () => {
                 </View>
               </View>
 
-              {/* Botón Acción para Agendar Turno directamente desde la ficha */}
+              {/* Botones de Acción para la Ficha Clínica y Gestión de Turnos */}
               <View style={[styles.cardActionRow, { borderTopColor: theme.borderSubtle }]}>
+                {personType === 'paciente' && !isReceptionist && (
+                  <Button
+                    title="🏋️ Plan y Rutinas"
+                    variant="primary"
+                    size="sm"
+                    onPress={() => handleOpenRoutinesModal(item)}
+                    style={{ marginRight: spacing.sm }}
+                  />
+                )}
                 <Button
                   title="📅 Registrar turno"
                   variant="outline"
@@ -1366,6 +1385,18 @@ export const PatientsScreen = () => {
           containerStyle={{ marginTop: spacing.md }}
         />
       </ModalWrapper>
+
+      {/* ============================================================ */}
+      {/* MODAL: PLAN TERAPÉUTICO Y PRESCRIPCIÓN DE RUTINAS CLÍNICAS   */}
+      {/* ============================================================ */}
+      <PatientRoutinesModal
+        visible={routinesModalVisible}
+        onClose={() => setRoutinesModalVisible(false)}
+        patient={targetPatientForRoutines}
+        onSuccess={() => {
+          fetchPeopleData(searchTerm);
+        }}
+      />
     </View>
   );
 };

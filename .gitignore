@@ -22,3 +22,7 @@ web-build/
 # OS metadata
 .DS_Store
 Thumbs.db
+
+# Generated PDFs and temporary test files
+*.pdf
+backend/scripts/cleanup_test_users.js

@@ -11,6 +11,15 @@ export class PaymentsController {
     }
   }
 
+  async cajaSummary(req, res, next) {
+    try {
+      const summary = await paymentsService.getCajaSummary(req.body?.date);
+      return sendSuccess(res, summary);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async detail(req, res, next) {
     try {
       const payment = await paymentsService.getDetail(req.body.id);

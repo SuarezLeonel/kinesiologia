@@ -57,7 +57,7 @@ export class TreatmentsController {
     }
   }
 
-  // --- Ejercicios ---
+  // --- Ejercicios (Directo) ---
   async addExercise(req, res, next) {
     try {
       const exercise = await treatmentsService.addExercise(req.body, req.user);
@@ -90,6 +90,66 @@ export class TreatmentsController {
     try {
       const measurements = await treatmentsService.getMeasurements(req.body, req.user);
       return sendSuccess(res, measurements);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // ========================================================
+  // --- RUTINAS TERAPÉUTICAS ---
+  // ========================================================
+
+  async searchRoutines(req, res, next) {
+    try {
+      const routines = await treatmentsService.searchRoutines(req.body, req.user);
+      return sendSuccess(res, routines);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async routineDetail(req, res, next) {
+    try {
+      const routineId = req.body?.id || req.params?.id;
+      const routine = await treatmentsService.getRoutineDetail(routineId, req.user);
+      return sendSuccess(res, routine);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createRoutine(req, res, next) {
+    try {
+      const created = await treatmentsService.createRoutine(req.body, req.user);
+      return sendSuccess(res, created, 'Rutina terapéutica prescrita con éxito', 201);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateRoutine(req, res, next) {
+    try {
+      const updated = await treatmentsService.updateRoutine(req.body, req.user);
+      return sendSuccess(res, updated, 'Rutina terapéutica actualizada con registro histórico');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateRoutineStatus(req, res, next) {
+    try {
+      const updated = await treatmentsService.updateRoutineStatus(req.body.id, req.body.status, req.user);
+      return sendSuccess(res, updated, 'Estado de rutina actualizado');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // --- Seguimiento y Evolución Clínica Integral del Paciente ---
+  async patientTracking(req, res, next) {
+    try {
+      const tracking = await treatmentsService.getPatientTracking(req.body.patientId, req.body.treatmentId, req.user);
+      return sendSuccess(res, tracking);
     } catch (error) {
       next(error);
     }

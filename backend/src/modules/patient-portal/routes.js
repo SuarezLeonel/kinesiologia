@@ -9,7 +9,9 @@ import {
   cancelAppointmentSchema,
   requestRescheduleSchema,
   updateProfileSchema,
-  changePasswordSchema
+  changePasswordSchema,
+  logExerciseSchema,
+  myExerciseLogsSchema
 } from './schema.js';
 
 export const patientPortalRouter = Router();
@@ -35,3 +37,8 @@ patientPortalRouter.post('/my-profile', asyncHandler((req, res, next) => patient
 patientPortalRouter.post('/update-profile', validate(updateProfileSchema), asyncHandler((req, res, next) => patientPortalController.updateProfile(req, res, next)));
 patientPortalRouter.post('/change-password', validate(changePasswordSchema), asyncHandler((req, res, next) => patientPortalController.changePassword(req, res, next)));
 patientPortalRouter.post('/my-notifications', asyncHandler((req, res, next) => patientPortalController.myNotifications(req, res, next)));
+
+// Ejercicios y rutinas terapéuticas del paciente
+patientPortalRouter.post('/my-routines', asyncHandler((req, res, next) => patientPortalController.myRoutines(req, res, next)));
+patientPortalRouter.post('/log-exercise', validate(logExerciseSchema), asyncHandler((req, res, next) => patientPortalController.logExercise(req, res, next)));
+patientPortalRouter.post('/my-exercise-logs', validate(myExerciseLogsSchema), asyncHandler((req, res, next) => patientPortalController.myExerciseLogs(req, res, next)));

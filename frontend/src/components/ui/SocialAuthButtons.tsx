@@ -1,13 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  Platform
+  Platform,
+  ScrollView
 } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
 import { useAuth, SocialProvider, OAuthConfig } from '../../context/AuthContext';
@@ -16,13 +17,31 @@ import { spacing, radii, typography } from '../../theme/tokens';
 import { ModalWrapper } from './ModalWrapper';
 import { Input } from './Input';
 import { Button } from './Button';
+import { DateInput } from './DateInput';
+import { InsuranceSelector } from './InsuranceSelector';
 
-// Inicializar el manejador de retorno para WebBrowser en plataformas que lo requieran
-WebBrowser.maybeCompleteAuthSession();
+// Inicializar el manejador de retorno para WebBrowser en popup sin interferir con la ventana principal
+if (Platform.OS === 'web' && typeof window !== 'undefined') {
+  if (window.opener) {
+    WebBrowser.maybeCompleteAuthSession();
+  }
+} else {
+  WebBrowser.maybeCompleteAuthSession();
+}
 
 interface SocialAuthButtonsProps {
   mode?: 'login' | 'register';
   onError?: (message: string | null) => void;
+  initialProfileData?: {
+    firstName?: string;
+    lastName?: string;
+    dni?: string;
+    phone?: string;
+    birthDate?: string;
+    insuranceProvider?: string;
+    customInsuranceProvider?: string;
+    insuranceNumber?: string;
+  };
 }
 
 interface ProviderMeta {
@@ -41,10 +60,17 @@ const PROVIDERS_META: Record<SocialProvider, ProviderMeta> = {
     envVar: 'GOOGLE_CLIENT_ID',
     docUrl: 'docs/OAUTH_SETUP.md'
   },
+  github: {
+    id: 'github',
+    name: 'GitHub',
+    brandColor: '#24292e',
+    envVar: 'GITHUB_CLIENT_ID',
+    docUrl: 'docs/OAUTH_SETUP.md'
+  },
   microsoft: {
     id: 'microsoft',
     name: 'Microsoft',
-    brandColor: '#0078D4',
+    brandColor: '#00A4EF',
     envVar: 'MICROSOFT_CLIENT_ID',
     docUrl: 'docs/OAUTH_SETUP.md'
   },
@@ -57,15 +83,43 @@ const PROVIDERS_META: Record<SocialProvider, ProviderMeta> = {
   }
 };
 
+// Registro global de códigos OAuth ya procesados para evitar reenvíos simultáneos en React StrictMode o entre ventanas
+const processedAuthCodes = new Set<string>();
+
+const isAuthCodeAlreadyProcessed = (code: string): boolean => {
+  if (!code) return false;
+  if (processedAuthCodes.has(code)) return true;
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      if (window.sessionStorage.getItem(`oauth_processed_code_${code}`)) {
+        return true;
+      }
+    } catch {}
+  }
+  return false;
+};
+
+const markAuthCodeAsProcessed = (code: string) => {
+  if (!code) return;
+  processedAuthCodes.add(code);
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      window.sessionStorage.setItem(`oauth_processed_code_${code}`, '1');
+    } catch {}
+  }
+};
+
 export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
   mode = 'login',
-  onError
+  onError,
+  initialProfileData
 }) => {
   const { socialLogin, getOAuthConfig } = useAuth();
   const { theme } = useAppTheme();
 
   const [loadingProvider, setLoadingProvider] = useState<SocialProvider | null>(null);
   const [oauthConfig, setOAuthConfig] = useState<OAuthConfig | null>(null);
+  const isSubmittingRef = useRef<boolean>(false);
 
   // Modal para configuración faltante
   const [unconfiguredProvider, setUnconfiguredProvider] = useState<SocialProvider | null>(null);
@@ -75,7 +129,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
     visible: boolean;
     provider: SocialProvider;
     email: string;
-    tokens: { idToken?: string; accessToken?: string; code?: string };
+    tokens: { idToken?: string; accessToken?: string; code?: string; redirectUri?: string };
     password: string;
     error: string | null;
   } | null>(null);
@@ -84,15 +138,34 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
   const [missingEmailState, setMissingEmailState] = useState<{
     visible: boolean;
     provider: SocialProvider;
-    tokens: { idToken?: string; accessToken?: string; code?: string };
+    tokens: { idToken?: string; accessToken?: string; code?: string; redirectUri?: string };
     email: string;
     error: string | null;
   } | null>(null);
 
-  // Obtener redirectUri oficial de expo-auth-session
-  const redirectUri = AuthSession.makeRedirectUri({
-    scheme: 'kinesiologia'
-  });
+  // Modal para completar perfil obligatorio en cuenta nueva (nombre, apellido, DNI, teléfono, fecha nac, obra social)
+  const [profileCompletionState, setProfileCompletionState] = useState<{
+    visible: boolean;
+    provider: SocialProvider;
+    email: string;
+    tokens: { idToken?: string; accessToken?: string; code?: string; redirectUri?: string };
+    firstName: string;
+    lastName: string;
+    dni: string;
+    phone: string;
+    birthDate: string;
+    insuranceProvider: string;
+    customInsuranceProvider: string;
+    insuranceNumber: string;
+    error: string | null;
+  } | null>(null);
+
+  // Obtener redirectUri oficial (en web se usa el origen exacto; en móvil el esquema de deep linking)
+  const redirectUri = Platform.OS === 'web' && typeof window !== 'undefined'
+    ? window.location.origin
+    : AuthSession.makeRedirectUri({
+        scheme: 'kinesiologia'
+      });
 
   useEffect(() => {
     let isMounted = true;
@@ -106,6 +179,28 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
         // En caso de error de red, se mantiene el fallback local
       }
     })();
+
+    // Manejo de retorno por redirección completa en entorno web (cuando no es popup)
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && !window.opener) {
+      const searchParams = new URLSearchParams(window.location.search);
+      const code = searchParams.get('code');
+      if (code) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+        if (!isAuthCodeAlreadyProcessed(code) && !isSubmittingRef.current) {
+          markAuthCodeAsProcessed(code);
+          isSubmittingRef.current = true;
+          setLoadingProvider('github');
+          processSocialAuthResponse('github', {
+            code,
+            redirectUri: window.location.origin
+          }).finally(() => {
+            isSubmittingRef.current = false;
+            setLoadingProvider(null);
+          });
+        }
+      }
+    }
+
     return () => {
       isMounted = false;
     };
@@ -117,13 +212,17 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
    * Inicia el flujo real OAuth 2.0 / OpenID Connect con el proveedor seleccionado.
    */
   const handlePressProvider = async (provider: SocialProvider) => {
+    if (isSubmittingRef.current || loadingProvider) {
+      return;
+    }
+
     onError?.(null);
     const meta = PROVIDERS_META[provider];
 
     // Verificar si el proveedor tiene credenciales configuradas
     const isConfigured = Boolean(
       (provider === 'google' && (oauthConfig?.google?.configured || process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID)) ||
-      (provider === 'microsoft' && (oauthConfig?.microsoft?.configured || process.env.EXPO_PUBLIC_MICROSOFT_CLIENT_ID)) ||
+      (provider === 'github' && (oauthConfig?.github?.configured || process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID)) ||
       (provider === 'facebook' && (oauthConfig?.facebook?.configured || process.env.EXPO_PUBLIC_FACEBOOK_APP_ID))
     );
 
@@ -132,6 +231,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
       return;
     }
 
+    isSubmittingRef.current = true;
     setLoadingProvider(provider);
 
     try {
@@ -169,39 +269,48 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
         if (result.type === 'success' && result.params) {
           const idToken = result.params.id_token;
           const accessToken = result.params.access_token;
-          await processSocialAuthResponse(provider, { idToken, accessToken });
+          await processSocialAuthResponse(provider, {
+            idToken,
+            accessToken,
+            redirectUri: authRequest.redirectUri || redirectUri
+          });
         }
-      } else if (provider === 'microsoft') {
-        const clientId = oauthConfig?.microsoft?.clientId || process.env.EXPO_PUBLIC_MICROSOFT_CLIENT_ID || '';
-        const tenant = oauthConfig?.microsoft?.tenantId || 'common';
+      } else if (provider === 'github') {
+        const clientId = oauthConfig?.github?.clientId || process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID || '';
         const discovery = {
-          authorizationEndpoint: `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/authorize`,
-          tokenEndpoint: `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`
+          authorizationEndpoint: 'https://github.com/login/oauth/authorize',
+          tokenEndpoint: 'https://github.com/login/oauth/access_token'
         };
 
         const authRequest = new AuthSession.AuthRequest({
           clientId,
           redirectUri,
-          scopes: ['openid', 'profile', 'email', 'User.Read'],
-          responseType: AuthSession.ResponseType.Token
+          scopes: ['read:user', 'user:email'],
+          responseType: AuthSession.ResponseType.Code,
+          usePKCE: false
         });
 
         const result = await authRequest.promptAsync(discovery);
 
         if (result.type === 'cancel' || result.type === 'dismiss') {
-          onError?.('Inicio de sesión con Microsoft cancelado.');
+          onError?.('Inicio de sesión con GitHub cancelado.');
           return;
         }
 
         if (result.type === 'error') {
-          onError?.(result.error?.message || 'Error en la autorización con Microsoft.');
+          onError?.(result.error?.message || 'Error en la autorización con GitHub.');
           return;
         }
 
         if (result.type === 'success' && result.params) {
-          const accessToken = result.params.access_token;
-          const idToken = result.params.id_token;
-          await processSocialAuthResponse(provider, { accessToken, idToken });
+          const code = result.params.code;
+          if (code && !isAuthCodeAlreadyProcessed(code)) {
+            markAuthCodeAsProcessed(code);
+            await processSocialAuthResponse(provider, {
+              code,
+              redirectUri: authRequest.redirectUri || redirectUri
+            });
+          }
         }
       } else if (provider === 'facebook') {
         const appId = oauthConfig?.facebook?.appId || process.env.EXPO_PUBLIC_FACEBOOK_APP_ID || '';
@@ -231,12 +340,16 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
 
         if (result.type === 'success' && result.params) {
           const accessToken = result.params.access_token;
-          await processSocialAuthResponse(provider, { accessToken });
+          await processSocialAuthResponse(provider, {
+            accessToken,
+            redirectUri: authRequest.redirectUri || redirectUri
+          });
         }
       }
     } catch (err: any) {
       onError?.(err?.message || `Error al autenticar con ${meta.name}`);
     } finally {
+      isSubmittingRef.current = false;
       setLoadingProvider(null);
     }
   };
@@ -246,7 +359,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
    */
   const processSocialAuthResponse = async (
     provider: SocialProvider,
-    tokens: { idToken?: string; accessToken?: string; code?: string },
+    tokens: { idToken?: string; accessToken?: string; code?: string; redirectUri?: string },
     options: { existingPassword?: string; confirmedEmail?: string } = {}
   ) => {
     const res = await socialLogin({
@@ -263,6 +376,25 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
         email: res.email,
         tokens,
         password: '',
+        error: null
+      });
+      return;
+    }
+
+    if (res.requiresProfileCompletion && res.email) {
+      setProfileCompletionState({
+        visible: true,
+        provider,
+        email: res.email,
+        tokens,
+        firstName: initialProfileData?.firstName || res.firstName || '',
+        lastName: initialProfileData?.lastName || res.lastName || '',
+        dni: initialProfileData?.dni || '',
+        phone: initialProfileData?.phone || '',
+        birthDate: initialProfileData?.birthDate || '1995-01-01',
+        insuranceProvider: initialProfileData?.insuranceProvider || 'Particular',
+        customInsuranceProvider: initialProfileData?.customInsuranceProvider || '',
+        insuranceNumber: initialProfileData?.insuranceNumber || '',
         error: null
       });
       return;
@@ -315,6 +447,82 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
   };
 
   /**
+   * Confirma y guarda los datos de perfil para una cuenta nueva creada con Google/GitHub/Facebook.
+   */
+  const handleConfirmProfileCompletion = async () => {
+    if (!profileCompletionState) return;
+
+    const trimmedFirstName = profileCompletionState.firstName.trim();
+    const trimmedLastName = profileCompletionState.lastName.trim();
+
+    if (trimmedFirstName.length < 2) {
+      setProfileCompletionState({
+        ...profileCompletionState,
+        error: 'El nombre debe tener al menos 2 caracteres'
+      });
+      return;
+    }
+
+    if (trimmedLastName.length < 2) {
+      setProfileCompletionState({
+        ...profileCompletionState,
+        error: 'El apellido debe tener al menos 2 caracteres'
+      });
+      return;
+    }
+
+    const selectedIns = profileCompletionState.insuranceProvider || 'Particular';
+    if (selectedIns === 'Otra' && (!profileCompletionState.customInsuranceProvider || !profileCompletionState.customInsuranceProvider.trim())) {
+      setProfileCompletionState({
+        ...profileCompletionState,
+        error: 'Por favor especifique su obra social'
+      });
+      return;
+    }
+
+    const finalProvider = selectedIns === 'Otra'
+      ? profileCompletionState.customInsuranceProvider.trim()
+      : selectedIns;
+
+    const trimmedInsuranceNumber = profileCompletionState.insuranceNumber?.trim();
+    const finalInsurance = finalProvider === 'Particular'
+      ? 'Particular'
+      : [finalProvider, trimmedInsuranceNumber].filter(Boolean).join(' - ');
+
+    setLoadingProvider(profileCompletionState.provider);
+    try {
+      const res = await socialLogin({
+        provider: profileCompletionState.provider,
+        ...profileCompletionState.tokens,
+        confirmedEmail: profileCompletionState.email,
+        firstName: trimmedFirstName,
+        lastName: trimmedLastName,
+        dni: profileCompletionState.dni.trim() || undefined,
+        phone: profileCompletionState.phone.trim() || undefined,
+        birthDate: profileCompletionState.birthDate.trim() || undefined,
+        insuranceProvider: finalInsurance,
+        insuranceNumber: trimmedInsuranceNumber || undefined
+      });
+
+      if (res.success) {
+        setProfileCompletionState(null);
+      } else {
+        setProfileCompletionState({
+          ...profileCompletionState,
+          error: res.error || 'Error al completar el registro'
+        });
+      }
+    } catch {
+      setProfileCompletionState({
+        ...profileCompletionState,
+        error: 'Error al enviar datos de registro'
+      });
+    } finally {
+      setLoadingProvider(null);
+    }
+  };
+
+  /**
    * Completa el correo en caso de que Facebook no lo haya entregado.
    */
   const handleConfirmMissingEmail = async () => {
@@ -335,6 +543,23 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
 
       if (res.success) {
         setMissingEmailState(null);
+      } else if (res.requiresProfileCompletion && res.email) {
+        setMissingEmailState(null);
+        setProfileCompletionState({
+          visible: true,
+          provider: missingEmailState.provider,
+          email: res.email,
+          tokens: missingEmailState.tokens,
+          firstName: initialProfileData?.firstName || res.firstName || '',
+          lastName: initialProfileData?.lastName || res.lastName || '',
+          dni: initialProfileData?.dni || '',
+          phone: initialProfileData?.phone || '',
+          birthDate: initialProfileData?.birthDate || '1995-01-01',
+          insuranceProvider: initialProfileData?.insuranceProvider || 'Particular',
+          customInsuranceProvider: initialProfileData?.customInsuranceProvider || '',
+          insuranceNumber: initialProfileData?.insuranceNumber || '',
+          error: null
+        });
       } else if (res.requiresLinkingConfirmation && res.email) {
         setMissingEmailState(null);
         setLinkingState({
@@ -358,62 +583,65 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
   const renderProviderIcon = (provider: SocialProvider) => {
     if (provider === 'google') {
       return (
-        <View style={[styles.logoBadge, { backgroundColor: '#FFFFFF', borderColor: '#DADCE0', borderWidth: 1 }]}>
-          <Text style={styles.googleIconText}>G</Text>
+        <View style={styles.googleIconBadge}>
+          <Ionicons name="logo-google" size={14} color="#EA4335" />
         </View>
       );
     }
     if (provider === 'microsoft') {
       return (
-        <View style={[styles.logoBadge, { backgroundColor: '#FFFFFF', borderColor: '#DADCE0', borderWidth: 1 }]}>
-          <View style={styles.msGrid}>
-            <View style={[styles.msTile, { backgroundColor: '#F25022' }]} />
-            <View style={[styles.msTile, { backgroundColor: '#7FBA00' }]} />
-            <View style={[styles.msTile, { backgroundColor: '#00A4EF' }]} />
-            <View style={[styles.msTile, { backgroundColor: '#FFB900' }]} />
-          </View>
+        <View style={styles.msGrid}>
+          <View style={[styles.msTile, { backgroundColor: '#F25022' }]} />
+          <View style={[styles.msTile, { backgroundColor: '#7FBA00' }]} />
+          <View style={[styles.msTile, { backgroundColor: '#00A4EF' }]} />
+          <View style={[styles.msTile, { backgroundColor: '#FFB900' }]} />
+        </View>
+      );
+    }
+    if (provider === 'github') {
+      return (
+        <View style={styles.githubIconBadge}>
+          <Ionicons name="logo-github" size={20} color="#FFFFFF" />
         </View>
       );
     }
     return (
-      <View style={[styles.logoBadge, { backgroundColor: '#1877F2' }]}>
+      <View style={styles.facebookIconBadge}>
         <Text style={styles.facebookIconText}>f</Text>
       </View>
     );
   };
 
   const unconfiguredMeta = unconfiguredProvider ? PROVIDERS_META[unconfiguredProvider] : null;
+  const activeProviders: SocialProvider[] = process.env.EXPO_PUBLIC_MICROSOFT_CLIENT_ID
+    ? ['google', 'microsoft', 'facebook']
+    : ['google', 'github', 'facebook'];
 
   return (
     <View style={styles.container}>
-      {(['google', 'microsoft', 'facebook'] as SocialProvider[]).map((prov) => {
+      {activeProviders.map((prov) => {
         const meta = PROVIDERS_META[prov];
         const isBusy = loadingProvider === prov;
 
         return (
           <TouchableOpacity
             key={prov}
-            activeOpacity={0.8}
+            activeOpacity={0.85}
             disabled={Boolean(loadingProvider)}
             onPress={() => handlePressProvider(prov)}
             accessibilityRole="button"
             accessibilityLabel={`${actionPrefix} ${meta.name}`}
-            style={[
-              styles.socialButton,
-              {
-                backgroundColor: theme.surface,
-                borderColor: theme.border
-              }
-            ]}
+            style={styles.socialButton}
           >
-            {renderProviderIcon(prov)}
-            <Text style={[styles.socialButtonText, { color: theme.text }]}>
-              {actionPrefix} {meta.name}
-            </Text>
+            <View style={styles.socialIconLeftSlot}>
+              {renderProviderIcon(prov)}
+            </View>
             {isBusy ? (
-              <ActivityIndicator size="small" color={meta.brandColor} />
+              <ActivityIndicator size="small" color="#58B988" />
             ) : (
-              <MaterialIcons name="arrow-forward" size={16} color={theme.textMuted} />
+              <Text style={styles.socialButtonText}>
+                {actionPrefix} {meta.name}
+              </Text>
             )}
           </TouchableOpacity>
         );
@@ -588,56 +816,192 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
           </View>
         )}
       </ModalWrapper>
+
+      {/* MODAL 4: COMPLETAR DATOS DE PERFIL PARA REGISTRO NUEVO CON GOOGLE / GITHUB / FACEBOOK */}
+      <ModalWrapper
+        visible={Boolean(profileCompletionState?.visible)}
+        onClose={() => setProfileCompletionState(null)}
+        title="Completar datos de paciente"
+        subtitle={`Registro con ${profileCompletionState ? PROVIDERS_META[profileCompletionState.provider].name : 'cuenta social'}`}
+      >
+        {profileCompletionState && (
+          <ScrollView
+            style={{ maxHeight: 480 }}
+            contentContainerStyle={{ paddingBottom: spacing.md }}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={[styles.noticeBanner, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
+              <MaterialIcons name="person-outline" size={24} color={theme.primary} />
+              <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                <Text style={[styles.noticeTitle, { color: theme.text }]}>
+                  Correo verificado por {PROVIDERS_META[profileCompletionState.provider].name}
+                </Text>
+                <Text style={[styles.noticeBody, { color: theme.primary, fontWeight: 'bold' }]}>
+                  {profileCompletionState.email}
+                </Text>
+                <Text style={[styles.noticeBody, { color: theme.textSecondary, marginTop: 2, fontSize: 12 }]}>
+                  Escribe tu nombre, apellido y datos clínicos para tu ficha de paciente. No requieres ingresar una contraseña.
+                </Text>
+              </View>
+            </View>
+
+            {profileCompletionState.error && (
+              <View style={[styles.errorBanner, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
+                <Text style={[styles.errorText, { color: theme.error }]}>{profileCompletionState.error}</Text>
+              </View>
+            )}
+
+            <Input
+              label="Nombre"
+              placeholder="Ej: Lucía"
+              value={profileCompletionState.firstName}
+              onChangeText={(txt) => setProfileCompletionState({ ...profileCompletionState, firstName: txt, error: null })}
+              required
+            />
+
+            <Input
+              label="Apellido"
+              placeholder="Ej: Gómez"
+              value={profileCompletionState.lastName}
+              onChangeText={(txt) => setProfileCompletionState({ ...profileCompletionState, lastName: txt, error: null })}
+              required
+            />
+
+            <Input
+              label="DNI / Documento"
+              placeholder="Ej: 38123456"
+              value={profileCompletionState.dni}
+              onChangeText={(txt) => setProfileCompletionState({ ...profileCompletionState, dni: txt, error: null })}
+              keyboardType="numeric"
+            />
+
+            <Input
+              label="Teléfono de contacto"
+              placeholder="Ej: 11 2345-6789"
+              value={profileCompletionState.phone}
+              onChangeText={(txt) => setProfileCompletionState({ ...profileCompletionState, phone: txt, error: null })}
+              keyboardType="phone-pad"
+            />
+
+            <View style={{ marginBottom: spacing.sm }}>
+              <DateInput
+                label="Fecha de nacimiento"
+                value={profileCompletionState.birthDate}
+                onChangeDate={(date) => setProfileCompletionState({ ...profileCompletionState, birthDate: date, error: null })}
+              />
+            </View>
+
+            <View style={{ marginBottom: profileCompletionState.insuranceProvider !== 'Particular' ? spacing.xs : spacing.md }}>
+              <InsuranceSelector
+                label="Obra social / Cobertura"
+                value={profileCompletionState.insuranceProvider}
+                onChange={(val) => setProfileCompletionState({ ...profileCompletionState, insuranceProvider: val, error: null })}
+                customValue={profileCompletionState.customInsuranceProvider}
+                onChangeCustom={(txt) => setProfileCompletionState({ ...profileCompletionState, customInsuranceProvider: txt, error: null })}
+              />
+            </View>
+
+            {profileCompletionState.insuranceProvider && profileCompletionState.insuranceProvider !== 'Particular' && (
+              <Input
+                label="N° de afiliado / Credencial (opcional)"
+                placeholder="Ej: 1234567801"
+                value={profileCompletionState.insuranceNumber}
+                onChangeText={(txt) => setProfileCompletionState({ ...profileCompletionState, insuranceNumber: txt, error: null })}
+                keyboardType="numeric"
+                containerStyle={{ marginBottom: spacing.md }}
+              />
+            )}
+
+            <View style={styles.modalButtonsRow}>
+              <Button
+                title="Cancelar"
+                variant="outline"
+                onPress={() => setProfileCompletionState(null)}
+                style={{ flex: 1 }}
+              />
+              <Button
+                title="Crear cuenta"
+                onPress={handleConfirmProfileCompletion}
+                loading={Boolean(loadingProvider)}
+                style={{ flex: 1.5 }}
+              />
+            </View>
+          </ScrollView>
+        )}
+      </ModalWrapper>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    gap: spacing.xs,
-    width: '100%'
+    width: '100%',
+    marginBottom: 4
   },
   socialButton: {
+    height: 48,
+    backgroundColor: '#15261F',
+    borderColor: '#203A2D',
+    borderWidth: 1,
+    borderRadius: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    gap: spacing.sm
+    justifyContent: 'center',
+    position: 'relative',
+    marginBottom: 10
   },
-  logoBadge: {
-    width: 26,
-    height: 26,
-    borderRadius: 6,
+  socialIconLeftSlot: {
+    position: 'absolute',
+    left: 18,
+    width: 24,
+    height: 24,
     alignItems: 'center',
     justifyContent: 'center'
   },
-  googleIconText: {
-    fontSize: 15,
-    fontWeight: typography.fontWeight.bold,
-    color: '#EA4335'
+  googleIconBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  facebookIconBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#1877F2',
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   facebookIconText: {
-    fontSize: 16,
-    fontWeight: typography.fontWeight.bold,
-    color: '#FFFFFF'
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginTop: -2
+  },
+  githubIconBadge: {
+    width: 22,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   msGrid: {
-    width: 14,
-    height: 14,
+    width: 16,
+    height: 16,
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 2
   },
   msTile: {
-    width: 6,
-    height: 6
+    width: 7,
+    height: 7
   },
   socialButtonText: {
-    flex: 1,
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.semibold
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    textAlign: 'center'
   },
   noticeBanner: {
     flexDirection: 'row',

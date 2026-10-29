@@ -109,6 +109,34 @@ export class PatientPortalController {
       next(error);
     }
   }
+
+  // --- Ejercicios y Rutinas Terapéuticas del Paciente ---
+  async myRoutines(req, res, next) {
+    try {
+      const routines = await patientPortalService.myRoutines(req.user.id);
+      return sendSuccess(res, routines);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async logExercise(req, res, next) {
+    try {
+      const result = await patientPortalService.logExercise(req.user.id, req.body);
+      return sendSuccess(res, result, 'Cumplimiento de ejercicio registrado', 201);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async myExerciseLogs(req, res, next) {
+    try {
+      const logs = await patientPortalService.myExerciseLogs(req.user.id, req.body);
+      return sendSuccess(res, logs);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const patientPortalController = new PatientPortalController();

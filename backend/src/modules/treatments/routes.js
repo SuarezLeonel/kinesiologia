@@ -13,7 +13,13 @@ import {
   treatmentExerciseAddSchema,
   treatmentExerciseRemoveSchema,
   measurementCreateSchema,
-  measurementSearchSchema
+  measurementSearchSchema,
+  routineSearchSchema,
+  routineDetailSchema,
+  routineCreateSchema,
+  routineUpdateSchema,
+  routineStatusUpdateSchema,
+  patientTrackingSchema
 } from './schema.js';
 
 export const treatmentsRouter = Router();
@@ -33,10 +39,20 @@ treatmentsRouter.patch('/:id', validate(treatmentUpdateSchema), asyncHandler((re
 treatmentsRouter.post('/sessions/search', validate(treatmentSessionSearchSchema), asyncHandler((req, res, next) => treatmentsController.getSessions(req, res, next)));
 treatmentsRouter.post('/sessions', validate(treatmentSessionCreateSchema), asyncHandler((req, res, next) => treatmentsController.addSession(req, res, next)));
 
-// --- Ejercicios Asignados al Tratamiento ---
+// --- Ejercicios Asignados al Tratamiento (Directo) ---
 treatmentsRouter.post('/exercises/add', validate(treatmentExerciseAddSchema), asyncHandler((req, res, next) => treatmentsController.addExercise(req, res, next)));
 treatmentsRouter.post('/exercises/remove', validate(treatmentExerciseRemoveSchema), asyncHandler((req, res, next) => treatmentsController.removeExercise(req, res, next)));
+
+// --- Rutinas Terapéuticas y Prescripción Clínica de Ejercicios ---
+treatmentsRouter.post('/routines/search', validate(routineSearchSchema), asyncHandler((req, res, next) => treatmentsController.searchRoutines(req, res, next)));
+treatmentsRouter.post('/routines/detail', validate(routineDetailSchema), asyncHandler((req, res, next) => treatmentsController.routineDetail(req, res, next)));
+treatmentsRouter.post('/routines', validate(routineCreateSchema), asyncHandler((req, res, next) => treatmentsController.createRoutine(req, res, next)));
+treatmentsRouter.post('/routines/update', validate(routineUpdateSchema), asyncHandler((req, res, next) => treatmentsController.updateRoutine(req, res, next)));
+treatmentsRouter.post('/routines/status', validate(routineStatusUpdateSchema), asyncHandler((req, res, next) => treatmentsController.updateRoutineStatus(req, res, next)));
 
 // --- Mediciones de Evolución ---
 treatmentsRouter.post('/measurements/search', validate(measurementSearchSchema), asyncHandler((req, res, next) => treatmentsController.getMeasurements(req, res, next)));
 treatmentsRouter.post('/measurements', validate(measurementCreateSchema), asyncHandler((req, res, next) => treatmentsController.addMeasurement(req, res, next)));
+
+// --- Seguimiento y Evolución Clínica Integral del Paciente ---
+treatmentsRouter.post('/patient-tracking', validate(patientTrackingSchema), asyncHandler((req, res, next) => treatmentsController.patientTracking(req, res, next)));

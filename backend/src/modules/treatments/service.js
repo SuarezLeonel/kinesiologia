@@ -1,6 +1,7 @@
 import { treatmentsRepository } from './repository.js';
 import { patientsRepository } from '../patients/repository.js';
-import { NotFoundError, ForbiddenError } from '../../utils/errors.js';
+import { exercisesRepository } from '../exercises/repository.js';
+import { NotFoundError, ForbiddenError, ValidationError } from '../../utils/errors.js';
 import { logAudit } from '../../utils/auditLogger.js';
 
 export class TreatmentsService {
@@ -21,20 +22,26 @@ export class TreatmentsService {
       throw new NotFoundError('Tratamiento no encontrado');
     }
 
-    // Cargar sesiones y ejercicios asignados
-    const [sessions, exercises] = await Promise.all([
+    // Cargar sesiones, ejercicios y rutinas asignadas
+    const [sessions, exercises, routines] = await Promise.all([
       treatmentsRepository.findSessionsByTreatment(id),
-      treatmentsRepository.findExercisesByTreatment(id)
+      treatmentsRepository.findExercisesByTreatment(id),
+      treatmentsRepository.findRoutines({ treatmentId: id, includeHistory: true })
     ]);
 
     return {
       ...treatment,
       sessions,
-      exercises
+      exercises,
+      routines
     };
   }
 
   async create(data, currentUser) {
+    if (currentUser.role === 'receptionist') {
+      throw new ForbiddenError('El rol de recepcionista no tiene acceso a crear tratamientos');
+    }
+
     const patient = await patientsRepository.findById(data.patientId);
     if (!patient) {
       throw new NotFoundError('Paciente no encontrado');
@@ -90,7 +97,11 @@ export class TreatmentsService {
       action: 'TREATMENT_SESSION_RECORDED',
       entityType: 'treatment_session',
       entityId: sessionId,
-      details: { treatmentId: data.treatmentId, sessionNumber: data.sessionNumber }
+      details: {
+        treatmentId: data.treatmentId,
+        sessionNumber: data.sessionNumber,
+        exercisesCount: data.exercises?.length || 0
+      }
     });
 
     return { id: sessionId, ...data };
@@ -101,7 +112,15 @@ export class TreatmentsService {
     return await treatmentsRepository.findSessionsByTreatment(treatmentId);
   }
 
-  // --- Ejercicios ---
+  async getPatientTracking(patientId, treatmentId, currentUser) {
+    const tracking = await treatmentsRepository.getPatientExerciseEvolutionTracking(patientId, treatmentId);
+    if (!tracking) {
+      throw new NotFoundError('Paciente no encontrado');
+    }
+    return tracking;
+  }
+
+  // --- Ejercicios (Asignación directa legada) ---
   async addExercise(data, currentUser) {
     await this.getDetail(data.treatmentId, currentUser);
     const id = await treatmentsRepository.addExercise(data);
@@ -156,6 +175,148 @@ export class TreatmentsService {
       throw new ForbiddenError('El rol de recepcionista no tiene acceso a mediciones clínicas');
     }
     return await treatmentsRepository.findMeasurements(filters);
+  }
+
+  // ========================================================
+  // --- RUTINAS TERAPÉUTICAS Y PRESCRIPCIÓN DE EJERCICIOS ---
+  // ========================================================
+
+  async searchRoutines(filters, currentUser) {
+    if (currentUser.role === 'receptionist') {
+      throw new ForbiddenError('El rol de recepcionista no tiene acceso a rutinas de rehabilitación');
+    }
+    return await treatmentsRepository.findRoutines(filters);
+  }
+
+  async getRoutineDetail(id, currentUser) {
+    if (currentUser.role === 'receptionist') {
+      throw new ForbiddenError('El rol de recepcionista no tiene acceso a rutinas terapéuticas');
+    }
+
+    const routine = await treatmentsRepository.findRoutineById(id);
+    if (!routine) {
+      throw new NotFoundError('Rutina terapéutica no encontrada');
+    }
+
+    const [exercises, versions] = await Promise.all([
+      treatmentsRepository.findRoutineExercises(id),
+      treatmentsRepository.findRoutineVersionHistory(id)
+    ]);
+
+    return {
+      ...routine,
+      exercises,
+      versions
+    };
+  }
+
+  async createRoutine(data, currentUser) {
+    if (currentUser.role === 'receptionist') {
+      throw new ForbiddenError('El rol de recepcionista no puede prescribir rutinas');
+    }
+
+    const treatment = await treatmentsRepository.findById(data.treatmentId);
+    if (!treatment) {
+      throw new NotFoundError('Plan de tratamiento no encontrado');
+    }
+
+    // Verificar que los ejercicios referenciados existan en el catálogo
+    for (const item of data.exercises) {
+      const exercise = await exercisesRepository.findById(item.exerciseId);
+      if (!exercise) {
+        throw new ValidationError(`El ejercicio con ID ${item.exerciseId} no existe en el catálogo.`);
+      }
+    }
+
+    const routineId = await treatmentsRepository.createRoutineWithExercises(data, data.exercises, currentUser.id);
+
+    await logAudit({
+      userId: currentUser.id,
+      action: 'ROUTINE_CREATED',
+      entityType: 'treatment_routine',
+      entityId: routineId,
+      details: {
+        treatmentId: data.treatmentId,
+        routineName: data.name,
+        exercisesCount: data.exercises.length,
+        status: data.status || 'active'
+      }
+    });
+
+    return await this.getRoutineDetail(routineId, currentUser);
+  }
+
+  async updateRoutine(data, currentUser) {
+    if (currentUser.role === 'receptionist') {
+      throw new ForbiddenError('El rol de recepcionista no puede modificar prescripciones terapéuticas');
+    }
+
+    const routine = await treatmentsRepository.findRoutineById(data.id);
+    if (!routine) {
+      throw new NotFoundError('Rutina terapéutica no encontrada');
+    }
+
+    // Verificar autorización sobre el tratamiento
+    const treatment = await treatmentsRepository.findById(routine.treatment_id);
+    if (!treatment) {
+      throw new NotFoundError('Plan de tratamiento no encontrado');
+    }
+
+    if (currentUser.role === 'kinesiologist' && treatment.kinesiologist_id !== currentUser.id && routine.kinesiologist_id !== currentUser.id) {
+      throw new ForbiddenError('Solo el kinesiólogo responsable o un administrador pueden modificar esta prescripción');
+    }
+
+    // Validar ejercicios
+    for (const item of data.exercises) {
+      const exercise = await exercisesRepository.findById(item.exerciseId);
+      if (!exercise) {
+        throw new ValidationError(`El ejercicio con ID ${item.exerciseId} no existe en el catálogo.`);
+      }
+    }
+
+    const resultingId = await treatmentsRepository.updateRoutineWithVersioning(
+      data.id,
+      data,
+      data.exercises,
+      currentUser.id
+    );
+
+    await logAudit({
+      userId: currentUser.id,
+      action: resultingId !== data.id ? 'ROUTINE_VERSION_CREATED' : 'ROUTINE_UPDATED',
+      entityType: 'treatment_routine',
+      entityId: resultingId,
+      details: {
+        originalRoutineId: data.id,
+        resultingRoutineId: resultingId,
+        changeReason: data.changeReason || 'Actualización de ejercicios'
+      }
+    });
+
+    return await this.getRoutineDetail(resultingId, currentUser);
+  }
+
+  async updateRoutineStatus(id, status, currentUser) {
+    if (currentUser.role === 'receptionist') {
+      throw new ForbiddenError('El rol de recepcionista no puede modificar el estado de rutinas clínicas');
+    }
+
+    const routine = await treatmentsRepository.findRoutineById(id);
+    if (!routine) {
+      throw new NotFoundError('Rutina terapéutica no encontrada');
+    }
+
+    await treatmentsRepository.updateRoutineStatus(id, status);
+
+    await logAudit({
+      userId: currentUser.id,
+      action: 'ROUTINE_STATUS_CHANGED',
+      entityType: 'treatment_routine',
+      entityId: id,
+      details: { previousStatus: routine.status, newStatus: status }
+    });
+
+    return await this.getRoutineDetail(id, currentUser);
   }
 }
 

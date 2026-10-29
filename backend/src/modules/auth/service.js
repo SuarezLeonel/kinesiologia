@@ -86,7 +86,7 @@ export class AuthService {
       if (unlinkedByEmail.length === 1 && byUser.length === 1) {
         const receptionPat = unlinkedByEmail[0];
         const autoPat = byUser[0];
-        if (/^(P-|G-)/.test(String(autoPat.dni || ''))) {
+        if (/^(P-|G-|GH-|M-|F-)/.test(String(autoPat.dni || ''))) {
           await conn.execute('UPDATE appointments SET patient_id = ? WHERE patient_id = ?', [receptionPat.id, autoPat.id]);
           await conn.execute('UPDATE patients SET user_id = NULL, is_active = 0 WHERE id = ?', [autoPat.id]);
           await conn.execute('UPDATE patients SET user_id = ? WHERE id = ?', [user.id, receptionPat.id]);
@@ -259,9 +259,12 @@ export class AuthService {
   // Registro e Inicio de Sesión de Pacientes
   // ==========================================
 
-  async registerPatient({ email, password, firstName, lastName, phone, dni, birthDate, insuranceProvider, address }, { ipAddress, userAgent } = {}) {
+  async registerPatient({ email, password, firstName, lastName, phone, dni, birthDate, insuranceProvider, insuranceNumber, address }, { ipAddress, userAgent } = {}) {
     const normalizedEmail = email.toLowerCase().trim();
-    const coverageValue = (insuranceProvider || address || 'Particular').trim();
+    const rawCoverage = (insuranceProvider || address || 'Particular').trim();
+    const coverageValue = (rawCoverage !== 'Particular' && insuranceNumber?.trim())
+      ? `${rawCoverage} - ${insuranceNumber.trim()}`
+      : rawCoverage;
     const existingUser = await authRepository.findUserByEmail(normalizedEmail);
     if (existingUser) {
       throw new ConflictError('Ya existe una cuenta de usuario con ese correo electrónico');
@@ -350,17 +353,20 @@ export class AuthService {
     return oauthProviderService.getPublicConfig();
   }
 
-  async verifySocialIdentity({ provider, idToken, accessToken, confirmedEmail }) {
+  async verifySocialIdentity({ provider, idToken, accessToken, code, redirectUri, confirmedEmail }) {
     const normalizedProvider = String(provider || 'google').toLowerCase();
     const isSimulatedToken = (idToken && (idToken.startsWith('google_demo_') || idToken.startsWith('social_dev_') || idToken.startsWith('oauth_sim_'))) ||
-      (accessToken && (accessToken.startsWith('sim_') || accessToken.startsWith('oauth_sim_')));
+      (accessToken && (accessToken.startsWith('sim_') || accessToken.startsWith('oauth_sim_'))) ||
+      (code && (code.startsWith('sim_') || code.startsWith('oauth_sim_')));
 
     // En producción o con tokens reales, validar contra las APIs oficiales de los proveedores
-    if (!isSimulatedToken && (idToken || accessToken)) {
+    if (!isSimulatedToken && (idToken || accessToken || code)) {
       return await oauthProviderService.verifyProvider({
         provider: normalizedProvider,
         idToken,
-        accessToken
+        accessToken,
+        code,
+        redirectUri
       });
     }
 
@@ -369,6 +375,7 @@ export class AuthService {
       const emailToUse = (confirmedEmail || `paciente.${normalizedProvider}@kinesiologia.com`).toLowerCase().trim();
       const defaultNames = {
         google: { first: 'Lucía', last: 'Gómez' },
+        github: { first: 'Santiago', last: 'López' },
         microsoft: { first: 'Martín', last: 'Rodríguez' },
         facebook: { first: 'Sofía', last: 'Fernández' },
         apple: { first: 'Usuario', last: 'Apple' }
@@ -405,14 +412,24 @@ export class AuthService {
     idToken,
     accessToken,
     code,
+    redirectUri = null,
     existingPassword = null,
     confirmedEmail = null,
+    firstName = null,
+    lastName = null,
+    dni = null,
+    phone = null,
+    birthDate = null,
+    insuranceProvider = null,
+    insuranceNumber = null,
+    address = null,
     ipAddress = null,
     userAgent = null
   }) {
     const normalizedProvider = String(provider || 'google').toLowerCase();
     const providerLabels = {
       google: 'Google',
+      github: 'GitHub',
       microsoft: 'Microsoft',
       facebook: 'Facebook',
       apple: 'Apple'
@@ -423,6 +440,8 @@ export class AuthService {
       provider: normalizedProvider,
       idToken,
       accessToken,
+      code,
+      redirectUri,
       confirmedEmail
     });
 
@@ -453,6 +472,7 @@ export class AuthService {
 
     const dniPrefixMap = {
       google: 'G',
+      github: 'GH',
       microsoft: 'M',
       facebook: 'F',
       apple: 'A'
@@ -507,25 +527,37 @@ export class AuthService {
           );
         } else {
           // 3. Crear nuevo usuario con rol ESTRICTO de 'patient' (nunca rol profesional en registro público)
+          // REQUISITO: Cuando se crea una cuenta con google/github/facebook, el usuario debe escribir su nombre, apellido, DNI, teléfono, etc.
+          const hasProvidedName = firstName && lastName && firstName.trim().length >= 2 && lastName.trim().length >= 2;
+          if (!hasProvidedName) {
+            return {
+              requiresProfileCompletion: true,
+              email: resolvedEmail,
+              provider: normalizedProvider,
+              providerUserId: sub,
+              firstName: (verified.firstName && verified.firstName !== 'Paciente') ? verified.firstName : '',
+              lastName: (verified.lastName && !['Google', 'GitHub', 'Facebook', 'Microsoft', 'Social'].includes(verified.lastName)) ? verified.lastName : '',
+              message: `Para completar el registro de tu cuenta de paciente con ${providerLabel}, por favor completa tus datos personales.`
+            };
+          }
+
+          const finalFirstName = firstName.trim();
+          const finalLastName = lastName.trim();
+          const finalDni = dni?.trim() || null;
+          const finalPhone = phone?.trim() || null;
+          const finalBirthDate = birthDate?.trim() || '2000-01-01';
+          const rawCoverage = (insuranceProvider || address || 'Particular').trim();
+          const finalCoverage = (rawCoverage !== 'Particular' && insuranceNumber?.trim())
+            ? `${rawCoverage} - ${insuranceNumber.trim()}`
+            : rawCoverage;
+
           const randomSecret = crypto.randomBytes(32).toString('hex');
           const passwordHash = await bcrypt.hash(randomSecret, 10);
 
-          // Verificar si hay ficha de paciente previa para heredar nombre/apellido/teléfono administrativo
-          const [existingPatients] = await conn.execute(
-            'SELECT id, first_name, last_name, phone FROM patients WHERE LOWER(TRIM(email)) = ? AND is_active = 1 LIMIT 1',
-            [resolvedEmail]
-          );
-          const matchedPatient = existingPatients[0] || null;
-          if (matchedPatient) {
-            if (matchedPatient.first_name) resolvedFirstName = matchedPatient.first_name;
-            if (matchedPatient.last_name) resolvedLastName = matchedPatient.last_name;
-          }
-
-          const inheritedPhone = matchedPatient?.phone || null;
           const [newUser] = await conn.execute(
-            `INSERT INTO users (role_id, name, last_name, email, phone, password_hash, is_active)
-             VALUES (?, ?, ?, ?, ?, ?, 1)`,
-            [patientRole.id, resolvedFirstName, resolvedLastName, resolvedEmail, inheritedPhone, passwordHash]
+            `INSERT INTO users (role_id, name, last_name, dni, email, phone, password_hash, is_active)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+            [patientRole.id, finalFirstName, finalLastName, finalDni, resolvedEmail, finalPhone, passwordHash]
           );
           userId = newUser.insertId;
 
@@ -533,10 +565,48 @@ export class AuthService {
             'INSERT INTO social_accounts (user_id, provider, provider_user_id) VALUES (?, ?, ?)',
             [userId, normalizedProvider, sub]
           );
+
+          // Comprobar si ya existe una ficha clínica no vinculada (por email o por DNI)
+          const [pByEmail] = await conn.execute(
+            'SELECT id, user_id FROM patients WHERE LOWER(TRIM(email)) = ? AND is_active = 1 FOR UPDATE',
+            [resolvedEmail]
+          );
+
+          let patientId = null;
+          if (pByEmail.length === 1 && pByEmail[0].user_id === null) {
+            patientId = pByEmail[0].id;
+            await conn.execute('UPDATE patients SET user_id = ?, phone = COALESCE(NULLIF(phone, ""), ?), address = COALESCE(NULLIF(address, ""), ?) WHERE id = ?', [
+              userId,
+              finalPhone || '',
+              finalCoverage,
+              patientId
+            ]);
+          } else if (pByEmail.length === 0 && finalDni) {
+            const [pByDni] = await conn.execute(
+              'SELECT id, user_id FROM patients WHERE dni = ? AND is_active = 1 FOR UPDATE',
+              [finalDni]
+            );
+            if (pByDni.length === 1 && pByDni[0].user_id === null) {
+              patientId = pByDni[0].id;
+              await conn.execute('UPDATE patients SET user_id = ?, email = ? WHERE id = ?', [userId, resolvedEmail, patientId]);
+            }
+          }
+
+          if (!patientId) {
+            const patientDni = finalDni || `${dniPrefix}-${Date.now().toString().slice(-8)}`;
+            const [newP] = await conn.execute(
+              `INSERT INTO patients (first_name, last_name, dni, birth_date, phone, email, address, user_id, is_active)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+              [finalFirstName, finalLastName, patientDni, finalBirthDate, finalPhone || '', resolvedEmail, finalCoverage, userId]
+            );
+            patientId = newP.insertId;
+          }
+
+          return { userId, patientId };
         }
       }
 
-      // Asegurar ficha de paciente vinculada
+      // Asegurar ficha de paciente vinculada para usuario existente
       const [pRows] = await conn.execute(
         'SELECT id, dni FROM patients WHERE user_id = ? AND is_active = 1 FOR UPDATE',
         [userId]
@@ -547,7 +617,7 @@ export class AuthService {
       );
 
       let patientId = null;
-      if (unlinkedByEmail.length === 1 && pRows.length === 1 && /^(P-|G-|M-|F-|A-|S-)/.test(String(pRows[0].dni || ''))) {
+      if (unlinkedByEmail.length === 1 && pRows.length === 1 && /^(P-|G-|GH-|M-|F-|A-|S-)/.test(String(pRows[0].dni || ''))) {
         await conn.execute('UPDATE appointments SET patient_id = ? WHERE patient_id = ?', [unlinkedByEmail[0].id, pRows[0].id]);
         await conn.execute('UPDATE patients SET user_id = NULL, is_active = 0 WHERE id = ?', [pRows[0].id]);
         await conn.execute('UPDATE patients SET user_id = ? WHERE id = ?', [userId, unlinkedByEmail[0].id]);
@@ -578,7 +648,7 @@ export class AuthService {
       return { userId, patientId };
     });
 
-    if (txResult.requiresLinkingConfirmation) {
+    if (txResult.requiresLinkingConfirmation || txResult.requiresProfileCompletion) {
       return txResult;
     }
 

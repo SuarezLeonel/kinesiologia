@@ -2,6 +2,10 @@ import crypto from 'crypto';
 import { config } from '../../config/env.js';
 import { UnauthorizedError } from '../../utils/errors.js';
 
+// Cache de intercambio en memoria para deduplicar solicitudes concurrentes del mismo 'code' de un solo uso
+const githubCodeExchangePromises = new Map();
+const githubCodeExchangeResults = new Map();
+
 export class OAuthProviderService {
   /**
    * Verifica la identidad del usuario contra Google OAuth 2.0 / OpenID Connect.
@@ -77,6 +81,155 @@ export class OAuthProviderService {
     }
 
     throw new UnauthorizedError('Token de Google inválido, expirado o rechazado por el proveedor');
+  }
+
+  /**
+   * Verifica la identidad del usuario contra GitHub OAuth 2.0 / API.
+   * Cuenta con deduplicación y cache para evitar fallos por doble intercambio del código único.
+   * @param {{ code?: string, accessToken?: string, redirectUri?: string }} params
+   * @returns {Promise<{ provider: 'github', providerUserId: string, email: string|null, emailVerified: boolean, firstName: string, lastName: string, avatarUrl: string|null }>}
+   */
+  async verifyGithub({ code, accessToken, redirectUri }) {
+    let token = accessToken;
+    const trimmedCode = code ? String(code).trim() : null;
+
+    if (!token && trimmedCode) {
+      // 1. Si ya se intercambió este código recientemente, devolver el resultado cacheado
+      if (githubCodeExchangeResults.has(trimmedCode)) {
+        return githubCodeExchangeResults.get(trimmedCode);
+      }
+
+      // 2. Si ya hay una solicitud en vuelo para este mismo código, esperar la misma promesa
+      if (githubCodeExchangePromises.has(trimmedCode)) {
+        return await githubCodeExchangePromises.get(trimmedCode);
+      }
+
+      const exchangePromise = (async () => {
+        if (!config.oauth?.github?.clientId || !config.oauth?.github?.clientSecret) {
+          throw new UnauthorizedError('Credenciales de GitHub no configuradas en el servidor');
+        }
+
+        const bodyPayload = {
+          client_id: config.oauth.github.clientId,
+          client_secret: config.oauth.github.clientSecret,
+          code: trimmedCode
+        };
+
+        if (redirectUri) {
+          bodyPayload.redirect_uri = String(redirectUri).trim().replace(/\/+$/, '');
+        }
+
+        const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(bodyPayload)
+        });
+
+        if (!tokenRes.ok) {
+          throw new UnauthorizedError('Error al intercambiar el código de autorización con GitHub');
+        }
+
+        const tokenData = await tokenRes.json();
+        if (tokenData.error || !tokenData.access_token) {
+          console.error('GitHub OAuth token exchange failed:', {
+            error: tokenData.error,
+            description: tokenData.error_description
+          });
+          throw new UnauthorizedError(tokenData.error_description || 'Código de autorización de GitHub inválido o expirado');
+        }
+
+        return await this._fetchGithubUserProfile(tokenData.access_token);
+      })();
+
+      githubCodeExchangePromises.set(trimmedCode, exchangePromise);
+
+      try {
+        const result = await exchangePromise;
+        githubCodeExchangeResults.set(trimmedCode, result);
+        setTimeout(() => {
+          githubCodeExchangeResults.delete(trimmedCode);
+        }, 120000); // 2 minutos de TTL
+        return result;
+      } finally {
+        githubCodeExchangePromises.delete(trimmedCode);
+      }
+    }
+
+    if (!token) {
+      throw new UnauthorizedError('Token o código de autorización de GitHub requerido');
+    }
+
+    return await this._fetchGithubUserProfile(token);
+  }
+
+  /**
+   * Obtiene y normaliza los datos del perfil de usuario y sus correos verificados desde GitHub.
+   * @param {string} token Access Token de GitHub
+   */
+  async _fetchGithubUserProfile(token) {
+    try {
+      const userRes = await fetch('https://api.github.com/user', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github.v3+json',
+          'User-Agent': 'KinesioGestion-App'
+        }
+      });
+
+      if (userRes.ok) {
+        const userData = await userRes.json();
+        if (userData.id) {
+          let email = userData.email ? String(userData.email).toLowerCase().trim() : null;
+          let emailVerified = Boolean(email);
+
+          if (!email) {
+            try {
+              const emailsRes = await fetch('https://api.github.com/user/emails', {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  Accept: 'application/vnd.github.v3+json',
+                  'User-Agent': 'KinesioGestion-App'
+                }
+              });
+              if (emailsRes.ok) {
+                const emails = await emailsRes.json();
+                if (Array.isArray(emails) && emails.length > 0) {
+                  const primaryVerified = emails.find((e) => e.primary && e.verified) || emails.find((e) => e.verified) || emails[0];
+                  if (primaryVerified?.email) {
+                    email = String(primaryVerified.email).toLowerCase().trim();
+                    emailVerified = Boolean(primaryVerified.verified);
+                  }
+                }
+              }
+            } catch {
+              // Continúa con los datos disponibles si falla la lista de correos
+            }
+          }
+
+          const rawName = userData.name || userData.login || 'Paciente';
+          const nameParts = rawName.trim().split(/\s+/);
+          const firstName = nameParts[0] || 'Paciente';
+          const lastName = nameParts.slice(1).join(' ') || 'GitHub';
+
+          return {
+            provider: 'github',
+            providerUserId: String(userData.id),
+            email,
+            emailVerified,
+            firstName,
+            lastName,
+            avatarUrl: userData.avatar_url || null
+          };
+        }
+      }
+    } catch (err) {
+      if (err instanceof UnauthorizedError) throw err;
+    }
+
+    throw new UnauthorizedError('Token de GitHub inválido, expirado o rechazado por el proveedor');
   }
 
   /**
@@ -168,13 +321,15 @@ export class OAuthProviderService {
 
   /**
    * Valida cualquier token según el proveedor especificado.
-   * @param {{ provider: 'google'|'microsoft'|'facebook', idToken?: string, accessToken?: string }} params
+   * @param {{ provider: 'google'|'github'|'microsoft'|'facebook', idToken?: string, accessToken?: string, code?: string, redirectUri?: string }} params
    */
-  async verifyProvider({ provider, idToken, accessToken }) {
+  async verifyProvider({ provider, idToken, accessToken, code, redirectUri }) {
     const normalized = String(provider || '').toLowerCase();
     switch (normalized) {
       case 'google':
         return await this.verifyGoogle({ idToken, accessToken });
+      case 'github':
+        return await this.verifyGithub({ code, accessToken, redirectUri });
       case 'microsoft':
         return await this.verifyMicrosoft({ accessToken, idToken });
       case 'facebook':
@@ -194,10 +349,9 @@ export class OAuthProviderService {
         configured: Boolean(config.oauth?.google?.clientId),
         clientId: config.oauth?.google?.clientId || null
       },
-      microsoft: {
-        configured: Boolean(config.oauth?.microsoft?.clientId),
-        clientId: config.oauth?.microsoft?.clientId || null,
-        tenantId: config.oauth?.microsoft?.tenantId || 'common'
+      github: {
+        configured: Boolean(config.oauth?.github?.clientId),
+        clientId: config.oauth?.github?.clientId || null
       },
       facebook: {
         configured: Boolean(config.oauth?.facebook?.appId),
