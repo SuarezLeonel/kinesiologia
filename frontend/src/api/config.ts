@@ -1,18 +1,30 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
-// Si corre en emulador Android o dispositivo físico, la IP no puede ser localhost
-const getLocalApiUrl = () => {
-  if (Platform.OS === 'web') {
-    const host =
-      typeof window !== 'undefined' && window.location?.hostname
-        ? window.location.hostname
-        : 'localhost';
-    return `http://${host}:3000/api/v1`;
+export const DEFAULT_CLOUD_API_URL = 'https://kinesiologia-backend.onrender.com/api/v1';
+
+const getApiUrl = () => {
+  // 1. Configuración explícita en app.json (extra.apiUrl)
+  if (Constants.expoConfig?.extra?.apiUrl) {
+    return Constants.expoConfig.extra.apiUrl;
   }
 
-  // En Expo Go / Dispositivo móvil físico:
-  // Detectar la IP de la máquina host desde la URI de desarrollo de Metro
+  // 2. Variable de entorno inyectada durante la compilación o en ejecución
+  if (process.env.EXPO_PUBLIC_API_URL) {
+    return process.env.EXPO_PUBLIC_API_URL;
+  }
+
+  // 3. En builds nativos (APK standalone / producción), conectar siempre al servidor en la nube
+  if (!__DEV__) {
+    return DEFAULT_CLOUD_API_URL;
+  }
+
+  // 4. En desarrollo Web local
+  if (Platform.OS === 'web') {
+    return DEFAULT_CLOUD_API_URL;
+  }
+
+  // 5. En desarrollo con Expo Go si Metro reporta host local
   const hostUri =
     Constants.expoConfig?.hostUri ||
     (Constants as any).manifest2?.extra?.expoClient?.hostUri ||
@@ -31,11 +43,7 @@ const getLocalApiUrl = () => {
     }
   }
 
-  // Fallback con la IP local actual de la PC para dispositivos físicos en la misma red Wi-Fi
-  return 'http://192.168.0.145:3000/api/v1';
+  return DEFAULT_CLOUD_API_URL;
 };
 
-export const API_BASE_URL =
-  Constants.expoConfig?.extra?.apiUrl ||
-  process.env.EXPO_PUBLIC_API_URL ||
-  getLocalApiUrl();
+export const API_BASE_URL = getApiUrl();

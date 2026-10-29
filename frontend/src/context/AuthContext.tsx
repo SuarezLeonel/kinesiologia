@@ -176,7 +176,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const isNetworkErr = err.code === 'ERR_NETWORK' || err.message === 'Network Error' || !err.response;
       const msg = err.response?.data?.error?.message ||
         (isNetworkErr
-          ? `Error de red al conectar con el servidor (${API_BASE_URL}). Asegúrese de que el celular y la PC estén en la misma red Wi-Fi.`
+          ? `Error de red al conectar con el servidor (${API_BASE_URL}). Verifique su conexión a internet.`
           : err.message || 'No se pudo conectar con el servidor');
       return { success: false, error: msg };
     }

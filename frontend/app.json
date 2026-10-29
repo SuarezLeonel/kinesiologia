@@ -27,7 +27,8 @@
     "extra": {
       "eas": {
         "projectId": "8225865b-fb96-48cf-9134-41d54bb485f3"
-      }
+      },
+      "apiUrl": "https://kinesiologia-backend.onrender.com/api/v1"
     },
     "owner": "leoboca12",
     "plugins": [
