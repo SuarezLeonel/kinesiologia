@@ -49,6 +49,7 @@ export const config = {
     from: process.env.SMTP_FROM || '"KinesioGestión" <no-reply@kinesiologia.com>',
     appUrl: process.env.APP_URL || 'http://localhost:8081',
     resendApiKey: process.env.RESEND_API_KEY || null,
+    resendFrom: process.env.RESEND_FROM || null,
     brevoApiKey: process.env.BREVO_API_KEY || null
   },
   oauth: {

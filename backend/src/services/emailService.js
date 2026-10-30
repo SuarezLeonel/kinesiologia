@@ -114,9 +114,9 @@ class EmailService {
       // 1. Envío por API HTTP (Resend) si está configurado (Puerto 443 - HTTPS estándar, nunca bloqueado en Render)
       if (config.email.resendApiKey && config.nodeEnv !== 'test') {
         try {
-          const fromSender = config.email.from && (config.email.from.includes('@resend.dev') || !config.email.from.includes('kinesiologia.com'))
-            ? config.email.from
-            : 'KinesioGestión <onboarding@resend.dev>';
+          // Resend en cuentas de prueba exige enviar desde onboarding@resend.dev a menos que se configure un dominio propio verificado
+          const fromSender = config.email.resendFrom
+            || (config.email.from && config.email.from.includes('@resend.dev') ? config.email.from : 'KinesioGestión <onboarding@resend.dev>');
 
           const res = await fetch('https://api.resend.com/emails', {
             method: 'POST',
