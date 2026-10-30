@@ -1,3 +1,8 @@
+/**
+ * @file routes.js
+ * @module treatments
+ * @description Rutas para tratamientos y rutinas (/api/v1/treatments). Protegido para Kinesiólogo y Admin.
+ */
 import { Router } from 'express';
 import { treatmentsController } from './controller.js';
 import { authenticateToken, authorizeRoles, authorizePermission } from '../../middlewares/auth.js';

@@ -1,3 +1,7 @@
+/**
+ * @file Input.tsx
+ * @description Campo de texto accesible con soporte para etiquetas, errores de validación e iconos.
+ */
 import React, { useState } from 'react';
 import {
   View,

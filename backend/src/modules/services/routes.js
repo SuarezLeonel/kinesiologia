@@ -1,3 +1,8 @@
+/**
+ * @file routes.js
+ * @module services
+ * @description Rutas para el catálogo de servicios (/api/v1/services). Alta y edición exclusiva para Administrador.
+ */
 import { Router } from 'express';
 import { servicesController } from './controller.js';
 import { authenticateToken, authorizeRoles } from '../../middlewares/auth.js';

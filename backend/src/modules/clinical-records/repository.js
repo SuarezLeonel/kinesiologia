@@ -1,3 +1,8 @@
+/**
+ * @file repository.js
+ * @module clinical-records
+ * @description Capa de acceso a datos para historias clínicas, evaluaciones funcionales y notas de evolución.
+ */
 import { query, executeTransaction } from '../../config/database.js';
 
 export class ClinicalRecordsRepository {

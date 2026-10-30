@@ -1,3 +1,8 @@
+/**
+ * @file service.js
+ * @module users
+ * @description Lógica de administración de usuarios y trazabilidad de cambios de permisos.
+ */
 import { usersRepository } from './repository.js';
 import { authRepository } from '../auth/repository.js';
 import { NotFoundError, ConflictError } from '../../utils/errors.js';

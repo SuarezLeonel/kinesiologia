@@ -1,3 +1,8 @@
+/**
+ * @file schema.js
+ * @module users
+ * @description Esquemas Zod para actualización de roles y estado activo de usuarios.
+ */
 import { z } from 'zod';
 
 export const userSearchSchema = z.object({

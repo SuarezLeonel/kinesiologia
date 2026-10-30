@@ -1,3 +1,8 @@
+/**
+ * @file schema.js
+ * @module services
+ * @description Esquemas Zod para creación y actualización de aranceles de servicios clínicos.
+ */
 import { z } from 'zod';
 
 export const serviceSearchSchema = z.object({

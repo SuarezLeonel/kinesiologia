@@ -1,3 +1,8 @@
+/**
+ * @file repository.js
+ * @module users
+ * @description Acceso a datos para usuarios y roles en MySQL.
+ */
 import { query } from '../../config/database.js';
 
 export class UsersRepository {

@@ -1,3 +1,8 @@
+/**
+ * @file service.js
+ * @module notifications
+ * @description Lógica de programación y despacho de notificaciones y recordatorios del consultorio.
+ */
 import { notificationsRepository } from './repository.js';
 
 export class NotificationsService {

@@ -1,3 +1,7 @@
+/**
+ * @file ThemeContext.tsx
+ * @description Contexto global de tema visual (claro / oscuro / automático sincronizado con el sistema).
+ */
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useColorScheme } from 'react-native';
 import * as SecureStore from 'expo-secure-store';

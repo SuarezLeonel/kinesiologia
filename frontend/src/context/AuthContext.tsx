@@ -1,3 +1,8 @@
+/**
+ * @file AuthContext.tsx
+ * @description Contexto global de autenticación en React Native.
+ * Administra el estado de sesión, tokens en SecureStore, login tradicional, login social y logout.
+ */
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { apiClient } from '../api/client';

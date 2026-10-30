@@ -1,3 +1,7 @@
+/**
+ * @file SocialAuthButtons.tsx
+ * @description Botones accesibles de inicio de sesión social (Google, GitHub, Facebook) para móvil y web.
+ */
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,

@@ -1,3 +1,7 @@
+/**
+ * @file Button.tsx
+ * @description Botón táctil accesible con estados primario, secundario, peligro y loading.
+ */
 import React from 'react';
 import {
   TouchableOpacity,

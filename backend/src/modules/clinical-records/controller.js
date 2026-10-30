@@ -1,3 +1,9 @@
+/**
+ * @file controller.js
+ * @module clinical-records
+ * @description Controlador HTTP para historias clínicas y evaluaciones kinésicas.
+ * Exclusivo para kinesiólogos y administradores.
+ */
 import { clinicalRecordsService } from './service.js';
 import { sendSuccess } from '../../utils/response.js';
 

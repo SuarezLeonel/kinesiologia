@@ -1,3 +1,8 @@
+/**
+ * @file routes.js
+ * @module patient-portal
+ * @description Rutas del portal del paciente (/api/v1/patient-portal). Restringido al paciente autenticado.
+ */
 import { Router } from 'express';
 import { patientPortalController } from './controller.js';
 import { authenticateToken, authorizeRoles } from '../../middlewares/auth.js';

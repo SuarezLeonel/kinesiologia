@@ -1,3 +1,7 @@
+/**
+ * @file config.ts
+ * @description Configuración de URLs y rutas de la API para el frontend móvil y web.
+ */
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 

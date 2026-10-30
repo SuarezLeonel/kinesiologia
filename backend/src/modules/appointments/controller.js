@@ -1,3 +1,9 @@
+/**
+ * @file controller.js
+ * @module appointments
+ * @description Controlador HTTP para la gestión de turnos y agenda del consultorio.
+ * Maneja peticiones de búsqueda, detalle, creación, actualización de asistencia y cancelación.
+ */
 import { appointmentsService } from './service.js';
 import { sendSuccess } from '../../utils/response.js';
 

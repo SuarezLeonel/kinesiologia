@@ -1,3 +1,8 @@
+/**
+ * @file pdfGenerator.js
+ * @module clinical-records
+ * @description Generador de informes clínicos oficiales en formato PDF con membrete del consultorio y trazabilidad médica.
+ */
 import PDFDocument from 'pdfkit';
 
 /**

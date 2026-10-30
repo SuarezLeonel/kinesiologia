@@ -1,3 +1,7 @@
+/**
+ * @file Card.tsx
+ * @description Contenedor estructurado tipo tarjeta con bordes y sombreado adaptativo al tema.
+ */
 import React from 'react';
 import { View, StyleSheet, StyleProp, ViewStyle, TouchableOpacity } from 'react-native';
 import { useAppTheme } from '../../theme/ThemeContext';

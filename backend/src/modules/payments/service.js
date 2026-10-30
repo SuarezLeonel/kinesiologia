@@ -1,3 +1,8 @@
+/**
+ * @file service.js
+ * @module payments
+ * @description Lógica financiera: control de saldos de paquetes, arqueo de caja y emisión de recibos únicos.
+ */
 import { paymentsRepository } from './repository.js';
 import { patientsRepository } from '../patients/repository.js';
 import { ConflictError, NotFoundError } from '../../utils/errors.js';

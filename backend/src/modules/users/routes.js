@@ -1,3 +1,8 @@
+/**
+ * @file routes.js
+ * @module users
+ * @description Rutas de gestión de usuarios (/api/v1/users). Exclusivo para perfil Administrador.
+ */
 import { Router } from 'express';
 import { usersController } from './controller.js';
 import { authenticateToken, authorizeRoles, authorizePermission } from '../../middlewares/auth.js';

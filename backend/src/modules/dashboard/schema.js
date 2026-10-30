@@ -1,3 +1,8 @@
+/**
+ * @file schema.js
+ * @module dashboard
+ * @description Esquemas Zod para filtros de fecha en el dashboard.
+ */
 import { z } from 'zod';
 
 export const dashboardSummarySchema = z.object({

@@ -1,6 +1,17 @@
+/**
+ * @file emailService.js
+ * @description Servicio unificado de despacho de correos electrónicos transaccionales para KinesioGestión.
+ * Soporta envío de alta disponibilidad mediante API HTTP (Resend / Brevo) sobre puerto 443
+ * para compatibilidad con entornos cloud (Render, Vercel), con fallback a SMTP tradicional (Nodemailer)
+ * y transportador JSON para entornos de testing automatizado.
+ */
+
 import nodemailer from 'nodemailer';
 import { config } from '../config/env.js';
 
+/**
+ * Servicio de gestión de envío de emails.
+ */
 class EmailService {
   constructor() {
     this.transporter = null;

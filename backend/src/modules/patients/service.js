@@ -1,3 +1,8 @@
+/**
+ * @file service.js
+ * @module patients
+ * @description Lógica de negocio para gestión de pacientes y asignación de kinesiólogo de cabecera.
+ */
 import { patientsRepository } from './repository.js';
 import { authRepository } from '../auth/repository.js';
 import { NotFoundError, ConflictError } from '../../utils/errors.js';

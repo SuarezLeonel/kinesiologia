@@ -1,3 +1,9 @@
+/**
+ * @file server.js
+ * @description Punto de entrada para el inicio del servidor HTTP de KinesioGestión.
+ * Comprueba la conectividad inicial al pool de MySQL y pone a escuchar la aplicación Express.
+ */
+
 import { app } from './app.js';
 import { config } from './config/env.js';
 import { getPool } from './config/database.js';

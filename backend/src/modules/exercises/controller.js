@@ -1,3 +1,8 @@
+/**
+ * @file controller.js
+ * @module exercises
+ * @description Controlador HTTP para el catálogo de más de 90 ejercicios kinésicos.
+ */
 import { exercisesService } from './service.js';
 import { sendSuccess } from '../../utils/response.js';
 

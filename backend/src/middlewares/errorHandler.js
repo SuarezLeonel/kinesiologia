@@ -1,6 +1,21 @@
+/**
+ * @file errorHandler.js
+ * @description Middleware centralizado de captura y normalización de errores para Express.
+ * Transforma excepciones de Zod, AppError personalizados, errores de clave foránea / duplicados de MySQL
+ * y fallos de parseo en respuestas JSON estructuradas con código de estado HTTP adecuado.
+ */
+
 import { ZodError } from 'zod';
 import { AppError } from '../utils/errors.js';
 
+/**
+ * Middleware manejador global de errores de Express.
+ * @param {Error} err - Error capturado.
+ * @param {import('express').Request} req - Solicitud Express.
+ * @param {import('express').Response} res - Respuesta Express.
+ * @param {import('express').NextFunction} next - Siguiente función.
+ * @returns {import('express').Response}
+ */
 export function errorHandler(err, req, res, next) {
   // Manejo de errores Zod (compatible con Zod 3 y Zod 4)
   if (err instanceof ZodError || err.name === 'ZodError') {

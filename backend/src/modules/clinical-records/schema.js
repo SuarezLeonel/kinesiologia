@@ -1,3 +1,8 @@
+/**
+ * @file schema.js
+ * @module clinical-records
+ * @description Esquemas Zod para historias clínicas: escala de dolor EVA (0-10), diagnósticos y motivo de modificación obligatorio.
+ */
 import { z } from 'zod';
 
 export const clinicalRecordSearchSchema = z.object({

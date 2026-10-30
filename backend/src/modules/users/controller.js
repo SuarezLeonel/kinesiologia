@@ -1,3 +1,8 @@
+/**
+ * @file controller.js
+ * @module users
+ * @description Controlador HTTP para administración de usuarios, asignación de roles y estados.
+ */
 import { usersService } from './service.js';
 import { sendSuccess } from '../../utils/response.js';
 

@@ -1,3 +1,7 @@
+/**
+ * @file DateInput.tsx
+ * @description Campo de selección y entrada de fechas adaptado a móvil y web.
+ */
 import React, { useState, useMemo } from 'react';
 import {
   View,

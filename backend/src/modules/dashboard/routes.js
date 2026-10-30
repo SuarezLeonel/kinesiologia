@@ -1,3 +1,8 @@
+/**
+ * @file routes.js
+ * @module dashboard
+ * @description Rutas del dashboard (/api/v1/dashboard). Filtra datos financieros según el rol del usuario autenticado.
+ */
 import { Router } from 'express';
 import { dashboardController } from './controller.js';
 import { authenticateToken } from '../../middlewares/auth.js';

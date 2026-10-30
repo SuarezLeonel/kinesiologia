@@ -1,3 +1,8 @@
+/**
+ * @file service.js
+ * @module auth
+ * @description Lógica de negocio para autenticación, emisión/rotación de JWT, hashing bcrypt y reseteo de contraseña.
+ */
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';

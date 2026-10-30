@@ -1,3 +1,8 @@
+/**
+ * @file routes.js
+ * @module exercises
+ * @description Rutas para catálogo de ejercicios (/api/v1/exercises). Consultas vía POST.
+ */
 import { Router } from 'express';
 import { exercisesController } from './controller.js';
 import { authenticateToken, authorizeRoles } from '../../middlewares/auth.js';

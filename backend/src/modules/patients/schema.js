@@ -1,3 +1,8 @@
+/**
+ * @file schema.js
+ * @module patients
+ * @description Esquemas Zod para validación de datos de pacientes (DNI, fecha de nacimiento, teléfono, email).
+ */
 import { z } from 'zod';
 
 export const patientSearchSchema = z.object({

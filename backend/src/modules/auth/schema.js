@@ -1,3 +1,8 @@
+/**
+ * @file schema.js
+ * @module auth
+ * @description Esquemas Zod para autenticación: login, registro, reseteo de contraseña y OAuth social.
+ */
 import { z } from 'zod';
 
 export const registerSchema = z.object({

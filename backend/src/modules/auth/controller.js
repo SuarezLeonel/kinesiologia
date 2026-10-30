@@ -1,3 +1,9 @@
+/**
+ * @file controller.js
+ * @module auth
+ * @description Controlador HTTP para autenticación, registro, login social y recuperación de contraseña.
+ * Procesa credenciales, entrega pares de tokens JWT y gestiona el flujo de recuperación.
+ */
 import { authService } from './service.js';
 import { sendSuccess } from '../../utils/response.js';
 

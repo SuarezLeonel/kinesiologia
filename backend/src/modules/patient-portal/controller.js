@@ -1,3 +1,8 @@
+/**
+ * @file controller.js
+ * @module patient-portal
+ * @description Controlador HTTP para el portal de autogestión y Home Care del paciente.
+ */
 import { patientPortalService } from './service.js';
 import { sendSuccess } from '../../utils/response.js';
 

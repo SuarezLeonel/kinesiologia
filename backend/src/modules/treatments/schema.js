@@ -1,3 +1,8 @@
+/**
+ * @file schema.js
+ * @module treatments
+ * @description Esquemas Zod para rutinas terapéuticas y ejecución de sesiones en consultorio.
+ */
 import { z } from 'zod';
 
 export const treatmentSearchSchema = z.object({

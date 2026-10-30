@@ -1,3 +1,7 @@
+/**
+ * @file LoginScreen.tsx
+ * @description Pantalla de autenticación: ingreso con email/contraseña, botones demo y login social.
+ */
 import React, { useState } from 'react';
 import {
   View,

@@ -1,3 +1,9 @@
+/**
+ * @file repository.js
+ * @module auth
+ * @description Acceso a datos para usuarios, roles, tokens de refresco y tokens de reseteo de contraseña.
+ * Maneja persistencia de hashes sha256 y revocaciones en MySQL.
+ */
 import { query } from '../../config/database.js';
 
 export class AuthRepository {

@@ -1,3 +1,7 @@
+/**
+ * @file AppointmentsScreen.tsx
+ * @description Pantalla de agenda médica y turnos: filtro por kinesiólogo/fecha y cambio de asistencia.
+ */
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import {
   View,

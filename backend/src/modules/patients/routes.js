@@ -1,3 +1,8 @@
+/**
+ * @file routes.js
+ * @module patients
+ * @description Rutas para el padrón de pacientes (/api/v1/patients). Regla estricta: búsqueda mediante POST /search.
+ */
 import { Router } from 'express';
 import { patientsController } from './controller.js';
 import { authenticateToken, authorizeRoles, authorizePermission } from '../../middlewares/auth.js';

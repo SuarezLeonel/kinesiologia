@@ -1,3 +1,8 @@
+/**
+ * @file repository.js
+ * @module patients
+ * @description Acceso a datos para pacientes: búsqueda por DNI/nombre, creación y actualización en MySQL.
+ */
 import { query } from '../../config/database.js';
 
 export class PatientsRepository {

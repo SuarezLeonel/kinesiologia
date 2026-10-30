@@ -1,3 +1,8 @@
+/**
+ * @file repository.js
+ * @module notifications
+ * @description Acceso a datos para cola de notificaciones, recordatorios de turnos y alertas a pacientes.
+ */
 import { query } from '../../config/database.js';
 
 export class NotificationsRepository {

@@ -1,3 +1,8 @@
+/**
+ * @file service.js
+ * @module clinical-records
+ * @description Lógica médica de historias clínicas: inmutabilidad, registro cronológico y exportación a PDF.
+ */
 import { clinicalRecordsRepository } from './repository.js';
 import { patientsRepository } from '../patients/repository.js';
 import { query } from '../../config/database.js';

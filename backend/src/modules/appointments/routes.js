@@ -1,3 +1,9 @@
+/**
+ * @file routes.js
+ * @module appointments
+ * @description Rutas de Express para el módulo de agenda y turnos (/api/v1/appointments).
+ * Aplica regla estricta de cero uso de GET (todo vía POST) y autorización por roles (RBAC).
+ */
 import { Router } from 'express';
 import { appointmentsController } from './controller.js';
 import { authenticateToken, authorizeRoles, authorizePermission } from '../../middlewares/auth.js';

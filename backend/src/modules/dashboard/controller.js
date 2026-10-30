@@ -1,3 +1,8 @@
+/**
+ * @file controller.js
+ * @module dashboard
+ * @description Controlador HTTP para el dashboard general del consultorio.
+ */
 import { dashboardService } from './service.js';
 import { sendSuccess } from '../../utils/response.js';
 

@@ -1,3 +1,7 @@
+/**
+ * @file ClinicalRecordsScreen.tsx
+ * @description Pantalla de historias clínicas: motivo de consulta, escala EVA (0-10), evoluciones y exportación a PDF.
+ */
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   View,

@@ -1,3 +1,9 @@
+/**
+ * @file client.ts
+ * @description Cliente Axios centralizado para comunicación HTTP con el backend de KinesioGestión.
+ * Implementa interceptores de solicitud para inyección de token JWT (Bearer),
+ * renovación automática con Refresh Token vía Expo SecureStore y timeout extendido para cold starts.
+ */
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import { API_BASE_URL } from './config';

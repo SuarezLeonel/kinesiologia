@@ -1,3 +1,8 @@
+/**
+ * @file routes.js
+ * @module clinical-records
+ * @description Rutas de historias clínicas (/api/v1/clinical-records). Protegido: denegado a Recepción y Pacientes (403).
+ */
 import { Router } from 'express';
 import { clinicalRecordsController } from './controller.js';
 import { authenticateToken, authorizeRoles, authorizePermission } from '../../middlewares/auth.js';

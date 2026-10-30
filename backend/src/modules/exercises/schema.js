@@ -1,3 +1,8 @@
+/**
+ * @file schema.js
+ * @module exercises
+ * @description Esquemas Zod para búsqueda y creación de ejercicios kinésicos.
+ */
 import { z } from 'zod';
 
 export const exerciseSearchSchema = z.object({

@@ -1,3 +1,8 @@
+/**
+ * @file service.js
+ * @module patient-portal
+ * @description Lógica de Home Care: registro autónomo de series y dolor sin alterar la prescripción médica original.
+ */
 import { query } from '../../config/database.js';
 import { appointmentsRepository } from '../appointments/repository.js';
 import { servicesRepository } from '../services/repository.js';

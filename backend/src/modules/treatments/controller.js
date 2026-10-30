@@ -1,3 +1,8 @@
+/**
+ * @file controller.js
+ * @module treatments
+ * @description Controlador HTTP para planes de tratamiento, prescripción de rutinas versionadas y registro de sesiones.
+ */
 import { treatmentsService } from './service.js';
 import { sendSuccess } from '../../utils/response.js';
 

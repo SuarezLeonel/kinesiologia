@@ -1,3 +1,7 @@
+/**
+ * @file PatientsScreen.tsx
+ * @description Pantalla del padrón de pacientes: búsqueda en tiempo real, alta y asignación de kinesiólogo.
+ */
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,

@@ -1,3 +1,7 @@
+/**
+ * @file PaymentsScreen.tsx
+ * @description Pantalla de caja y cobros: registro de pagos, venta de paquetes y arqueo diario (exclusivo Admin/Recepción).
+ */
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   View,

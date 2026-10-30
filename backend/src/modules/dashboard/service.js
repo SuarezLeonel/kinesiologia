@@ -1,3 +1,8 @@
+/**
+ * @file service.js
+ * @module dashboard
+ * @description Lógica de métricas del dashboard: consolida turnos, pacientes activos y oculta finanzas a kinesiólogos y pacientes.
+ */
 import { dashboardRepository } from './repository.js';
 import { getClinicDateString } from '../../utils/date.js';
 

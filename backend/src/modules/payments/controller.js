@@ -1,3 +1,9 @@
+/**
+ * @file controller.js
+ * @module payments
+ * @description Controlador HTTP para cobros, paquetes de sesiones y caja diaria.
+ * Acceso exclusivo para Administradores y Recepcionistas (bloqueado a Kinesiólogos).
+ */
 import { paymentsService } from './service.js';
 import { sendSuccess } from '../../utils/response.js';
 

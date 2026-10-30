@@ -1,3 +1,7 @@
+/**
+ * @file ForgotPasswordScreen.tsx
+ * @description Pantalla de recuperación de contraseña con código de 6 dígitos enviado por email vía Resend.
+ */
 import React, { useState } from 'react';
 import {
   View,

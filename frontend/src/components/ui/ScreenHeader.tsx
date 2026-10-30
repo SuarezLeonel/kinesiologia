@@ -1,3 +1,7 @@
+/**
+ * @file ScreenHeader.tsx
+ * @description Encabezado estandarizado para pantallas con título, subtítulo y acciones rápidas.
+ */
 import React from 'react';
 import { View, Text, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import { useAppTheme } from '../../theme/ThemeContext';

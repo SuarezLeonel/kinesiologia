@@ -1,3 +1,8 @@
+/**
+ * @file repository.js
+ * @module dashboard
+ * @description Consultas agregadas para métricas operativas del día y resumen de recaudación financiera.
+ */
 import { query } from '../../config/database.js';
 import { getClinicDayBounds } from '../../utils/date.js';
 

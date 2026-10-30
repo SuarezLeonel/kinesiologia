@@ -1,3 +1,8 @@
+/**
+ * @file service.js
+ * @module treatments
+ * @description Lógica médica de tratamientos: versionado automático de rutinas (V1 -> V2 inmutable) y seguimiento.
+ */
 import { treatmentsRepository } from './repository.js';
 import { patientsRepository } from '../patients/repository.js';
 import { exercisesRepository } from '../exercises/repository.js';

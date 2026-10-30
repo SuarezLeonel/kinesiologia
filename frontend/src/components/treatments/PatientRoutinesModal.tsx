@@ -1,3 +1,7 @@
+/**
+ * @file PatientRoutinesModal.tsx
+ * @description Modal clínico para visualización y asignación de rutinas de tratamiento al paciente.
+ */
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View,

@@ -1,3 +1,7 @@
+/**
+ * @file ExercisesScreen.tsx
+ * @description Pantalla de catálogo de más de 90 ejercicios kinésicos y prescripción de rutinas terapéuticas.
+ */
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   View,

@@ -1,6 +1,19 @@
+/**
+ * @file env.js
+ * @description Configuración centralizada y validación de variables de entorno para el backend.
+ * Garantiza que claves criptográficas JWT, conexión a base de datos y servicios de correo
+ * cumplan con los requerimientos mínimos de longitud y seguridad antes de iniciar la API.
+ */
+
 import dotenv from 'dotenv';
 dotenv.config();
 
+/**
+ * Valida que una variable de entorno secreta esté definida y posea al menos 32 caracteres.
+ * @param {string} name - Nombre de la variable de entorno.
+ * @returns {string} Valor de la variable validada.
+ * @throws {Error} Si la variable no existe o tiene menos de 32 caracteres.
+ */
 function requireSecret(name) {
   const value = process.env[name];
   if (!value || value.length < 32) {

@@ -1,3 +1,8 @@
+/**
+ * @file service.js
+ * @module exercises
+ * @description Lógica de catálogo de ejercicios: categorización (fortalecimiento, movilidad, propiocepción) y validación.
+ */
 import { exercisesRepository } from './repository.js';
 import { NotFoundError } from '../../utils/errors.js';
 import { logAudit } from '../../utils/auditLogger.js';

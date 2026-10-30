@@ -1,3 +1,8 @@
+/**
+ * @file RootNavigator.tsx
+ * @description Navegador raíz de React Navigation.
+ * Presenta la pila de autenticación pública o la interfaz privada condicional según el rol del usuario.
+ */
 import React from 'react';
 import { Platform, View, StatusBar as RNStatusBar } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';

@@ -1,3 +1,8 @@
+/**
+ * @file repository.js
+ * @module payments
+ * @description Acceso a datos para cobros, recibos, paquetes prepagos de sesiones y arqueo diario de caja.
+ */
 import { query, executeTransaction } from '../../config/database.js';
 import { AppError } from '../../utils/errors.js';
 import { getClinicDayBounds } from '../../utils/date.js';

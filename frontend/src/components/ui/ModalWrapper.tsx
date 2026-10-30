@@ -1,3 +1,7 @@
+/**
+ * @file ModalWrapper.tsx
+ * @description Envoltorio de modal animado y accesible con fondo oscurecido.
+ */
 import React from 'react';
 import {
   Modal,

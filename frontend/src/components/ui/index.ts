@@ -1,3 +1,7 @@
+/**
+ * @file index.ts
+ * @description Barril de exportación de componentes UI reutilizables.
+ */
 export * from './Badge';
 export * from './Button';
 export * from './Card';

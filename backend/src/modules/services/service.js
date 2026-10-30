@@ -1,3 +1,8 @@
+/**
+ * @file service.js
+ * @module services
+ * @description Lógica de negocio para catálogo de servicios y tarifas.
+ */
 import { servicesRepository } from './repository.js';
 import { NotFoundError } from '../../utils/errors.js';
 import { logAudit } from '../../utils/auditLogger.js';

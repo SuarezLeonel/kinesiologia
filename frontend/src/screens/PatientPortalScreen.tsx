@@ -1,3 +1,7 @@
+/**
+ * @file PatientPortalScreen.tsx
+ * @description Pantalla del portal del paciente: ejercicios de Home Care y registro de cumplimiento con escala EVA.
+ */
 import React, { useEffect, useState } from 'react';
 import {
   View,

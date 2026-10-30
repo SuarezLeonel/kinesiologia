@@ -1,3 +1,7 @@
+/**
+ * @file SettingsScreen.tsx
+ * @description Pantalla de ajustes: selector de tema visual (claro/oscuro), información de cuenta y logout.
+ */
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { useAppTheme } from '../theme/ThemeContext';

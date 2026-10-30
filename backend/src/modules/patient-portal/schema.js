@@ -1,3 +1,8 @@
+/**
+ * @file schema.js
+ * @module patient-portal
+ * @description Esquemas Zod para registro de cumplimiento de ejercicios en el hogar y escala EVA de dolor.
+ */
 import { z } from 'zod';
 
 export const availableSlotsSchema = z.object({

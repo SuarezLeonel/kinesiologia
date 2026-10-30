@@ -1,3 +1,9 @@
+/**
+ * @file service.js
+ * @module appointments
+ * @description Lógica de negocio para la agenda de turnos.
+ * Verifica solapamientos horarios de profesionales y pacientes, precios acordados y auditoría de cambios.
+ */
 import { appointmentsRepository } from './repository.js';
 import { servicesRepository } from '../services/repository.js';
 import { patientsRepository } from '../patients/repository.js';

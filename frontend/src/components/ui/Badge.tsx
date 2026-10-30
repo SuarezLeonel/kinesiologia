@@ -1,3 +1,7 @@
+/**
+ * @file Badge.tsx
+ * @description Componente de etiqueta visual para estados de turnos, asistencias y roles.
+ */
 import React from 'react';
 import { View, Text, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import { useAppTheme } from '../../theme/ThemeContext';

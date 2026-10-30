@@ -1,3 +1,8 @@
+/**
+ * @file controller.js
+ * @module patients
+ * @description Controlador HTTP para el padrón y ficha de pacientes del consultorio.
+ */
 import { patientsService } from './service.js';
 import { sendSuccess } from '../../utils/response.js';
 

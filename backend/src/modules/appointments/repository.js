@@ -1,3 +1,9 @@
+/**
+ * @file repository.js
+ * @module appointments
+ * @description Capa de acceso a datos para la agenda de turnos en MySQL / TiDB.
+ * Ejecuta consultas parametrizadas para evitar solapamientos, filtrar por profesional y actualizar estados.
+ */
 import { query, executeTransaction } from '../../config/database.js';
 import { ConflictError } from '../../utils/errors.js';
 

@@ -1,3 +1,8 @@
+/**
+ * @file controller.js
+ * @module services
+ * @description Controlador HTTP para el catálogo de servicios clínicos y tarifario del consultorio.
+ */
 import { servicesService } from './service.js';
 import { sendSuccess } from '../../utils/response.js';
 

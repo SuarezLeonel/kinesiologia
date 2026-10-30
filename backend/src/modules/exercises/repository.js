@@ -1,3 +1,8 @@
+/**
+ * @file repository.js
+ * @module exercises
+ * @description Acceso a datos para el catálogo clínico de ejercicios, categorías y parámetros por defecto.
+ */
 import { query } from '../../config/database.js';
 
 function mapExerciseRow(row) {

@@ -1,3 +1,9 @@
+/**
+ * @file schema.js
+ * @module appointments
+ * @description Esquemas de validación Zod para las operaciones del módulo de turnos.
+ * Valida formatos de fecha ISO, identificadores numéricos y estados de asistencia permitidos.
+ */
 import { z } from 'zod';
 
 export const appointmentSearchSchema = z.object({

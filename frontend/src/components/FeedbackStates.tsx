@@ -1,3 +1,7 @@
+/**
+ * @file FeedbackStates.tsx
+ * @description Componentes de feedback visual accesibles para estados de carga, vacío y error (reemplazo de alert).
+ */
 import React from 'react';
 import { View, Text, ActivityIndicator, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import { useAppTheme } from '../theme/ThemeContext';

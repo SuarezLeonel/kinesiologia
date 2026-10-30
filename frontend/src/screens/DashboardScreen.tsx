@@ -1,3 +1,7 @@
+/**
+ * @file DashboardScreen.tsx
+ * @description Pantalla principal de resumen diario: turnos del día y bloque de caja modular según rol.
+ */
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, Platform } from 'react-native';
 import { apiClient } from '../api/client';

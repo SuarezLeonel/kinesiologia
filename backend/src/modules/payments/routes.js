@@ -1,3 +1,8 @@
+/**
+ * @file routes.js
+ * @module payments
+ * @description Rutas para módulo de cobros y caja (/api/v1/payments). Bloqueado a Kinesiólogos con 403 Forbidden.
+ */
 import { Router } from 'express';
 import { paymentsController } from './controller.js';
 import { authenticateToken, authorizeRoles, authorizePermission } from '../../middlewares/auth.js';

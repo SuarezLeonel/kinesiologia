@@ -1,3 +1,7 @@
+/**
+ * @file colors.ts
+ * @description Paleta de colores accesible para modo claro y oscuro del consultorio kinésico.
+ */
 export interface SemanticColor {
   text: string;
   bg: string;

@@ -1,3 +1,11 @@
+/**
+ * @file app.js
+ * @description Configuración principal de la aplicación Express para KinesioGestión.
+ * Define middlewares globales de seguridad (Helmet, CORS, Rate Limit),
+ * regla de negocio estricta (bloqueo de GET a rutas de negocio), documentación Swagger UI,
+ * montaje modular de routers bajo el prefijo /api/v1 y manejador de errores unificado.
+ */
+
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';

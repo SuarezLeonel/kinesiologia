@@ -1,3 +1,8 @@
+/**
+ * @file repository.js
+ * @module treatments
+ * @description Acceso a datos para planes de tratamiento, versiones de rutinas y ejercicios ejecutados en box.
+ */
 import { query, executeTransaction } from '../../config/database.js';
 
 export class TreatmentsRepository {

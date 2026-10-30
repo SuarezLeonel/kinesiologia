@@ -1,3 +1,7 @@
+/**
+ * @file InsuranceSelector.tsx
+ * @description Selector de obras sociales y coberturas médicas para pacientes.
+ */
 import React, { useState } from 'react';
 import {
   View,

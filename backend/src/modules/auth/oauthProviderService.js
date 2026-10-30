@@ -1,3 +1,9 @@
+/**
+ * @file oauthProviderService.js
+ * @module auth
+ * @description Servicio de integración con proveedores de identidad OAuth 2.0 / OpenID Connect.
+ * Canjea códigos de autorización y obtiene perfiles de Google, GitHub y Facebook.
+ */
 import crypto from 'crypto';
 import { config } from '../../config/env.js';
 import { UnauthorizedError } from '../../utils/errors.js';

@@ -1,3 +1,7 @@
+/**
+ * @file RegisterScreen.tsx
+ * @description Pantalla de registro de nuevos usuarios con validaciones de formulario Zod.
+ */
 import React, { useState } from 'react';
 import {
   View,

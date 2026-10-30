@@ -1,3 +1,9 @@
+/**
+ * @file routes.js
+ * @module auth
+ * @description Rutas de autenticación pública y privada (/api/v1/auth).
+ * Configura rate limiters específicos por IP/Email y endpoints de OAuth y recuperación.
+ */
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { authController } from './controller.js';

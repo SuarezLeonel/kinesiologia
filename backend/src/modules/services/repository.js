@@ -1,3 +1,8 @@
+/**
+ * @file repository.js
+ * @module services
+ * @description Acceso a datos para prestaciones kinésicas, duraciones sugeridas y precios vigentes.
+ */
 import { query } from '../../config/database.js';
 
 export class ServicesRepository {

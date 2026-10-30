@@ -1,3 +1,8 @@
+/**
+ * @file schema.js
+ * @module payments
+ * @description Esquemas Zod para validación de pagos, medios de pago y creación/consumo de paquetes.
+ */
 import { z } from 'zod';
 
 export const paymentSearchSchema = z.object({

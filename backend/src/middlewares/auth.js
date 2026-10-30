@@ -1,8 +1,24 @@
+/**
+ * @file auth.js
+ * @description Middlewares de autenticación y autorización (RBAC) para la API de KinesioGestión.
+ * Aplica el principio de fail-closed: verifica la firma JWT y valida directamente contra
+ * la base de datos el rol, estado activo y permisos del usuario en cada petición.
+ */
+
 import jwt from 'jsonwebtoken';
 import { config } from '../config/env.js';
 import { UnauthorizedError, ForbiddenError } from '../utils/errors.js';
 import { authRepository } from '../modules/auth/repository.js';
 
+/**
+ * Middleware para validar el token JWT de acceso (`Bearer <token>`).
+ * Verifica que el token sea de tipo 'access', no haya expirado y pertenezca a un usuario activo.
+ * Adjunta al objeto `req.user` los datos del usuario autenticado (id, rol, permisos).
+ * @param {import('express').Request} req - Solicitud Express.
+ * @param {import('express').Response} res - Respuesta Express.
+ * @param {import('express').NextFunction} next - Siguiente middleware.
+ * @throws {UnauthorizedError} Si el token falta, expiró, es inválido o el usuario está inactivo.
+ */
 export async function authenticateToken(req, res, next) {
   try {
     const authHeader = req.headers['authorization'];
@@ -44,6 +60,11 @@ export async function authenticateToken(req, res, next) {
   }
 }
 
+/**
+ * Genera un middleware que restringe el acceso exclusivamente a los roles indicados.
+ * @param {...string} allowedRoles - Nombres de roles permitidos (ej. 'admin', 'kinesiologist', 'receptionist', 'patient').
+ * @returns {import('express').RequestHandler}
+ */
 export function authorizeRoles(...allowedRoles) {
   return (req, res, next) => {
     if (!req.user) {
@@ -56,6 +77,11 @@ export function authorizeRoles(...allowedRoles) {
   };
 }
 
+/**
+ * Genera un middleware que valida que el usuario posea un permiso específico en su rol.
+ * @param {string} permissionCode - Código único del permiso (ej. 'CLINICAL_RECORDS_WRITE').
+ * @returns {import('express').RequestHandler}
+ */
 export function authorizePermission(permissionCode) {
   return (req, res, next) => {
     if (!req.user) {
