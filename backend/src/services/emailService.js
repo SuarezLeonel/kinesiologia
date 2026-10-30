@@ -1,13 +1,14 @@
 /**
  * @file emailService.js
  * @description Servicio unificado de despacho de correos electrónicos transaccionales para KinesioGestión.
- * Soporta envío de alta disponibilidad mediante API HTTP (Resend / Brevo) sobre puerto 443
+ * Soporta envío de alta disponibilidad mediante API HTTP (Gmail API / Resend / Brevo) sobre puerto 443
  * para compatibilidad con entornos cloud (Render, Vercel), con fallback a SMTP tradicional (Nodemailer)
  * y transportador JSON para entornos de testing automatizado.
  */
 
 import nodemailer from 'nodemailer';
 import { config } from '../config/env.js';
+import { isGmailApiConfigured, sendWithGmailApi } from './gmailApiSender.js';
 
 /**
  * Servicio de gestión de envío de emails.
@@ -120,8 +121,19 @@ class EmailService {
         `
       };
 
-      // Las APIs HTTP reales (Resend/Brevo) no se invocan en pruebas automatizadas (NODE_ENV=test o node --test)
+      // Las APIs HTTP reales (Gmail/Resend/Brevo) no se invocan en pruebas automatizadas (NODE_ENV=test o node --test)
       const isAutomatedTest = config.nodeEnv === 'test' || Boolean(process.env.NODE_TEST_CONTEXT);
+
+      // 0. Envío por Gmail API (HTTPS, puerto 443): sale desde la cuenta Gmail configurada, sin dominio propio
+      if (isGmailApiConfigured() && !isAutomatedTest) {
+        try {
+          const result = await sendWithGmailApi(mailOptions);
+          console.log('[EMAIL] Correo enviado exitosamente vía Gmail API (id:', result.messageId, ')');
+          return result;
+        } catch (apiErr) {
+          console.warn('[EMAIL] Fallo al enviar con Gmail API:', apiErr.message);
+        }
+      }
 
       // 1. Envío por API HTTP (Resend) si está configurado (Puerto 443 - HTTPS estándar, nunca bloqueado en Render)
       if (config.email.resendApiKey && !isAutomatedTest) {

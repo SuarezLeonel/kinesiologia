@@ -63,7 +63,14 @@ export const config = {
     appUrl: process.env.APP_URL || 'http://localhost:8081',
     resendApiKey: process.env.RESEND_API_KEY || null,
     resendFrom: process.env.RESEND_FROM || null,
-    brevoApiKey: process.env.BREVO_API_KEY || null
+    brevoApiKey: process.env.BREVO_API_KEY || null,
+    // Gmail API (HTTPS, puerto 443): envía desde una cuenta Gmail sin dominio propio
+    gmail: {
+      clientId: process.env.GMAIL_CLIENT_ID || null,
+      clientSecret: process.env.GMAIL_CLIENT_SECRET || null,
+      refreshToken: process.env.GMAIL_REFRESH_TOKEN || null,
+      sender: process.env.GMAIL_SENDER || process.env.SMTP_USER || null
+    }
   },
   oauth: {
     google: {
