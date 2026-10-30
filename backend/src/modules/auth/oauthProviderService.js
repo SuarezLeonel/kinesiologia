@@ -353,7 +353,10 @@ export class OAuthProviderService {
           if (parsed?.error?.message) {
             detail = `: ${parsed.error.message}`;
           }
-        } catch {}
+        } catch {
+          // Respuesta de error no JSON: se informa sin detalle adicional del proveedor
+          detail = '';
+        }
         throw new UnauthorizedError(`Error al canjear el código de autorización con Facebook${detail}`);
       }
     }

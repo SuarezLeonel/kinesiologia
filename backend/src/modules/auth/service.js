@@ -188,25 +188,28 @@ export class AuthService {
     const emailResult = await emailService.sendPasswordResetEmail({
       to: user.email,
       name: `${user.name} ${user.last_name || ''}`.trim(),
-      resetCode,
-      resetToken
+      resetCode
     });
+
+    // Seguridad: el código/token solo se devuelven en la respuesta en pruebas automatizadas o con
+    // EXPOSE_RESET_CODE=true (desarrollo local). Nunca en producción: se entrega solo por email.
+    const exposeResetSecrets = config.nodeEnv === 'test'
+      || Boolean(process.env.NODE_TEST_CONTEXT)
+      || process.env.EXPOSE_RESET_CODE === 'true';
 
     return {
       sent: true,
       emailSent: emailResult.success,
-      previewUrl: emailResult.previewUrl,
-      // Solo si el correo falló en enviarse, devolver el código como salvavidas de contingencia
-      previewCode: !emailResult.success ? resetCode : undefined,
-      // Para pruebas automatizadas de integración
-      resetToken: config.nodeEnv !== 'production' ? resetToken : undefined
+      previewUrl: exposeResetSecrets ? emailResult.previewUrl : undefined,
+      previewCode: exposeResetSecrets ? resetCode : undefined,
+      resetToken: exposeResetSecrets ? resetToken : undefined
     };
   }
 
   async resetPassword({ token, newPassword, ipAddress = null }) {
     const cleanToken = String(token || '').trim();
-    let userId = null;
-    let tokenHashToInvalidate = null;
+    let userId;
+    let tokenHashToInvalidate;
 
     // Caso A: Código de 6 dígitos numéricos
     if (/^\d{6}$/.test(cleanToken)) {
@@ -827,7 +830,7 @@ export class AuthService {
         [resolvedEmail]
       );
 
-      let patientId = null;
+      let patientId;
       if (unlinkedByEmail.length === 1 && pRows.length === 1 && /^(P-|G-|GH-|M-|F-|A-|S-)/.test(String(pRows[0].dni || ''))) {
         await conn.execute('UPDATE appointments SET patient_id = ? WHERE patient_id = ?', [unlinkedByEmail[0].id, pRows[0].id]);
         await conn.execute('UPDATE patients SET user_id = NULL, is_active = 0 WHERE id = ?', [pRows[0].id]);

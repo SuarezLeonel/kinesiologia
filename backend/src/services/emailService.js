@@ -77,10 +77,8 @@ class EmailService {
     }
   }
 
-  async sendPasswordResetEmail({ to, name = 'Usuario', resetCode, resetToken }) {
+  async sendPasswordResetEmail({ to, name = 'Usuario', resetCode }) {
     try {
-      const resetLink = `${config.email.appUrl}/?resetToken=${encodeURIComponent(resetToken || '')}`;
-
       const mailOptions = {
         from: config.email.from,
         to,
@@ -122,8 +120,11 @@ class EmailService {
         `
       };
 
+      // Las APIs HTTP reales (Resend/Brevo) no se invocan en pruebas automatizadas (NODE_ENV=test o node --test)
+      const isAutomatedTest = config.nodeEnv === 'test' || Boolean(process.env.NODE_TEST_CONTEXT);
+
       // 1. Envío por API HTTP (Resend) si está configurado (Puerto 443 - HTTPS estándar, nunca bloqueado en Render)
-      if (config.email.resendApiKey && config.nodeEnv !== 'test') {
+      if (config.email.resendApiKey && !isAutomatedTest) {
         try {
           // Resend en cuentas de prueba exige enviar desde onboarding@resend.dev a menos que se configure un dominio propio verificado
           const fromSender = config.email.resendFrom
@@ -156,7 +157,7 @@ class EmailService {
       }
 
       // 2. Envío por API HTTP (Brevo) si está configurado (Puerto 443)
-      if (config.email.brevoApiKey && config.nodeEnv !== 'test') {
+      if (config.email.brevoApiKey && !isAutomatedTest) {
         try {
           const res = await fetch('https://api.brevo.com/v3/smtp/email', {
             method: 'POST',
