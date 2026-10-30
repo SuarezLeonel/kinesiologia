@@ -142,7 +142,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
     provider: SocialProvider;
     email: string;
     registrationToken?: string;
-    tokens: { idToken?: string; accessToken?: string; code?: string; redirectUri?: string };
+    tokens: { idToken?: string; accessToken?: string; code?: string; codeVerifier?: string; redirectUri?: string };
     password: string;
     error: string | null;
   } | null>(null);
@@ -152,7 +152,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
     visible: boolean;
     provider: SocialProvider;
     registrationToken?: string;
-    tokens: { idToken?: string; accessToken?: string; code?: string; redirectUri?: string };
+    tokens: { idToken?: string; accessToken?: string; code?: string; codeVerifier?: string; redirectUri?: string };
     email: string;
     error: string | null;
   } | null>(null);
@@ -163,7 +163,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
     provider: SocialProvider;
     email: string;
     registrationToken?: string;
-    tokens: { idToken?: string; accessToken?: string; code?: string; redirectUri?: string };
+    tokens: { idToken?: string; accessToken?: string; code?: string; codeVerifier?: string; redirectUri?: string };
     firstName: string;
     lastName: string;
     dni: string;
@@ -408,7 +408,8 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
           redirectUri: oauthRedirectUri,
           scopes: ['public_profile', 'email'],
           responseType: AuthSession.ResponseType.Code,
-          state: statePayload
+          state: statePayload,
+          usePKCE: false
         });
 
         const result = await executeAuthSession(authRequest, discovery);
@@ -427,8 +428,10 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
           const rawCode = result.params.code;
           const code = rawCode ? String(rawCode).replace(/#.*$/, '') : undefined;
           const accessToken = result.params.access_token;
+          const codeVerifier = authRequest.codeVerifier || undefined;
           await processSocialAuthResponse(provider, {
             code,
+            codeVerifier,
             accessToken,
             redirectUri: oauthRedirectUri
           });
@@ -447,7 +450,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
    */
   const processSocialAuthResponse = async (
     provider: SocialProvider,
-    tokens: { idToken?: string; accessToken?: string; code?: string; redirectUri?: string },
+    tokens: { idToken?: string; accessToken?: string; code?: string; codeVerifier?: string; redirectUri?: string },
     options: { existingPassword?: string; confirmedEmail?: string } = {}
   ) => {
     const res = await socialLogin({

@@ -45,6 +45,7 @@ export interface SocialLoginPayload {
   idToken?: string;
   accessToken?: string;
   code?: string;
+  codeVerifier?: string;
   registrationToken?: string;
   redirectUri?: string;
   existingPassword?: string;

@@ -308,7 +308,7 @@ export class OAuthProviderService {
    * @param {{ accessToken?: string, code?: string, redirectUri?: string }} params
    * @returns {Promise<{ provider: 'facebook', providerUserId: string, email: string|null, emailVerified: boolean, firstName: string, lastName: string, avatarUrl: string|null }>}
    */
-  async verifyFacebook({ accessToken, code, redirectUri }) {
+  async verifyFacebook({ accessToken, code, codeVerifier, redirectUri }) {
     let token = accessToken;
 
     if (!token && code) {
@@ -328,6 +328,10 @@ export class OAuthProviderService {
         code: cleanCode,
         redirect_uri: effectiveRedirectUri
       });
+
+      if (codeVerifier) {
+        fbTokenParams.set('code_verifier', String(codeVerifier).trim());
+      }
 
       const fbTokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?${fbTokenParams.toString()}`;
       const tokenRes = await fetch(fbTokenUrl);
@@ -393,7 +397,7 @@ export class OAuthProviderService {
    * Valida cualquier token según el proveedor especificado.
    * @param {{ provider: 'google'|'github'|'microsoft'|'facebook', idToken?: string, accessToken?: string, code?: string, redirectUri?: string }} params
    */
-  async verifyProvider({ provider, idToken, accessToken, code, redirectUri }) {
+  async verifyProvider({ provider, idToken, accessToken, code, codeVerifier, redirectUri }) {
     const normalized = String(provider || '').toLowerCase();
     switch (normalized) {
       case 'google':
@@ -403,7 +407,7 @@ export class OAuthProviderService {
       case 'microsoft':
         return await this.verifyMicrosoft({ accessToken, idToken });
       case 'facebook':
-        return await this.verifyFacebook({ accessToken: accessToken || idToken, code, redirectUri });
+        return await this.verifyFacebook({ accessToken: accessToken || idToken, code, codeVerifier, redirectUri });
       default:
         throw new UnauthorizedError(`Proveedor de autenticación no soportado: ${provider}`);
     }

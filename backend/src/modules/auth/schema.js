@@ -42,6 +42,7 @@ export const socialLoginSchema = z.object({
     idToken: z.string().min(1).optional(),
     accessToken: z.string().min(1).optional(),
     code: z.string().min(1).optional(),
+    codeVerifier: z.string().optional(),
     registrationToken: z.string().min(1).optional(),
     redirectUri: z.string().optional(),
     existingPassword: z.string().min(1).optional(),

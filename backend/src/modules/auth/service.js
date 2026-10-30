@@ -489,7 +489,7 @@ export class AuthService {
 </html>`;
   }
 
-  async verifySocialIdentity({ provider, idToken, accessToken, code, registrationToken, redirectUri, confirmedEmail }) {
+  async verifySocialIdentity({ provider, idToken, accessToken, code, codeVerifier, registrationToken, redirectUri, confirmedEmail }) {
     const normalizedProvider = String(provider || 'google').toLowerCase();
 
     // 0. Si viene un registrationToken temporal firmado por nuestro propio backend (durante completado de perfil o vinculación)
@@ -523,6 +523,7 @@ export class AuthService {
         idToken,
         accessToken,
         code,
+        codeVerifier,
         redirectUri
       });
     }
@@ -569,6 +570,7 @@ export class AuthService {
     idToken,
     accessToken,
     code,
+    codeVerifier = null,
     registrationToken = null,
     redirectUri = null,
     existingPassword = null,
@@ -599,6 +601,7 @@ export class AuthService {
       idToken,
       accessToken,
       code,
+      codeVerifier,
       registrationToken,
       redirectUri,
       confirmedEmail
