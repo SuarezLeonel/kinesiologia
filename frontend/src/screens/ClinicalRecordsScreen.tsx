@@ -21,6 +21,8 @@ import { spacing, radii, typography } from '../theme/tokens';
 import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper } from '../components/ui';
 import { LoadingState, ErrorState, EmptyState, AccessDeniedState } from '../components/FeedbackStates';
 import { PatientRoutinesModal } from '../components/treatments/PatientRoutinesModal';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 
 const clinicalRecordSchema = z.object({
   patient_id: z.coerce.number().positive('Debe seleccionar un paciente'),
@@ -195,7 +197,23 @@ export const ClinicalRecordsScreen = () => {
           setDownloadFeedback(`PDF descargado: ${actualFilename}`);
           setTimeout(() => setDownloadFeedback(null), 5000);
         } else {
-          setDownloadFeedback(`PDF médico generado: ${actualFilename}`);
+          // Entorno móvil (Expo Go y APK nativo en Android/iOS):
+          // Guardar el binario base64 en almacenamiento local y lanzar la hoja nativa para abrir/guardar/compartir
+          const fileUri = `${FileSystem.documentDirectory}${actualFilename}`;
+          await FileSystem.writeAsStringAsync(fileUri, pdfBase64, {
+            encoding: FileSystem.EncodingType.Base64
+          });
+
+          if (await Sharing.isAvailableAsync()) {
+            await Sharing.shareAsync(fileUri, {
+              mimeType: 'application/pdf',
+              dialogTitle: 'Descargar o Guardar Historia Clínica',
+              UTI: 'com.adobe.pdf'
+            });
+            setDownloadFeedback(`PDF listo para guardar o abrir: ${actualFilename}`);
+          } else {
+            setDownloadFeedback(`PDF guardado localmente en el dispositivo: ${actualFilename}`);
+          }
           setTimeout(() => setDownloadFeedback(null), 5000);
         }
       } else {
