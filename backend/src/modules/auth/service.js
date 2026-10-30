@@ -191,8 +191,8 @@ export class AuthService {
       sent: true,
       emailSent: emailResult.success,
       previewUrl: emailResult.previewUrl,
-      // Si el correo no pudo enviarse por SMTP o no hay servidor configurado, devolver el código de 6 dígitos para no bloquear al usuario
-      previewCode: (!emailResult.success || !config.email.host || config.nodeEnv !== 'production') ? resetCode : undefined,
+      // Si el correo no pudo enviarse (o estamos en desarrollo/pruebas), devolver el código de 6 dígitos para no bloquear al usuario
+      previewCode: (!emailResult.success || config.nodeEnv !== 'production') ? resetCode : undefined,
       // Para pruebas automatizadas de integración
       resetToken: config.nodeEnv !== 'production' ? resetToken : undefined
     };

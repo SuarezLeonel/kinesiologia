@@ -68,7 +68,6 @@ class EmailService {
 
   async sendPasswordResetEmail({ to, name = 'Usuario', resetCode, resetToken }) {
     try {
-      const transporter = await this.getTransporter();
       const resetLink = `${config.email.appUrl}/?resetToken=${encodeURIComponent(resetToken || '')}`;
 
       const mailOptions = {
@@ -111,6 +110,71 @@ class EmailService {
           </div>
         `
       };
+
+      // 1. Envío por API HTTP (Resend) si está configurado (Puerto 443 - HTTPS estándar, nunca bloqueado en Render)
+      if (config.email.resendApiKey && config.nodeEnv !== 'test') {
+        try {
+          const fromSender = config.email.from && (config.email.from.includes('@resend.dev') || !config.email.from.includes('kinesiologia.com'))
+            ? config.email.from
+            : 'KinesioGestión <onboarding@resend.dev>';
+
+          const res = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${config.email.resendApiKey}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              from: fromSender,
+              to: [to],
+              subject: mailOptions.subject,
+              text: mailOptions.text,
+              html: mailOptions.html
+            }),
+            signal: AbortSignal.timeout(6000)
+          });
+          const resData = await res.json().catch(() => ({}));
+          if (res.ok) {
+            console.log('[EMAIL] Correo enviado exitosamente vía Resend API (id:', resData.id, ')');
+            return { success: true, messageId: resData.id };
+          }
+          console.warn('[EMAIL] Fallo al enviar con Resend API:', resData);
+        } catch (apiErr) {
+          console.warn('[EMAIL] Error de conexión con Resend API:', apiErr.message);
+        }
+      }
+
+      // 2. Envío por API HTTP (Brevo) si está configurado (Puerto 443)
+      if (config.email.brevoApiKey && config.nodeEnv !== 'test') {
+        try {
+          const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+            method: 'POST',
+            headers: {
+              'api-key': config.email.brevoApiKey,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              sender: { name: 'KinesioGestión', email: config.email.user || 'no-reply@kinesiologia.com' },
+              to: [{ email: to, name }],
+              subject: mailOptions.subject,
+              textContent: mailOptions.text,
+              htmlContent: mailOptions.html
+            }),
+            signal: AbortSignal.timeout(6000)
+          });
+          const resData = await res.json().catch(() => ({}));
+          if (res.ok) {
+            console.log('[EMAIL] Correo enviado exitosamente vía Brevo API (id:', resData.messageId, ')');
+            return { success: true, messageId: resData.messageId };
+          }
+          console.warn('[EMAIL] Fallo al enviar con Brevo API:', resData);
+        } catch (apiErr) {
+          console.warn('[EMAIL] Error de conexión con Brevo API:', apiErr.message);
+        }
+      }
+
+      // 3. Envío SMTP tradicional (Nodemailer / Gmail)
+      const transporter = await this.getTransporter();
 
       const info = await Promise.race([
         transporter.sendMail(mailOptions),

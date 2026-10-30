@@ -47,7 +47,9 @@ export const config = {
     user: process.env.SMTP_USER || null,
     pass: process.env.SMTP_PASS || null,
     from: process.env.SMTP_FROM || '"KinesioGestión" <no-reply@kinesiologia.com>',
-    appUrl: process.env.APP_URL || 'http://localhost:8081'
+    appUrl: process.env.APP_URL || 'http://localhost:8081',
+    resendApiKey: process.env.RESEND_API_KEY || null,
+    brevoApiKey: process.env.BREVO_API_KEY || null
   },
   oauth: {
     google: {
