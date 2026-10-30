@@ -316,7 +316,20 @@ export class OAuthProviderService {
         throw new UnauthorizedError('Credenciales de Facebook no configuradas en el servidor');
       }
 
-      const fbTokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${config.oauth.facebook.appId}&client_secret=${config.oauth.facebook.appSecret}&code=${encodeURIComponent(code)}&redirect_uri=${encodeURIComponent(redirectUri || '')}`;
+      // Limpiar el código en caso de que Facebook o el navegador hayan adjuntado fragmentos como #_=_
+      const cleanCode = String(code).trim().replace(/#.*$/, '');
+      const effectiveRedirectUri = (redirectUri && redirectUri.trim())
+        ? redirectUri.trim()
+        : 'https://kinesiologia-backend.onrender.com/api/v1/auth/oauth/callback';
+
+      const fbTokenParams = new URLSearchParams({
+        client_id: config.oauth.facebook.appId,
+        client_secret: config.oauth.facebook.appSecret,
+        code: cleanCode,
+        redirect_uri: effectiveRedirectUri
+      });
+
+      const fbTokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?${fbTokenParams.toString()}`;
       const tokenRes = await fetch(fbTokenUrl);
       if (tokenRes.ok) {
         const tokenData = await tokenRes.json();
@@ -324,7 +337,14 @@ export class OAuthProviderService {
       } else {
         const errText = await tokenRes.text();
         console.error('Facebook token exchange error:', errText);
-        throw new UnauthorizedError('Error al canjear el código de autorización con Facebook');
+        let detail = '';
+        try {
+          const parsed = JSON.parse(errText);
+          if (parsed?.error?.message) {
+            detail = `: ${parsed.error.message}`;
+          }
+        } catch {}
+        throw new UnauthorizedError(`Error al canjear el código de autorización con Facebook${detail}`);
       }
     }
 

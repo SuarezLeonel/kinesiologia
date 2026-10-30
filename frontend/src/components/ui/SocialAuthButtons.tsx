@@ -424,7 +424,8 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
         }
 
         if (result.type === 'success' && result.params) {
-          const code = result.params.code;
+          const rawCode = result.params.code;
+          const code = rawCode ? String(rawCode).replace(/#.*$/, '') : undefined;
           const accessToken = result.params.access_token;
           await processSocialAuthResponse(provider, {
             code,
