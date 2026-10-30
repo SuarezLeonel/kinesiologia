@@ -68,14 +68,14 @@ test('OAuth 3. Registro social nuevo solicita datos de perfil y crea exclusivame
   assert.strictEqual(step1.status, 200);
   assert.strictEqual(step1.body.success, true);
   assert.strictEqual(step1.body.data.requiresProfileCompletion, true);
+  assert.ok(step1.body.data.registrationToken, 'Debe devolver un registrationToken firmado');
 
-  // Paso 2: Con datos de perfil (nombre, apellido, DNI, teléfono, obra social), finaliza el registro
+  // Paso 2: Con registrationToken y datos de perfil (nombre, apellido, DNI, teléfono, obra social), finaliza el registro sin requerir tokens externos de un solo uso
   const step2 = await request(app)
     .post('/api/v1/auth/social')
     .send({
       provider: 'google',
-      idToken: `oauth_sim_google_${Date.now()}`,
-      confirmedEmail: testEmail,
+      registrationToken: step1.body.data.registrationToken,
       firstName: 'Lucía',
       lastName: 'Gómez',
       dni: `DNI-${Date.now().toString().slice(-6)}`,

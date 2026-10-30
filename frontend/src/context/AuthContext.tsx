@@ -45,6 +45,7 @@ export interface SocialLoginPayload {
   idToken?: string;
   accessToken?: string;
   code?: string;
+  registrationToken?: string;
   redirectUri?: string;
   existingPassword?: string;
   confirmedEmail?: string;
@@ -63,6 +64,7 @@ export interface SocialLoginResult {
   requiresLinkingConfirmation?: boolean;
   requiresEmail?: boolean;
   requiresProfileCompletion?: boolean;
+  registrationToken?: string;
   firstName?: string;
   lastName?: string;
   email?: string;
@@ -251,6 +253,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return {
             success: false,
             requiresLinkingConfirmation: true,
+            registrationToken: data.registrationToken,
             email: data.email,
             provider: data.provider,
             message: data.message
@@ -262,6 +265,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return {
             success: false,
             requiresProfileCompletion: true,
+            registrationToken: data.registrationToken,
             email: data.email,
             provider: data.provider,
             firstName: data.firstName,
@@ -275,6 +279,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return {
             success: false,
             requiresEmail: true,
+            registrationToken: data.registrationToken,
             provider: data.provider,
             message: data.message
           };

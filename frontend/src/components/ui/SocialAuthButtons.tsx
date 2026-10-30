@@ -141,6 +141,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
     visible: boolean;
     provider: SocialProvider;
     email: string;
+    registrationToken?: string;
     tokens: { idToken?: string; accessToken?: string; code?: string; redirectUri?: string };
     password: string;
     error: string | null;
@@ -150,6 +151,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
   const [missingEmailState, setMissingEmailState] = useState<{
     visible: boolean;
     provider: SocialProvider;
+    registrationToken?: string;
     tokens: { idToken?: string; accessToken?: string; code?: string; redirectUri?: string };
     email: string;
     error: string | null;
@@ -160,6 +162,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
     visible: boolean;
     provider: SocialProvider;
     email: string;
+    registrationToken?: string;
     tokens: { idToken?: string; accessToken?: string; code?: string; redirectUri?: string };
     firstName: string;
     lastName: string;
@@ -458,6 +461,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
         visible: true,
         provider,
         email: res.email,
+        registrationToken: res.registrationToken,
         tokens,
         password: '',
         error: null
@@ -470,6 +474,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
         visible: true,
         provider,
         email: res.email,
+        registrationToken: res.registrationToken,
         tokens,
         firstName: initialProfileData?.firstName || res.firstName || '',
         lastName: initialProfileData?.lastName || res.lastName || '',
@@ -488,6 +493,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
       setMissingEmailState({
         visible: true,
         provider,
+        registrationToken: res.registrationToken,
         tokens,
         email: '',
         error: null
@@ -514,7 +520,8 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
     try {
       const res = await socialLogin({
         provider: linkingState.provider,
-        ...linkingState.tokens,
+        registrationToken: linkingState.registrationToken,
+        ...(linkingState.registrationToken ? {} : linkingState.tokens),
         existingPassword: linkingState.password
       });
 
@@ -577,7 +584,8 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
     try {
       const res = await socialLogin({
         provider: profileCompletionState.provider,
-        ...profileCompletionState.tokens,
+        registrationToken: profileCompletionState.registrationToken,
+        ...(profileCompletionState.registrationToken ? {} : profileCompletionState.tokens),
         confirmedEmail: profileCompletionState.email,
         firstName: trimmedFirstName,
         lastName: trimmedLastName,
@@ -621,7 +629,8 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
     try {
       const res = await socialLogin({
         provider: missingEmailState.provider,
-        ...missingEmailState.tokens,
+        registrationToken: missingEmailState.registrationToken,
+        ...(missingEmailState.registrationToken ? {} : missingEmailState.tokens),
         confirmedEmail: missingEmailState.email.trim()
       });
 
@@ -633,6 +642,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
           visible: true,
           provider: missingEmailState.provider,
           email: res.email,
+          registrationToken: res.registrationToken || missingEmailState.registrationToken,
           tokens: missingEmailState.tokens,
           firstName: initialProfileData?.firstName || res.firstName || '',
           lastName: initialProfileData?.lastName || res.lastName || '',
@@ -650,6 +660,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
           visible: true,
           provider: missingEmailState.provider,
           email: res.email,
+          registrationToken: res.registrationToken || missingEmailState.registrationToken,
           tokens: missingEmailState.tokens,
           password: '',
           error: null

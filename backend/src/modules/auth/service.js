@@ -489,8 +489,29 @@ export class AuthService {
 </html>`;
   }
 
-  async verifySocialIdentity({ provider, idToken, accessToken, code, redirectUri, confirmedEmail }) {
+  async verifySocialIdentity({ provider, idToken, accessToken, code, registrationToken, redirectUri, confirmedEmail }) {
     const normalizedProvider = String(provider || 'google').toLowerCase();
+
+    // 0. Si viene un registrationToken temporal firmado por nuestro propio backend (durante completado de perfil o vinculación)
+    if (registrationToken) {
+      try {
+        const decoded = jwt.verify(registrationToken, config.jwt.accessSecret);
+        if (decoded && decoded.type === 'social_registration') {
+          return {
+            provider: decoded.provider || normalizedProvider,
+            providerUserId: String(decoded.providerUserId),
+            email: decoded.email ? String(decoded.email).toLowerCase().trim() : null,
+            emailVerified: true,
+            firstName: decoded.firstName || 'Paciente',
+            lastName: decoded.lastName || 'Social',
+            avatarUrl: decoded.avatarUrl || null
+          };
+        }
+      } catch {
+        throw new UnauthorizedError('El token de registro temporal ha expirado o no es válido. Por favor inicie sesión nuevamente.');
+      }
+    }
+
     const isSimulatedToken = (idToken && (idToken.startsWith('google_demo_') || idToken.startsWith('social_dev_') || idToken.startsWith('oauth_sim_'))) ||
       (accessToken && (accessToken.startsWith('sim_') || accessToken.startsWith('oauth_sim_'))) ||
       (code && (code.startsWith('sim_') || code.startsWith('oauth_sim_')));
@@ -548,6 +569,7 @@ export class AuthService {
     idToken,
     accessToken,
     code,
+    registrationToken = null,
     redirectUri = null,
     existingPassword = null,
     confirmedEmail = null,
@@ -577,6 +599,7 @@ export class AuthService {
       idToken,
       accessToken,
       code,
+      registrationToken,
       redirectUri,
       confirmedEmail
     });
@@ -586,8 +609,22 @@ export class AuthService {
 
     // Manejar caso donde el proveedor (ej. Facebook) no haya suministrado correo
     if (!resolvedEmail && !confirmedEmail) {
+      const regToken = jwt.sign(
+        {
+          type: 'social_registration',
+          provider: normalizedProvider,
+          providerUserId: sub,
+          email: null,
+          firstName: verified.firstName,
+          lastName: verified.lastName
+        },
+        config.jwt.accessSecret,
+        { expiresIn: '15m' }
+      );
+
       return {
         requiresEmail: true,
+        registrationToken: regToken,
         provider: normalizedProvider,
         providerUserId: sub,
         message: `${providerLabel} no proporcionó un correo electrónico verificado. Por favor complete su correo electrónico para continuar.`
@@ -641,8 +678,22 @@ export class AuthService {
           // una cuenta externa únicamente porque coincida el correo. Exige una verificación segura y una acción explícita de vinculación."
           if (existingUser.password_hash) {
             if (!existingPassword) {
+              const regToken = jwt.sign(
+                {
+                  type: 'social_registration',
+                  provider: normalizedProvider,
+                  providerUserId: sub,
+                  email: resolvedEmail,
+                  firstName: verified.firstName,
+                  lastName: verified.lastName
+                },
+                config.jwt.accessSecret,
+                { expiresIn: '15m' }
+              );
+
               return {
                 requiresLinkingConfirmation: true,
+                registrationToken: regToken,
                 email: resolvedEmail,
                 provider: normalizedProvider,
                 providerUserId: sub,
@@ -666,8 +717,22 @@ export class AuthService {
           // REQUISITO: Cuando se crea una cuenta con google/github/facebook, el usuario debe escribir su nombre, apellido, DNI, teléfono, etc.
           const hasProvidedName = firstName && lastName && firstName.trim().length >= 2 && lastName.trim().length >= 2;
           if (!hasProvidedName) {
+            const regToken = jwt.sign(
+              {
+                type: 'social_registration',
+                provider: normalizedProvider,
+                providerUserId: sub,
+                email: resolvedEmail,
+                firstName: (verified.firstName && verified.firstName !== 'Paciente') ? verified.firstName : '',
+                lastName: (verified.lastName && !['Google', 'GitHub', 'Facebook', 'Microsoft', 'Social'].includes(verified.lastName)) ? verified.lastName : ''
+              },
+              config.jwt.accessSecret,
+              { expiresIn: '15m' }
+            );
+
             return {
               requiresProfileCompletion: true,
+              registrationToken: regToken,
               email: resolvedEmail,
               provider: normalizedProvider,
               providerUserId: sub,

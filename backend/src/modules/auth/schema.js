@@ -42,6 +42,7 @@ export const socialLoginSchema = z.object({
     idToken: z.string().min(1).optional(),
     accessToken: z.string().min(1).optional(),
     code: z.string().min(1).optional(),
+    registrationToken: z.string().min(1).optional(),
     redirectUri: z.string().optional(),
     existingPassword: z.string().min(1).optional(),
     confirmedEmail: z.string().email().optional(),
@@ -54,8 +55,8 @@ export const socialLoginSchema = z.object({
     insuranceProvider: z.string().optional(),
     insuranceNumber: z.string().optional(),
     address: z.string().optional()
-  }).refine((data) => Boolean(data.idToken || data.accessToken || data.code), {
-    message: 'Debe proporcionar un token de autenticación del proveedor (idToken o accessToken)'
+  }).refine((data) => Boolean(data.idToken || data.accessToken || data.code || data.registrationToken), {
+    message: 'Debe proporcionar un token de autenticación del proveedor (idToken, accessToken, code o registrationToken)'
   })
 });
 
