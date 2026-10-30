@@ -26,8 +26,8 @@ const __dirname = path.dirname(__filename);
 
 export const app = express();
 
-// Configuración de proxy para despliegues detrás de reverse proxies (Vercel, Render, AWS, Nginx)
-app.set('trust proxy', config.nodeEnv === 'production' ? 1 : false);
+// Configuración de proxy para despliegues detrás de reverse proxies (Vercel, Render, AWS, Nginx, Cloudflare)
+app.set('trust proxy', true);
 
 // Seguridad base con Helmet
 app.use(helmet());
@@ -45,6 +45,7 @@ const limiter = rateLimit({
   max: 5000,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { trustProxy: false },
   message: {
     success: false,
     error: {

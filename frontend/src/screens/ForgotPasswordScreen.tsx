@@ -47,6 +47,7 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
   const [serverMessage, setServerMessage] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [previewEmailUrl, setPreviewEmailUrl] = useState<string | null>(null);
+  const [previewCode, setPreviewCode] = useState<string | null>(null);
   const [targetEmail, setTargetEmail] = useState<string>('');
 
   // Formulario Paso 1: Solicitud de código
@@ -63,6 +64,7 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
   const {
     control: resetControl,
     handleSubmit: handleResetSubmit,
+    setValue: setResetValue,
     formState: { errors: resetErrors, isSubmitting: isResetSubmitting }
   } = useForm<ResetFormData>({
     resolver: zodResolver(resetSchema),
@@ -73,19 +75,33 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
     setServerError(null);
     setServerMessage(null);
     setPreviewEmailUrl(null);
+    setPreviewCode(null);
     setTargetEmail(data.email);
 
     try {
       const response = await apiClient.post('/auth/forgot-password', { email: data.email });
       if (response.data?.success) {
-        setServerMessage(
-          `Hemos enviado un correo a ${data.email} con su código de verificación para restablecer la contraseña.`
-        );
-
-        // Si se generó vista previa del correo (Ethereal o similar), permitir abrirlo
         const preview = response.data?.data?.previewUrl;
+        const code = response.data?.data?.previewCode;
+
         if (preview) {
           setPreviewEmailUrl(preview);
+        }
+
+        if (code) {
+          setPreviewCode(code);
+          setResetValue('token', code);
+          setServerMessage(
+            `Código de verificación: ${code}. Ingréselo a continuación junto con su nueva contraseña.`
+          );
+        } else if (response.data?.data?.emailSent) {
+          setServerMessage(
+            `Hemos enviado un correo a ${data.email} con su código de verificación de 6 dígitos.`
+          );
+        } else {
+          setServerMessage(
+            `Hemos procesado la solicitud para ${data.email}. Ingrese el código de 6 dígitos para restablecer su contraseña.`
+          );
         }
 
         setStep('reset');
@@ -93,9 +109,18 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
         setServerError(response.data?.error?.message || 'Error al procesar la solicitud.');
       }
     } catch (err: any) {
-      setServerError(
-        err.response?.data?.error?.message || 'No se pudo conectar con el servidor de autenticación.'
-      );
+      if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+        setServerError('El servidor tardó en responder. Por favor intente nuevamente en unos instantes.');
+      } else if (err.response?.status === 429) {
+        setServerError(
+          err.response?.data?.error?.message ||
+            'Demasiadas solicitudes de recuperación. Por favor espere unos minutos antes de reintentar.'
+        );
+      } else if (err.response?.data?.error?.message) {
+        setServerError(err.response.data.error.message);
+      } else {
+        setServerError('No se pudo conectar con el servidor de autenticación. Verifique su conexión a internet.');
+      }
     }
   };
 
@@ -114,10 +139,20 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
         setServerError(response.data?.error?.message || 'El código es inválido o ha expirado.');
       }
     } catch (err: any) {
-      setServerError(
-        err.response?.data?.error?.message ||
+      if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+        setServerError('El servidor tardó en responder. Por favor intente nuevamente en unos instantes.');
+      } else if (err.response?.status === 429) {
+        setServerError(
+          err.response?.data?.error?.message ||
+            'Demasiados intentos de restablecimiento. Por favor espere unos minutos antes de reintentar.'
+        );
+      } else if (err.response?.data?.error?.message) {
+        setServerError(err.response.data.error.message);
+      } else {
+        setServerError(
           'El código de recuperación es inválido, ya fue utilizado o ha expirado.'
-      );
+        );
+      }
     }
   };
 
@@ -290,6 +325,30 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                     Ver correo enviado en bandeja de prueba (Ethereal)
                   </Text>
                 </TouchableOpacity>
+              )}
+
+              {previewCode && step === 'reset' && (
+                <View
+                  style={[
+                    styles.previewCodeBox,
+                    { backgroundColor: theme.primaryLight + '35', borderColor: theme.primary + '50' }
+                  ]}
+                >
+                  <MaterialIcons
+                    name="vpn-key"
+                    size={22}
+                    color={theme.primary}
+                    style={{ marginRight: spacing.sm }}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.previewCodeLabel, { color: theme.textSecondary }]}>
+                      Código de verificación temporal:
+                    </Text>
+                    <Text style={[styles.previewCodeValue, { color: theme.primary }]}>
+                      {previewCode}
+                    </Text>
+                  </View>
+                </View>
               )}
 
               {step === 'request' ? (
@@ -529,6 +588,24 @@ const styles = StyleSheet.create({
   previewEmailText: {
     fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.semibold
+  },
+  previewCodeBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    marginBottom: spacing.md
+  },
+  previewCodeLabel: {
+    fontSize: typography.fontSize.tiny,
+    fontWeight: typography.fontWeight.medium
+  },
+  previewCodeValue: {
+    fontSize: typography.fontSize.xl,
+    fontWeight: typography.fontWeight.bold,
+    letterSpacing: 4,
+    marginTop: 2
   },
   successContainer: {
     alignItems: 'center',

@@ -20,11 +20,21 @@ export const authRouter = Router();
 
 const isTest = config.nodeEnv === 'test';
 
-const createLimiter = (max, windowMinutes, message) => rateLimit({
+const createLimiter = (max, windowMinutes, message, useEmailKey = false) => rateLimit({
   windowMs: windowMinutes * 60 * 1000,
   max: isTest ? 1000 : max,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { trustProxy: false },
+  keyGenerator: (req) => {
+    const cfIp = req.headers['cf-connecting-ip'];
+    const xff = req.headers['x-forwarded-for'];
+    const ip = cfIp ? String(cfIp).trim() : (xff ? String(xff).split(',')[0].trim() : (req.ip || '127.0.0.1'));
+    if (useEmailKey && req.body?.email) {
+      return `${ip}_${String(req.body.email).toLowerCase().trim()}`;
+    }
+    return ip;
+  },
   message: {
     success: false,
     error: {
@@ -34,8 +44,8 @@ const createLimiter = (max, windowMinutes, message) => rateLimit({
   }
 });
 
-const forgotPasswordLimiter = createLimiter(3, 15, 'Demasiadas solicitudes de recuperación de contraseña. Reintente en 15 minutos.');
-const resetPasswordLimiter = createLimiter(5, 15, 'Demasiados intentos de restablecimiento de contraseña. Reintente en 15 minutos.');
+const forgotPasswordLimiter = createLimiter(20, 15, 'Demasiadas solicitudes de recuperación de contraseña. Reintente en 15 minutos.', true);
+const resetPasswordLimiter = createLimiter(15, 15, 'Demasiados intentos de restablecimiento de contraseña. Reintente en 15 minutos.', true);
 
 // Todos los endpoints usan POST según AGENTS.md y REQUISITOS.md
 authRouter.post('/register', validate(registerSchema), asyncHandler((req, res, next) => authController.register(req, res, next)));

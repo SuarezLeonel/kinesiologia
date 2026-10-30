@@ -16,22 +16,36 @@ class EmailService {
       return this.transporter;
     }
 
+    const transportTimeouts = {
+      connectionTimeout: 4000,
+      greetingTimeout: 4000,
+      socketTimeout: 5000
+    };
+
     if (config.email.host && config.email.user && config.email.pass) {
-      this.transporter = nodemailer.createTransport({
-        host: config.email.host,
-        port: config.email.port,
-        secure: config.email.secure,
-        auth: {
-          user: config.email.user.trim(),
-          pass: String(config.email.pass).replace(/\s+/g, '')
-        }
-      });
-      return this.transporter;
+      try {
+        this.transporter = nodemailer.createTransport({
+          host: config.email.host,
+          port: config.email.port,
+          secure: config.email.secure,
+          auth: {
+            user: config.email.user.trim(),
+            pass: String(config.email.pass).replace(/\s+/g, '')
+          },
+          ...transportTimeouts
+        });
+        return this.transporter;
+      } catch (err) {
+        console.warn('[EMAIL] Fallo al instanciar transporter SMTP:', err.message);
+      }
     }
 
-    // Si no hay configuración SMTP, crear cuenta de prueba en Ethereal
+    // Si no hay configuración SMTP, crear cuenta de prueba en Ethereal con timeout
     try {
-      const testAccount = await nodemailer.createTestAccount();
+      const testAccount = await Promise.race([
+        nodemailer.createTestAccount(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Ethereal test account timeout (3000ms)')), 3000))
+      ]);
       this.transporter = nodemailer.createTransport({
         host: 'smtp.ethereal.email',
         port: 587,
@@ -39,7 +53,8 @@ class EmailService {
         auth: {
           user: testAccount.user,
           pass: testAccount.pass
-        }
+        },
+        ...transportTimeouts
       });
       return this.transporter;
     } catch {
@@ -97,7 +112,10 @@ class EmailService {
         `
       };
 
-      const info = await transporter.sendMail(mailOptions);
+      const info = await Promise.race([
+        transporter.sendMail(mailOptions),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP sendMail timeout (5000ms excedido)')), 5000))
+      ]);
       const previewUrl = nodemailer.getTestMessageUrl(info);
 
       return {
