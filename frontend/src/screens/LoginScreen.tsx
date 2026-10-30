@@ -92,7 +92,7 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
         <View style={styles.brandContainer}>
           <View style={styles.logoCard}>
             <Image
-              source={require('../../assets/logoKinesio.webp')}
+              source={require('../../assets/images/logoKinesio.webp')}
               style={styles.logoImage}
               resizeMode="contain"
             />
