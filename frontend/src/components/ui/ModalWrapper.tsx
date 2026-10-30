@@ -20,6 +20,7 @@ interface ModalWrapperProps {
   children: React.ReactNode;
   footer?: React.ReactNode;
   maxWidth?: number;
+  subHeader?: React.ReactNode;
 }
 
 export const ModalWrapper: React.FC<ModalWrapperProps> = ({
@@ -29,7 +30,8 @@ export const ModalWrapper: React.FC<ModalWrapperProps> = ({
   subtitle,
   children,
   footer,
-  maxWidth = 520
+  maxWidth = 520,
+  subHeader
 }) => {
   const { theme } = useAppTheme();
 
@@ -80,11 +82,19 @@ export const ModalWrapper: React.FC<ModalWrapperProps> = ({
             </TouchableOpacity>
           </View>
 
+          {/* SubHeader opcional (pestañas o filtros fijos) */}
+          {subHeader && (
+            <View style={[styles.subHeader, { borderBottomColor: theme.borderSubtle, backgroundColor: theme.surface }]}>
+              {subHeader}
+            </View>
+          )}
+
           {/* Body */}
           <ScrollView
             style={styles.body}
             contentContainerStyle={styles.bodyContent}
             showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
           >
             {children}
           </ScrollView>
@@ -120,13 +130,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.lg,
+    paddingHorizontal: Platform.OS === 'web' ? spacing.xl : spacing.md,
+    paddingVertical: spacing.md,
     borderBottomWidth: 1
   },
   headerTitles: {
     flex: 1,
     paddingRight: spacing.md
+  },
+  subHeader: {
+    borderBottomWidth: 1
   },
   title: {
     fontSize: typography.fontSize.lg,
@@ -149,18 +162,20 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.bold
   },
   body: {
-    flexGrow: 0
+    flexGrow: 0,
+    flexShrink: 1
   },
   bodyContent: {
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.lg
+    paddingHorizontal: Platform.OS === 'web' ? spacing.xl : spacing.md,
+    paddingVertical: spacing.md
   },
   footer: {
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: Platform.OS === 'web' ? spacing.xl : spacing.md,
     paddingVertical: spacing.md,
     borderTopWidth: 1,
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: spacing.sm
+    gap: spacing.sm,
+    flexWrap: 'wrap'
   }
 });

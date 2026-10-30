@@ -596,6 +596,65 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
 
   const patientFullName = patient ? `${patient.last_name || ''}, ${patient.first_name || ''}`.trim() : '';
 
+  const subNavNode = (viewMode === 'view_plan' || viewMode === 'tracking_evolution' || viewMode === 'session_record') ? (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.modalSubNav}
+      style={[styles.modalSubNavScroll, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}
+    >
+      <TouchableOpacity
+        style={[
+          styles.modalSubNavItem,
+          viewMode === 'view_plan' && { borderBottomColor: theme.primary, borderBottomWidth: 3 }
+        ]}
+        onPress={() => setViewMode('view_plan')}
+        accessibilityRole="button"
+        accessibilityLabel="Pestaña Plan y Rutinas"
+      >
+        <MaterialIcons name="assignment" size={17} color={viewMode === 'view_plan' ? theme.primary : theme.textMuted} />
+        <Text style={[styles.modalSubNavText, { color: viewMode === 'view_plan' ? theme.primary : theme.textSecondary }]}>
+          Plan y Rutinas
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[
+          styles.modalSubNavItem,
+          viewMode === 'tracking_evolution' && { borderBottomColor: theme.primary, borderBottomWidth: 3 }
+        ]}
+        onPress={() => {
+          setViewMode('tracking_evolution');
+          fetchTrackingData();
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Pestaña Seguimiento y Evolución"
+      >
+        <MaterialIcons name="timeline" size={17} color={viewMode === 'tracking_evolution' ? theme.primary : theme.textMuted} />
+        <Text style={[styles.modalSubNavText, { color: viewMode === 'tracking_evolution' ? theme.primary : theme.textSecondary }]}>
+          Seguimiento y Evolución
+        </Text>
+      </TouchableOpacity>
+
+      {selectedTreatment && (
+        <TouchableOpacity
+          style={[
+            styles.modalSubNavItem,
+            viewMode === 'session_record' && { borderBottomColor: theme.primary, borderBottomWidth: 3 }
+          ]}
+          onPress={handleStartSessionRecord}
+          accessibilityRole="button"
+          accessibilityLabel="Pestaña Registrar Sesión"
+        >
+          <MaterialIcons name="add-task" size={17} color={viewMode === 'session_record' ? theme.primary : theme.textMuted} />
+          <Text style={[styles.modalSubNavText, { color: viewMode === 'session_record' ? theme.primary : theme.textSecondary }]}>
+            Registrar Sesión
+          </Text>
+        </TouchableOpacity>
+      )}
+    </ScrollView>
+  ) : undefined;
+
   return (
     <ModalWrapper
       visible={visible}
@@ -603,6 +662,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
       subtitle={`Ficha clínica de ${patientFullName} (DNI ${patient?.dni || 'S/D'})`}
       onClose={onClose}
       maxWidth={780}
+      subHeader={subNavNode}
       footer={
         <View style={styles.footerRow}>
           {viewMode === 'view_plan' ? (
@@ -704,62 +764,13 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
         </View>
       )}
 
-      {/* Selector de sub-pestañas: Plan / Seguimiento / Registrar Sesión */}
-      {(viewMode === 'view_plan' || viewMode === 'tracking_evolution' || viewMode === 'session_record') && (
-        <View style={[styles.modalSubNav, { borderBottomColor: theme.border, backgroundColor: theme.surface }]}>
-          <TouchableOpacity
-            style={[
-              styles.modalSubNavItem,
-              viewMode === 'view_plan' && { borderBottomColor: theme.primary, borderBottomWidth: 2.5 }
-            ]}
-            onPress={() => setViewMode('view_plan')}
-          >
-            <MaterialIcons name="assignment" size={18} color={viewMode === 'view_plan' ? theme.primary : theme.textMuted} />
-            <Text style={[styles.modalSubNavText, { color: viewMode === 'view_plan' ? theme.primary : theme.textSecondary }]}>
-              Plan y Rutinas
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.modalSubNavItem,
-              viewMode === 'tracking_evolution' && { borderBottomColor: theme.primary, borderBottomWidth: 2.5 }
-            ]}
-            onPress={() => {
-              setViewMode('tracking_evolution');
-              fetchTrackingData();
-            }}
-          >
-            <MaterialIcons name="timeline" size={18} color={viewMode === 'tracking_evolution' ? theme.primary : theme.textMuted} />
-            <Text style={[styles.modalSubNavText, { color: viewMode === 'tracking_evolution' ? theme.primary : theme.textSecondary }]}>
-              Seguimiento y Evolución
-            </Text>
-          </TouchableOpacity>
-
-          {selectedTreatment && (
-            <TouchableOpacity
-              style={[
-                styles.modalSubNavItem,
-                viewMode === 'session_record' && { borderBottomColor: theme.primary, borderBottomWidth: 2.5 }
-              ]}
-              onPress={handleStartSessionRecord}
-            >
-              <MaterialIcons name="add-task" size={18} color={viewMode === 'session_record' ? theme.primary : theme.textMuted} />
-              <Text style={[styles.modalSubNavText, { color: viewMode === 'session_record' ? theme.primary : theme.textSecondary }]}>
-                Registrar Sesión
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      )}
-
       {loading ? (
         <LoadingState message="Cargando historial terapéutico del paciente..." />
       ) : viewMode === 'create_plan' ? (
         /* ======================================================== */
         /* VISTA 1: CREAR NUEVO PLAN DE TRATAMIENTO                 */
         /* ======================================================== */
-        <ScrollView style={styles.scrollBody} showsVerticalScrollIndicator={false}>
+        <View style={styles.viewContentContainer}>
           <Text style={[styles.sectionHeading, { color: theme.text }]}>Nuevo Plan de Tratamiento</Text>
           <Text style={[styles.sectionSubtitle, { color: theme.textSecondary }]}>
             Defina el marco clínico y los objetivos antes de estructurar las rutinas de ejercicios.
@@ -800,12 +811,12 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
             keyboardType="numeric"
             placeholder="10"
           />
-        </ScrollView>
+        </View>
       ) : viewMode === 'edit_routine' ? (
         /* ======================================================== */
         /* VISTA 2: FORMULARIO DE PRESCRIPCIÓN Y EDICIÓN DE RUTINAS  */
         /* ======================================================== */
-        <ScrollView style={styles.scrollBody} showsVerticalScrollIndicator={false}>
+        <View style={styles.viewContentContainer}>
           <View style={styles.editHeaderRow}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.sectionHeading, { color: theme.text }]}>
@@ -1104,12 +1115,12 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
               })
             )}
           </View>
-        </ScrollView>
+        </View>
       ) : viewMode === 'version_history' ? (
         /* ======================================================== */
         /* VISTA 3: HISTORIAL AUDITABLE DE VERSIONES DE LA RUTINA   */
         /* ======================================================== */
-        <ScrollView style={styles.scrollBody} showsVerticalScrollIndicator={false}>
+        <View style={styles.viewContentContainer}>
           <View style={styles.historyHeaderRow}>
             <Text style={[styles.sectionHeading, { color: theme.text }]}>Historial de Versiones Clínicas</Text>
             <TouchableOpacity onPress={() => setViewMode('view_plan')} style={styles.backLink}>
@@ -1158,12 +1169,12 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
               </Text>
             </Card>
           ))}
-        </ScrollView>
+        </View>
       ) : viewMode === 'session_record' ? (
         /* ======================================================== */
         /* VISTA: REGISTRAR SESIÓN CLÍNICA CON EJERCICIOS          */
         /* ======================================================== */
-        <ScrollView style={styles.scrollBody} showsVerticalScrollIndicator={false}>
+        <View style={styles.viewContentContainer}>
           <Text style={[styles.sectionHeading, { color: theme.text }]}>Registrar Sesión Clínica</Text>
           <Text style={[styles.sectionSubtitle, { color: theme.textSecondary }]}>
             Plan: <Text style={{ color: theme.text, fontWeight: '700' }}>{selectedTreatment?.title}</Text> • Registro profesional de procedimientos y ejercicios
@@ -1402,25 +1413,28 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
               </Card>
             ))
           )}
-        </ScrollView>
+        </View>
       ) : viewMode === 'tracking_evolution' ? (
         /* ======================================================== */
         /* VISTA: SEGUIMIENTO Y EVOLUCIÓN CLÍNICA INTEGRAL         */
         /* ======================================================== */
-        <ScrollView style={styles.scrollBody} showsVerticalScrollIndicator={false}>
+        <View style={styles.viewContentContainer}>
           <View style={styles.trackingHeaderRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.sectionHeading, { color: theme.text }]}>Seguimiento y Evolución Clínica</Text>
+            <View style={{ flex: 1, paddingRight: spacing.sm }}>
+              <View style={styles.titleWithIconRow}>
+                <MaterialIcons name="insights" size={20} color={theme.primary} style={{ marginRight: 6 }} />
+                <Text style={[styles.sectionHeading, { color: theme.text }]}>Seguimiento y Evolución Clínica</Text>
+              </View>
               <Text style={[styles.sectionSubtitle, { color: theme.textSecondary }]}>
-                Dossier de evolución: rutinas prescritas, cumplimiento autónomo y sesiones supervisadas
+                Dossier clínico integrado: rutinas prescritas, cumplimiento autónomo y sesiones supervisadas
               </Text>
             </View>
             <TouchableOpacity
               onPress={fetchTrackingData}
-              style={[styles.refreshTrackingBtn, { borderColor: theme.border }]}
+              style={[styles.refreshTrackingBtn, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
               accessibilityLabel="Refrescar seguimiento"
             >
-              <MaterialIcons name="refresh" size={18} color={theme.primary} />
+              <MaterialIcons name="refresh" size={20} color={theme.primary} />
             </TouchableOpacity>
           </View>
 
@@ -1433,146 +1447,287 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
             />
           ) : (
             <>
-              {/* Tarjetas de Métricas Factuales */}
-              <View style={styles.metricsSummaryGrid}>
+              {/* Tarjetas de Métricas Factuales en Strip Desplazable Horizontal */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.metricsScrollContainer}
+                style={styles.metricsScrollView}
+              >
                 <View style={[styles.metricCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                  <View style={[styles.metricIconCircle, { backgroundColor: theme.primaryLight + '25' }]}>
+                    <MaterialIcons name="assignment" size={18} color={theme.primary} />
+                  </View>
                   <Text style={[styles.metricNumber, { color: theme.primary }]}>
                     {trackingData.summaryMetrics?.totalRoutinesPrescribed || 0}
                   </Text>
-                  <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>Rutinas Prescritas</Text>
-                  <Text style={[styles.metricSub, { color: theme.textMuted }]}>
-                    {trackingData.summaryMetrics?.currentRoutinesCount || 0} vigentes
-                  </Text>
+                  <Text style={[styles.metricLabel, { color: theme.text }]}>Rutinas Prescritas</Text>
+                  <View style={[styles.metricSubBadge, { backgroundColor: theme.surfaceSubtle }]}>
+                    <Text style={[styles.metricSubText, { color: theme.textSecondary }]}>
+                      {trackingData.summaryMetrics?.currentRoutinesCount || 0} vigentes
+                    </Text>
+                  </View>
                 </View>
 
                 <View style={[styles.metricCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                  <View style={[styles.metricIconCircle, { backgroundColor: theme.successBg }]}>
+                    <MaterialIcons name="medical-services" size={18} color={theme.success} />
+                  </View>
                   <Text style={[styles.metricNumber, { color: theme.success }]}>
                     {trackingData.summaryMetrics?.totalProfessionalSessionsConducted || 0}
                   </Text>
-                  <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>Sesiones en Clínica</Text>
-                  <Text style={[styles.metricSub, { color: theme.textMuted }]}>
-                    {trackingData.summaryMetrics?.totalExercisesExecutedInClinic || 0} ejercicios evaluados
-                  </Text>
+                  <Text style={[styles.metricLabel, { color: theme.text }]}>Sesiones en Clínica</Text>
+                  <View style={[styles.metricSubBadge, { backgroundColor: theme.surfaceSubtle }]}>
+                    <Text style={[styles.metricSubText, { color: theme.textSecondary }]}>
+                      {trackingData.summaryMetrics?.totalExercisesExecutedInClinic || 0} ejerc. evaluados
+                    </Text>
+                  </View>
                 </View>
 
                 <View style={[styles.metricCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                  <View style={[styles.metricIconCircle, { backgroundColor: theme.infoBg }]}>
+                    <MaterialIcons name="home" size={18} color={theme.info} />
+                  </View>
                   <Text style={[styles.metricNumber, { color: theme.info }]}>
                     {trackingData.summaryMetrics?.totalPatientLogsReported || 0}
                   </Text>
-                  <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>Reportes Hogar</Text>
-                  <Text style={[styles.metricSub, { color: theme.textMuted }]}>Cumplimiento informado</Text>
-                </View>
-              </View>
-
-              {/* Filtros de Eventos */}
-              <View style={styles.trackingFilterRow}>
-                {[
-                  { key: 'all', label: 'Todo el Expediente' },
-                  { key: 'sessions', label: 'Sesiones Clínicas' },
-                  { key: 'patient_logs', label: 'Reportes Paciente' },
-                  { key: 'routines', label: 'Prescripciones' }
-                ].map((f) => (
-                  <TouchableOpacity
-                    key={f.key}
-                    onPress={() => setTrackingFilter(f.key as any)}
-                    style={[
-                      styles.trackingFilterChip,
-                      {
-                        backgroundColor: trackingFilter === f.key ? theme.primary : theme.surface,
-                        borderColor: trackingFilter === f.key ? theme.primary : theme.border
-                      }
-                    ]}
-                  >
-                    <Text style={{ color: trackingFilter === f.key ? '#FFF' : theme.text, fontSize: 11, fontWeight: '600' }}>
-                      {f.label}
+                  <Text style={[styles.metricLabel, { color: theme.text }]}>Reportes Hogar</Text>
+                  <View style={[styles.metricSubBadge, { backgroundColor: theme.surfaceSubtle }]}>
+                    <Text style={[styles.metricSubText, { color: theme.textSecondary }]}>
+                      Autónomos por paciente
                     </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+                  </View>
+                </View>
+              </ScrollView>
+
+              {/* Filtros de Eventos Horizontales */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.filterScrollContainer}
+                style={styles.filterScrollView}
+              >
+                {[
+                  {
+                    key: 'all',
+                    label: 'Todo el Expediente',
+                    icon: 'all-inclusive',
+                    count: (trackingData.professionalSessions?.length || 0) +
+                           (trackingData.patientReportedLogs?.length || 0) +
+                           (trackingData.routines?.length || 0)
+                  },
+                  {
+                    key: 'sessions',
+                    label: 'Sesiones Clínicas',
+                    icon: 'medical-services',
+                    count: trackingData.professionalSessions?.length || 0
+                  },
+                  {
+                    key: 'patient_logs',
+                    label: 'Reportes Hogar',
+                    icon: 'home',
+                    count: trackingData.patientReportedLogs?.length || 0
+                  },
+                  {
+                    key: 'routines',
+                    label: 'Prescripciones',
+                    icon: 'fitness-center',
+                    count: trackingData.routines?.length || 0
+                  }
+                ].map((f) => {
+                  const active = trackingFilter === f.key;
+                  return (
+                    <TouchableOpacity
+                      key={f.key}
+                      onPress={() => setTrackingFilter(f.key as any)}
+                      style={[
+                        styles.trackingFilterChip,
+                        {
+                          backgroundColor: active ? theme.primary : theme.surface,
+                          borderColor: active ? theme.primary : theme.border
+                        }
+                      ]}
+                    >
+                      <MaterialIcons
+                        name={f.icon as any}
+                        size={14}
+                        color={active ? '#FFF' : theme.textSecondary}
+                        style={{ marginRight: 5 }}
+                      />
+                      <Text style={[styles.filterChipText, { color: active ? '#FFF' : theme.text }]}>
+                        {f.label}
+                      </Text>
+                      <View
+                        style={[
+                          styles.filterCountBadge,
+                          { backgroundColor: active ? 'rgba(255,255,255,0.25)' : theme.surfaceSubtle }
+                        ]}
+                      >
+                        <Text style={[styles.filterCountText, { color: active ? '#FFF' : theme.textSecondary }]}>
+                          {f.count}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
 
               {/* 1. SECCIÓN SESIONES CLÍNICAS SUPERVISADAS */}
               {(trackingFilter === 'all' || trackingFilter === 'sessions') && (
                 <View style={styles.trackingSectionBlock}>
-                  <Text style={[styles.subHeading, { color: theme.text, marginBottom: spacing.xs }]}>
-                    Sesiones Clínicas con Supervisión Profesional ({trackingData.professionalSessions?.length || 0})
-                  </Text>
+                  <View style={styles.sectionHeaderLine}>
+                    <MaterialIcons name="medical-services" size={17} color={theme.primary} style={{ marginRight: 6 }} />
+                    <Text style={[styles.subHeading, { color: theme.text }]}>
+                      Sesiones Clínicas con Supervisión Profesional ({trackingData.professionalSessions?.length || 0})
+                    </Text>
+                  </View>
+
                   {(!trackingData.professionalSessions || trackingData.professionalSessions.length === 0) ? (
-                    <Card elevated padding="sm" style={{ marginBottom: spacing.sm }}>
-                      <Text style={{ color: theme.textMuted, fontSize: 12, textAlign: 'center' }}>
-                        No hay sesiones registradas aún. Presione "+ Registrar Sesión" para documentar la primera.
+                    <Card elevated padding="md" style={styles.emptyNoticeCard}>
+                      <MaterialIcons name="event-note" size={28} color={theme.textMuted} style={{ marginBottom: 6 }} />
+                      <Text style={[styles.emptyNoticeTitle, { color: theme.text }]}>
+                        Sin sesiones supervisadas registradas
                       </Text>
+                      <Text style={[styles.emptyNoticeSubtitle, { color: theme.textSecondary }]}>
+                        Presione "+ Registrar Sesión" para documentar la primera intervención clínica con ejercicios supervisados.
+                      </Text>
+                      {selectedTreatment && (
+                        <Button
+                          title="+ Registrar Sesión Ahora"
+                          size="sm"
+                          variant="outline"
+                          style={{ marginTop: spacing.sm }}
+                          onPress={handleStartSessionRecord}
+                        />
+                      )}
                     </Card>
                   ) : (
                     trackingData.professionalSessions.map((session: any) => (
                       <Card key={session.id} elevated style={styles.evolutionEventCard} padding="md">
-                        <View style={styles.cardHeader}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.eventTitle, { color: theme.text }]}>
-                              Sesión #{session.session_number} • {new Date(session.session_date).toLocaleDateString('es-AR')}
-                            </Text>
-                            <Text style={[styles.eventSubtitle, { color: theme.textSecondary }]}>
-                              Lic. {session.kinesiologist_name} {session.kinesiologist_last_name} • Plan: {session.treatment_title}
-                            </Text>
+                        {/* Cabecera del Evento de Sesión */}
+                        <View style={styles.eventHeaderTop}>
+                          <View style={styles.eventTitleRow}>
+                            <View style={[styles.eventIconCircle, { backgroundColor: theme.successBg }]}>
+                              <MaterialIcons name="medical-services" size={18} color={theme.success} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.eventTitle, { color: theme.text }]}>
+                                Sesión #{session.session_number} • {new Date(session.session_date).toLocaleDateString('es-AR', {
+                                  weekday: 'short',
+                                  day: '2-digit',
+                                  month: 'short',
+                                  year: 'numeric'
+                                })}
+                              </Text>
+                              <Text style={[styles.eventSubtitle, { color: theme.textSecondary }]}>
+                                Lic. {session.kinesiologist_name} {session.kinesiologist_last_name} • Plan: {session.treatment_title}
+                              </Text>
+                            </View>
                           </View>
-                          <Badge label="Supervisado en Consultorio" variant="success" size="sm" />
-                          {session.pain_level_reported !== null && (
-                            <Badge
-                              label={`Dolor: ${session.pain_level_reported}/10`}
-                              variant={session.pain_level_reported <= 3 ? 'success' : session.pain_level_reported <= 6 ? 'warning' : 'error'}
-                              size="sm"
-                              style={{ marginLeft: 4 }}
-                            />
-                          )}
+
+                          {/* Fila de Badges con Wrap Seguro */}
+                          <View style={styles.badgeWrapRow}>
+                            <Badge label="Supervisado en Clínica" variant="success" size="sm" />
+                            {session.pain_level_reported !== null && (
+                              <Badge
+                                label={`Dolor EVA: ${session.pain_level_reported}/10`}
+                                variant={session.pain_level_reported <= 3 ? 'success' : session.pain_level_reported <= 6 ? 'warning' : 'error'}
+                                size="sm"
+                              />
+                            )}
+                          </View>
                         </View>
 
-                        <View style={[styles.divider, { backgroundColor: theme.border, marginVertical: spacing.xs }]} />
+                        <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
-                        <View style={styles.eventBodyBlock}>
-                          <Text style={[styles.paramLabel, { color: theme.textMuted }]}>Procedimientos:</Text>
-                          <Text style={[styles.eventText, { color: theme.text }]}>{session.performed_procedures}</Text>
-
-                          <Text style={[styles.paramLabel, { color: theme.textMuted, marginTop: 4 }]}>Evolución del paciente:</Text>
-                          <Text style={[styles.eventText, { color: theme.text }]}>{session.patient_evolution}</Text>
-
-                          {session.observations ? (
-                            <>
-                              <Text style={[styles.paramLabel, { color: theme.textMuted, marginTop: 4 }]}>Observaciones profesionales:</Text>
-                              <Text style={[styles.eventText, { color: theme.textSecondary }]}>{session.observations}</Text>
-                            </>
-                          ) : null}
+                        {/* Bloque Clínico de Evolución Observada */}
+                        <View style={[styles.clinicalNoteBox, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
+                          <View style={styles.clinicalNoteHeader}>
+                            <MaterialIcons name="insights" size={16} color={theme.primary} style={{ marginRight: 6 }} />
+                            <Text style={[styles.clinicalNoteTitle, { color: theme.primary }]}>Evolución del Paciente:</Text>
+                          </View>
+                          <Text style={[styles.clinicalNoteBody, { color: theme.text }]}>{session.patient_evolution}</Text>
                         </View>
+
+                        {/* Procedimientos y Técnicas */}
+                        {session.performed_procedures ? (
+                          <View style={styles.clinicalSubSection}>
+                            <View style={styles.subSectionHeader}>
+                              <MaterialIcons name="healing" size={14} color={theme.textMuted} style={{ marginRight: 4 }} />
+                              <Text style={[styles.paramLabel, { color: theme.textMuted }]}>Procedimientos realizados:</Text>
+                            </View>
+                            <Text style={[styles.eventText, { color: theme.textSecondary }]}>{session.performed_procedures}</Text>
+                          </View>
+                        ) : null}
+
+                        {/* Observaciones Adicionales */}
+                        {session.observations ? (
+                          <View style={styles.clinicalSubSection}>
+                            <View style={styles.subSectionHeader}>
+                              <MaterialIcons name="notes" size={14} color={theme.textMuted} style={{ marginRight: 4 }} />
+                              <Text style={[styles.paramLabel, { color: theme.textMuted }]}>Observaciones profesionales:</Text>
+                            </View>
+                            <Text style={[styles.eventText, { color: theme.textSecondary }]}>{session.observations}</Text>
+                          </View>
+                        ) : null}
 
                         {/* Ejercicios ejecutados en esta sesión */}
                         {session.executedExercises && session.executedExercises.length > 0 && (
                           <View style={[styles.sessionExListWrap, { borderTopColor: theme.border }]}>
-                            <Text style={[styles.paramLabel, { color: theme.primary, marginBottom: 4 }]}>
-                              Ejercicios ejecutados en esta sesión ({session.executedExercises.length}):
-                            </Text>
+                            <View style={styles.sessionExListHeader}>
+                              <MaterialIcons name="fitness-center" size={15} color={theme.primary} style={{ marginRight: 5 }} />
+                              <Text style={[styles.sessionExListTitle, { color: theme.primary }]}>
+                                Ejercicios evaluados en sesión ({session.executedExercises.length}):
+                              </Text>
+                            </View>
+
                             {session.executedExercises.map((execEx: any) => (
                               <View key={execEx.id} style={[styles.executedExRow, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                                <View style={{ flex: 1 }}>
+                                <View style={styles.executedExTopRow}>
                                   <Text style={[styles.executedExName, { color: theme.text }]}>
                                     {execEx.exercise_name}
                                   </Text>
-                                  <Text style={[styles.executedExParams, { color: theme.textSecondary }]}>
-                                    {execEx.sets_completed} series × {execEx.reps_completed} reps • Carga: {execEx.resistance_load || 'Corporal'}
-                                  </Text>
-                                  {execEx.clinical_observations ? (
-                                    <Text style={[styles.executedExObs, { color: theme.textMuted }]}>
-                                      Obs: {execEx.clinical_observations}
-                                    </Text>
-                                  ) : null}
-                                  {execEx.future_modifications_suggested ? (
-                                    <Text style={[styles.executedExModif, { color: theme.primary }]}>
-                                      Modificación futura: {execEx.future_modifications_suggested}
-                                    </Text>
-                                  ) : null}
+                                  <Badge
+                                    label={`Tolerancia: ${execEx.tolerance_level}`}
+                                    variant={execEx.tolerance_level === 'Excelente' || execEx.tolerance_level === 'Buena' ? 'success' : execEx.tolerance_level === 'Regular' ? 'warning' : 'error'}
+                                    size="sm"
+                                  />
                                 </View>
-                                <Badge
-                                  label={`Tolerancia: ${execEx.tolerance_level}`}
-                                  variant={execEx.tolerance_level === 'Excelente' || execEx.tolerance_level === 'Buena' ? 'success' : execEx.tolerance_level === 'Regular' ? 'warning' : 'error'}
-                                  size="sm"
-                                />
+
+                                <View style={styles.miniPillsRow}>
+                                  <View style={[styles.miniDataPill, { backgroundColor: theme.surfaceSubtle }]}>
+                                    <Text style={[styles.miniDataPillText, { color: theme.textSecondary }]}>
+                                      {execEx.sets_completed} series × {execEx.reps_completed} reps
+                                    </Text>
+                                  </View>
+                                  <View style={[styles.miniDataPill, { backgroundColor: theme.surfaceSubtle }]}>
+                                    <Text style={[styles.miniDataPillText, { color: theme.textSecondary }]}>
+                                      Carga: {execEx.resistance_load || 'Corporal'}
+                                    </Text>
+                                  </View>
+                                  {execEx.pain_level_reported !== null && (
+                                    <View style={[styles.miniDataPill, { backgroundColor: theme.surfaceSubtle }]}>
+                                      <Text style={[styles.miniDataPillText, { color: execEx.pain_level_reported <= 3 ? theme.success : theme.error }]}>
+                                        Dolor: {execEx.pain_level_reported}/10
+                                      </Text>
+                                    </View>
+                                  )}
+                                </View>
+
+                                {execEx.clinical_observations ? (
+                                  <Text style={[styles.executedExObs, { color: theme.textMuted }]}>
+                                    Obs: {execEx.clinical_observations}
+                                  </Text>
+                                ) : null}
+
+                                {execEx.future_modifications_suggested ? (
+                                  <View style={styles.executedExModifRow}>
+                                    <MaterialIcons name="trending-up" size={13} color={theme.primary} style={{ marginRight: 4 }} />
+                                    <Text style={[styles.executedExModif, { color: theme.primary }]}>
+                                      Modificación sugerida: {execEx.future_modifications_suggested}
+                                    </Text>
+                                  </View>
+                                ) : null}
                               </View>
                             ))}
                           </View>
@@ -1586,42 +1741,80 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
               {/* 2. SECCIÓN CUMPLIMIENTO INFORMADO POR EL PACIENTE (HOGAR) */}
               {(trackingFilter === 'all' || trackingFilter === 'patient_logs') && (
                 <View style={styles.trackingSectionBlock}>
-                  <Text style={[styles.subHeading, { color: theme.text, marginBottom: spacing.xs }]}>
-                    Cumplimiento Domiciliario Informado por el Paciente ({trackingData.patientReportedLogs?.length || 0})
-                  </Text>
+                  <View style={styles.sectionHeaderLine}>
+                    <MaterialIcons name="home" size={17} color={theme.info} style={{ marginRight: 6 }} />
+                    <Text style={[styles.subHeading, { color: theme.text }]}>
+                      Cumplimiento Domiciliario Informado por el Paciente ({trackingData.patientReportedLogs?.length || 0})
+                    </Text>
+                  </View>
+
                   {(!trackingData.patientReportedLogs || trackingData.patientReportedLogs.length === 0) ? (
-                    <Card elevated padding="sm" style={{ marginBottom: spacing.sm }}>
-                      <Text style={{ color: theme.textMuted, fontSize: 12, textAlign: 'center' }}>
-                        El paciente aún no ha informado realizaciones domiciliarias desde su portal.
+                    <Card elevated padding="md" style={styles.emptyNoticeCard}>
+                      <MaterialIcons name="home-work" size={28} color={theme.textMuted} style={{ marginBottom: 6 }} />
+                      <Text style={[styles.emptyNoticeTitle, { color: theme.text }]}>
+                        Sin registros domiciliarios del paciente
+                      </Text>
+                      <Text style={[styles.emptyNoticeSubtitle, { color: theme.textSecondary }]}>
+                        El paciente aún no ha completado realizaciones autónomas desde su portal de salud.
                       </Text>
                     </Card>
                   ) : (
                     trackingData.patientReportedLogs.map((log: any) => (
-                      <Card key={log.id} elevated style={styles.evolutionEventCard} padding="sm">
-                        <View style={styles.cardHeader}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.eventTitle, { color: theme.text }]}>
-                              {log.exercise_name}
-                            </Text>
-                            <Text style={[styles.eventSubtitle, { color: theme.textSecondary }]}>
-                              Fecha: {new Date(log.completed_at || log.completed_date).toLocaleDateString('es-AR')} • Rutina: {log.routine_name} (v{log.routine_version})
+                      <Card key={log.id} elevated style={styles.evolutionEventCard} padding="md">
+                        <View style={styles.eventHeaderTop}>
+                          <View style={styles.eventTitleRow}>
+                            <View style={[styles.eventIconCircle, { backgroundColor: theme.infoBg }]}>
+                              <MaterialIcons name="home" size={18} color={theme.info} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.eventTitle, { color: theme.text }]}>
+                                {log.exercise_name}
+                              </Text>
+                              <Text style={[styles.eventSubtitle, { color: theme.textSecondary }]}>
+                                Realizado: {new Date(log.completed_at || log.completed_date).toLocaleDateString('es-AR', {
+                                  weekday: 'short',
+                                  day: '2-digit',
+                                  month: 'short',
+                                  year: 'numeric'
+                                })} • Rutina: {log.routine_name} (v{log.routine_version})
+                              </Text>
+                            </View>
+                          </View>
+
+                          <View style={styles.badgeWrapRow}>
+                            <Badge label="Reporte Hogar (Paciente)" variant="info" size="sm" />
+                            <Badge
+                              label={`Molestia EVA: ${log.perceived_pain_level ?? 0}/10`}
+                              variant={log.perceived_pain_level <= 3 ? 'success' : log.perceived_pain_level <= 6 ? 'warning' : 'error'}
+                              size="sm"
+                            />
+                          </View>
+                        </View>
+
+                        <View style={styles.miniPillsRow}>
+                          {log.sets_completed ? (
+                            <View style={[styles.miniDataPill, { backgroundColor: theme.surfaceSubtle }]}>
+                              <Text style={[styles.miniDataPillText, { color: theme.textSecondary }]}>
+                                {log.sets_completed} series realizadas
+                              </Text>
+                            </View>
+                          ) : null}
+                          {log.reps_completed ? (
+                            <View style={[styles.miniDataPill, { backgroundColor: theme.surfaceSubtle }]}>
+                              <Text style={[styles.miniDataPillText, { color: theme.textSecondary }]}>
+                                {log.reps_completed} reps por serie
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
+
+                        {log.patient_notes ? (
+                          <View style={[styles.patientNoteQuoteBox, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
+                            <MaterialIcons name="chat-bubble-outline" size={15} color={theme.info} style={{ marginRight: 6, marginTop: 1 }} />
+                            <Text style={[styles.patientNoteQuote, { color: theme.text }]}>
+                              "{log.patient_notes}"
                             </Text>
                           </View>
-                          <Badge label="Reporte Hogar (Paciente)" variant="info" size="sm" />
-                          <Badge
-                            label={`Molestia: ${log.perceived_pain_level ?? 0}/10`}
-                            variant={log.perceived_pain_level <= 3 ? 'success' : log.perceived_pain_level <= 6 ? 'warning' : 'error'}
-                            size="sm"
-                            style={{ marginLeft: 4 }}
-                          />
-                        </View>
-                        <Text style={[styles.executedExParams, { color: theme.text, marginTop: 4 }]}>
-                          Realizó: {log.sets_completed ? `${log.sets_completed} series` : ''} {log.reps_completed ? `× ${log.reps_completed} reps` : ''}
-                        </Text>
-                        {log.patient_notes ? (
-                          <Text style={[styles.patientNoteQuote, { color: theme.textSecondary }]}>
-                            Observación del paciente: "{log.patient_notes}"
-                          </Text>
                         ) : null}
                       </Card>
                     ))
@@ -1632,50 +1825,80 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
               {/* 3. SECCIÓN HISTORIAL DE PRESCRIPCIONES Y VERSIONES */}
               {(trackingFilter === 'all' || trackingFilter === 'routines') && (
                 <View style={styles.trackingSectionBlock}>
-                  <Text style={[styles.subHeading, { color: theme.text, marginBottom: spacing.xs }]}>
-                    Prescripciones Médicas y Trazabilidad de Versiones ({trackingData.routines?.length || 0})
-                  </Text>
+                  <View style={styles.sectionHeaderLine}>
+                    <MaterialIcons name="fitness-center" size={17} color={theme.primary} style={{ marginRight: 6 }} />
+                    <Text style={[styles.subHeading, { color: theme.text }]}>
+                      Prescripciones Terapéuticas y Trazabilidad ({trackingData.routines?.length || 0})
+                    </Text>
+                  </View>
+
                   {(!trackingData.routines || trackingData.routines.length === 0) ? (
-                    <Card elevated padding="sm">
-                      <Text style={{ color: theme.textMuted, fontSize: 12, textAlign: 'center' }}>
-                        Sin rutinas prescritas en el expediente.
+                    <Card elevated padding="md" style={styles.emptyNoticeCard}>
+                      <MaterialIcons name="fitness-center" size={28} color={theme.textMuted} style={{ marginBottom: 6 }} />
+                      <Text style={[styles.emptyNoticeTitle, { color: theme.text }]}>
+                        Sin rutinas prescritas en el expediente
                       </Text>
                     </Card>
                   ) : (
                     trackingData.routines.map((r: any) => (
                       <Card key={r.id} elevated style={styles.evolutionEventCard} padding="md">
-                        <View style={styles.cardHeader}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.eventTitle, { color: theme.text }]}>
-                              {r.name} (Versión {r.version})
-                            </Text>
-                            <Text style={[styles.eventSubtitle, { color: theme.textSecondary }]}>
-                              Prescrito por Lic. {r.author_name} {r.author_last_name} • {new Date(r.created_at).toLocaleDateString('es-AR')}
-                            </Text>
+                        <View style={styles.eventHeaderTop}>
+                          <View style={styles.eventTitleRow}>
+                            <View style={[styles.eventIconCircle, { backgroundColor: r.is_current === 1 ? theme.successBg : theme.surfaceSubtle }]}>
+                              <MaterialIcons name="fitness-center" size={18} color={r.is_current === 1 ? theme.success : theme.textMuted} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.eventTitle, { color: theme.text }]}>
+                                {r.name} (Versión {r.version})
+                              </Text>
+                              <Text style={[styles.eventSubtitle, { color: theme.textSecondary }]}>
+                                Prescrito por Lic. {r.author_name} {r.author_last_name} • {new Date(r.created_at).toLocaleDateString('es-AR', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  year: 'numeric'
+                                })}
+                              </Text>
+                            </View>
                           </View>
-                          <Badge
-                            label={r.is_current === 1 ? 'Vigente' : 'Versión Archivada'}
-                            variant={r.is_current === 1 ? 'success' : 'neutral'}
-                            size="sm"
-                          />
+
+                          <View style={styles.badgeWrapRow}>
+                            <Badge
+                              label={r.is_current === 1 ? 'Versión Vigente' : 'Versión Archivada'}
+                              variant={r.is_current === 1 ? 'success' : 'neutral'}
+                              size="sm"
+                            />
+                          </View>
                         </View>
+
                         {r.change_reason ? (
-                          <View style={[styles.changeReasonBox, { backgroundColor: theme.primaryLight + '20', borderColor: theme.primary + '30' }]}>
-                            <MaterialIcons name="edit-note" size={16} color={theme.primary} />
-                            <Text style={[styles.changeReasonText, { color: theme.text }]}>
-                              Motivo del cambio: {r.change_reason}
-                            </Text>
+                          <View style={[styles.changeReasonBox, { backgroundColor: theme.primaryLight + '20', borderColor: theme.primary + '35' }]}>
+                            <MaterialIcons name="edit-note" size={17} color={theme.primary} style={{ marginRight: 6 }} />
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.changeReasonLabel, { color: theme.primary }]}>Motivo del cambio de versión:</Text>
+                              <Text style={[styles.changeReasonText, { color: theme.text }]}>{r.change_reason}</Text>
+                            </View>
                           </View>
                         ) : null}
+
                         <View style={{ marginTop: spacing.xs }}>
-                          <Text style={[styles.paramLabel, { color: theme.textMuted }]}>
+                          <Text style={[styles.paramLabel, { color: theme.textMuted, marginBottom: 4 }]}>
                             Ejercicios prescritos ({r.exercises?.length || 0}):
                           </Text>
-                          {r.exercises?.map((re: any) => (
-                            <Text key={re.id} style={[styles.eventText, { color: theme.textSecondary, marginLeft: 6 }]}>
-                              • #{re.execution_order} {re.name}: {re.sets} series × {re.repetitions} reps • Carga: {re.resistance_load || 'Corporal'}
-                            </Text>
-                          ))}
+                          <View style={styles.prescribedExGrid}>
+                            {r.exercises?.map((re: any) => (
+                              <View key={re.id} style={[styles.prescribedExItem, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                                <View style={[styles.prescribedExOrderCircle, { backgroundColor: theme.primary }]}>
+                                  <Text style={styles.prescribedExOrderText}>{re.execution_order}</Text>
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={[styles.prescribedExName, { color: theme.text }]}>{re.name}</Text>
+                                  <Text style={[styles.prescribedExParams, { color: theme.textSecondary }]}>
+                                    {re.sets} series × {re.repetitions} reps • Carga: {re.resistance_load || 'Corporal'}
+                                  </Text>
+                                </View>
+                              </View>
+                            ))}
+                          </View>
                         </View>
                       </Card>
                     ))
@@ -1684,12 +1907,12 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
               )}
             </>
           )}
-        </ScrollView>
+        </View>
       ) : (
         /* ======================================================== */
         /* VISTA 4: VISTA GENERAL DEL PLAN Y RUTINAS VIGENTES       */
         /* ======================================================== */
-        <ScrollView style={styles.scrollBody} showsVerticalScrollIndicator={false}>
+        <View style={styles.viewContentContainer}>
           {treatments.length === 0 ? (
             <EmptyState
               title="Sin plan de tratamiento activo"
@@ -1907,15 +2130,15 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
               )}
             </>
           )}
-        </ScrollView>
+        </View>
       )}
     </ModalWrapper>
   );
 };
 
 const styles = StyleSheet.create({
-  scrollBody: {
-    maxHeight: 560
+  viewContentContainer: {
+    paddingBottom: spacing.lg
   },
   footerRow: {
     flexDirection: 'row',
@@ -2314,16 +2537,18 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.xs,
     marginTop: spacing.xs
   },
+  modalSubNavScroll: {
+    borderBottomWidth: 1
+  },
   modalSubNav: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
-    marginBottom: spacing.md
+    paddingHorizontal: spacing.sm,
+    gap: 4
   },
   modalSubNavItem: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     gap: 6
   },
@@ -2359,60 +2584,136 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.xs
+    marginBottom: spacing.md
+  },
+  titleWithIconRow: {
+    flexDirection: 'row',
+    alignItems: 'center'
   },
   refreshTrackingBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: radii.sm,
+    width: 36,
+    height: 36,
+    borderRadius: radii.md,
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center'
   },
-  metricsSummaryGrid: {
-    flexDirection: 'row',
-    gap: spacing.xs,
+  metricsScrollView: {
     marginBottom: spacing.md
   },
+  metricsScrollContainer: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingVertical: 2
+  },
   metricCard: {
-    flex: 1,
-    padding: spacing.sm,
-    borderRadius: radii.md,
+    minWidth: 140,
+    padding: spacing.md,
+    borderRadius: radii.lg,
     borderWidth: 1,
-    alignItems: 'center'
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  metricIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6
   },
   metricNumber: {
-    fontSize: typography.fontSize.lg,
+    fontSize: typography.fontSize.xl,
     fontWeight: typography.fontWeight.bold
   },
   metricLabel: {
-    fontSize: typography.fontSize.tiny,
+    fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.bold,
     textAlign: 'center',
     marginTop: 2
   },
-  metricSub: {
+  metricSubBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radii.full,
+    marginTop: 6
+  },
+  metricSubText: {
     fontSize: typography.fontSize.tiny,
     textAlign: 'center',
-    marginTop: 1
+    fontWeight: typography.fontWeight.medium
   },
-  trackingFilterRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
+  filterScrollView: {
     marginBottom: spacing.md
   },
+  filterScrollContainer: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingVertical: 2
+  },
   trackingFilterChip: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 7,
     borderRadius: radii.full,
     borderWidth: 1
+  },
+  filterChipText: {
+    fontSize: 12,
+    fontWeight: '600'
+  },
+  filterCountBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: radii.full,
+    marginLeft: 6
+  },
+  filterCountText: {
+    fontSize: 10,
+    fontWeight: '700'
   },
   trackingSectionBlock: {
     marginBottom: spacing.lg
   },
+  sectionHeaderLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.xs
+  },
+  emptyNoticeCard: {
+    alignItems: 'center',
+    paddingVertical: spacing.lg,
+    marginBottom: spacing.sm
+  },
+  emptyNoticeTitle: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold,
+    textAlign: 'center'
+  },
+  emptyNoticeSubtitle: {
+    fontSize: typography.fontSize.xs,
+    textAlign: 'center',
+    marginTop: 4,
+    maxWidth: 340
+  },
   evolutionEventCard: {
     marginBottom: spacing.sm
+  },
+  eventHeaderTop: {
+    marginBottom: spacing.xs
+  },
+  eventTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm
+  },
+  eventIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center'
   },
   eventTitle: {
     fontSize: typography.fontSize.sm,
@@ -2422,50 +2723,150 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.tiny,
     marginTop: 1
   },
-  eventBodyBlock: {
-    marginVertical: 4,
-    gap: 2
-  },
-  eventText: {
-    fontSize: typography.fontSize.xs,
-    lineHeight: 16
-  },
-  sessionExListWrap: {
-    marginTop: 6,
-    paddingTop: 6,
-    borderTopWidth: 1
-  },
-  executedExRow: {
-    padding: 6,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    marginBottom: 4,
+  badgeWrapRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.xs
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: spacing.xs
   },
-  executedExName: {
+  clinicalNoteBox: {
+    padding: spacing.sm,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderLeftWidth: 3,
+    marginVertical: spacing.xs
+  },
+  clinicalNoteHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2
+  },
+  clinicalNoteTitle: {
     fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.bold
   },
-  executedExParams: {
+  clinicalNoteBody: {
+    fontSize: typography.fontSize.sm,
+    lineHeight: 18
+  },
+  clinicalSubSection: {
+    marginTop: spacing.xs
+  },
+  subSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2
+  },
+  eventText: {
+    fontSize: typography.fontSize.xs,
+    lineHeight: 17
+  },
+  sessionExListWrap: {
+    marginTop: spacing.xs,
+    paddingTop: spacing.xs,
+    borderTopWidth: 1
+  },
+  sessionExListHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6
+  },
+  sessionExListTitle: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold
+  },
+  executedExRow: {
+    padding: spacing.sm,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    marginBottom: 6
+  },
+  executedExTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 4
+  },
+  executedExName: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold,
+    flex: 1
+  },
+  miniPillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 4
+  },
+  miniDataPill: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: radii.sm
+  },
+  miniDataPillText: {
     fontSize: typography.fontSize.tiny,
-    marginTop: 1
+    fontWeight: typography.fontWeight.medium
   },
   executedExObs: {
     fontSize: typography.fontSize.tiny,
     fontStyle: 'italic',
-    marginTop: 1
+    marginTop: 3
+  },
+  executedExModifRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 3
   },
   executedExModif: {
     fontSize: typography.fontSize.tiny,
-    fontWeight: typography.fontWeight.medium,
-    marginTop: 1
+    fontWeight: typography.fontWeight.medium
+  },
+  patientNoteQuoteBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: spacing.sm,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    marginTop: spacing.xs
   },
   patientNoteQuote: {
     fontSize: typography.fontSize.xs,
     fontStyle: 'italic',
+    lineHeight: 16,
+    flex: 1
+  },
+  prescribedExGrid: {
+    gap: 4,
     marginTop: 2
+  },
+  prescribedExItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.xs,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    gap: spacing.xs
+  },
+  prescribedExOrderCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  prescribedExOrderText: {
+    color: '#FFF',
+    fontSize: 10,
+    fontWeight: '700'
+  },
+  prescribedExName: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold
+  },
+  prescribedExParams: {
+    fontSize: typography.fontSize.tiny,
+    marginTop: 1
   },
   inputLabel: {
     fontSize: typography.fontSize.xs,
