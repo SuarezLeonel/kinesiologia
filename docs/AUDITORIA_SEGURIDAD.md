@@ -325,3 +325,4 @@ Se ejecutó la suite completa de pruebas unitarias y de integración del sistema
    Configurar alertas automáticas sobre eventos de severidad crítica en la tabla `audit_logs` (p. ej., múltiples intentos fallidos de acceso o eventos de detección de reutilización de refresh tokens).
 4. **Permisos de Usuario de Base de Datos:**  
    Verificar que el usuario MySQL configurado en producción cuente únicamente con permisos de `SELECT`, `INSERT`, `UPDATE`, `DELETE` sobre las tablas de la base de datos de la aplicación, sin privilegios administrativos globales como `GRANT`, `SUPER` o `DROP DATABASE`.
+

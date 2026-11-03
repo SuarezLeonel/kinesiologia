@@ -27,3 +27,7 @@ Thumbs.db
 *.pdf
 *.apk
 backend/scripts/cleanup_test_users.js
+
+# Database
+database/
+
