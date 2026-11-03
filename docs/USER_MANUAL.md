@@ -190,7 +190,7 @@ Desde la carpeta `backend/`, ejecute los siguientes comandos en orden:
    ```
 3. **Crear usuario Administrador inicial dedicado (Opcional):**
    ```powershell
-   $env:ADMIN_EMAIL="admin@kinesiologia.com"; $env:ADMIN_PASSWORD="Password123!"; npm run create-admin
+   $env:ADMIN_EMAIL="kinesiogestion58@gmail.com"; $env:ADMIN_PASSWORD="Password123!"; npm run create-admin
    ```
 
 ### Iniciar el Backend en Desarrollo
@@ -325,7 +325,7 @@ Acompaña la rehabilitación del paciente fuera del consultorio:
 
 | Perfil | Correo Electrónico | Contraseña | Enfoque de Prueba |
 | :--- | :--- | :--- | :--- |
-| **Administrador** | `admin@kinesiologia.com` | `Password123!` | Métricas financieras, caja, usuarios y control total. |
+| **Administrador** | `kinesiogestion58@gmail.com` | `Password123!` | Métricas financieras, caja, usuarios y control total. |
 | **Kinesiólogo** | `carlos.kine@kinesiologia.com` | `Password123!` | Atención en box, historias clínicas, rutinas y PDF. |
 | **Recepcionista** | `mariana.recep@kinesiologia.com` | `Password123!` | Sala de espera, turnos, cobros y arqueo de caja. |
 | **Paciente** | `esteban.perez@ejemplo.com` | `Password123!` | Portal de ejercicios en casa y seguimiento. |

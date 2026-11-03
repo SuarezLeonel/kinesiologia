@@ -62,7 +62,7 @@ Para dar de alta el primer usuario administrador con validación de entradas por
 
 ```powershell
 cd backend
-$env:ADMIN_EMAIL="admin@kinesiologia.com"
+$env:ADMIN_EMAIL="kinesiogestion58@gmail.com"
 $env:ADMIN_PASSWORD="TuPasswordSeguroDe12CaracteresMinimo!"
 $env:ADMIN_NAME="Laura"
 $env:ADMIN_LAST_NAME="Admin"

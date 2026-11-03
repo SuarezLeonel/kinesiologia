@@ -299,7 +299,7 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             <View style={styles.demoPillsRow}>
               <TouchableOpacity
                 activeOpacity={0.8}
-                onPress={() => fillDemoCredentials('admin@kinesiologia.com')}
+                onPress={() => fillDemoCredentials('kinesiogestion58@gmail.com')}
                 style={styles.demoPill}
               >
                 <Text style={styles.demoPillText}>Admin</Text>
