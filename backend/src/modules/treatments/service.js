@@ -10,6 +10,29 @@ import { NotFoundError, ForbiddenError, ValidationError } from '../../utils/erro
 import { logAudit } from '../../utils/auditLogger.js';
 
 export class TreatmentsService {
+  /**
+   * Valida que un kinesiólogo tenga autorización sobre el tratamiento y paciente (OWASP BOLA / IDOR).
+   * @private
+   */
+  async _assertKinesiologistTreatmentAccess(kinesiologistId, treatment) {
+    if (treatment.kinesiologist_id === kinesiologistId) {
+      return true;
+    }
+    const patient = await patientsRepository.findById(treatment.patient_id);
+    if (patient && patient.assigned_kinesiologist_id === kinesiologistId) {
+      return true;
+    }
+    const { query } = await import('../../config/database.js');
+    const rel = await query(
+      'SELECT id FROM appointments WHERE patient_id = ? AND kinesiologist_id = ? LIMIT 1',
+      [treatment.patient_id, kinesiologistId]
+    );
+    if (!rel.length) {
+      throw new ForbiddenError('No posee autorización clínica sobre tratamientos de pacientes no asignados');
+    }
+    return true;
+  }
+
   async search(filters, currentUser) {
     if (currentUser.role === 'receptionist') {
       throw new ForbiddenError('El rol de recepcionista no tiene acceso a planes de tratamiento clínicos');
@@ -25,6 +48,10 @@ export class TreatmentsService {
     const treatment = await treatmentsRepository.findById(id);
     if (!treatment) {
       throw new NotFoundError('Tratamiento no encontrado');
+    }
+
+    if (currentUser.role === 'kinesiologist') {
+      await this._assertKinesiologistTreatmentAccess(currentUser.id, treatment);
     }
 
     // Cargar sesiones, ejercicios y rutinas asignadas
@@ -118,6 +145,9 @@ export class TreatmentsService {
   }
 
   async getPatientTracking(patientId, treatmentId, currentUser) {
+    if (treatmentId) {
+      await this.getDetail(treatmentId, currentUser);
+    }
     const tracking = await treatmentsRepository.getPatientExerciseEvolutionTracking(patientId, treatmentId);
     if (!tracking) {
       throw new NotFoundError('Paciente no encontrado');

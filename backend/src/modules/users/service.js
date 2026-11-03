@@ -56,6 +56,11 @@ export class UsersService {
     await this.getUserDetail(id);
     await usersRepository.updateUser(id, fields);
 
+    // Seguridad (OWASP ASVS V3.7): si se desactiva la cuenta o se altera el rol, revocar todas las sesiones activas
+    if (fields.isActive === false || fields.roleId !== undefined) {
+      await authRepository.revokeAllUserRefreshTokens(id);
+    }
+
     await logAudit({
       userId: currentUser?.id,
       action: 'USER_UPDATED',
@@ -70,6 +75,8 @@ export class UsersService {
   async deleteUser(id, currentUser = null) {
     await this.getUserDetail(id);
     await usersRepository.softDelete(id);
+    // Revocar inmediatamente todas las sesiones del usuario dado de baja
+    await authRepository.revokeAllUserRefreshTokens(id);
 
     await logAudit({
       userId: currentUser?.id,

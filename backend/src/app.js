@@ -37,13 +37,28 @@ export const app = express();
 // Configuración de proxy para despliegues detrás de reverse proxies (Vercel, Render, AWS, Nginx, Cloudflare)
 app.set('trust proxy', true);
 
-// Seguridad base con Helmet
-app.use(helmet());
+// Seguridad robusta de encabezados HTTP con Helmet (OWASP A05: Security Misconfiguration)
+app.use(helmet({
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // Requerido para Swagger UI
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'https:'],
+      connectSrc: ["'self'", 'https:'],
+      objectSrc: ["'none'"],
+      upgradeInsecureRequests: config.nodeEnv === 'production' ? [] : null
+    }
+  },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
+}));
 
-// CORS restringido
+// CORS restringido con soporte para preflight OPTIONS
 app.use(cors({
   origin: config.corsOrigin === '*' ? '*' : config.corsOrigin.split(','),
-  methods: ['POST', 'PUT', 'PATCH', 'DELETE'],
+  methods: ['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 

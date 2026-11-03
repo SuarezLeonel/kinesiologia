@@ -116,7 +116,7 @@ export class AuthService {
   async refresh({ refreshToken, ipAddress, userAgent }) {
     let payload;
     try {
-      payload = jwt.verify(refreshToken, config.jwt.refreshSecret);
+      payload = jwt.verify(refreshToken, config.jwt.refreshSecret, { algorithms: ['HS256'] });
     } catch {
       throw new UnauthorizedError('Refresh token inválido o expirado');
     }
@@ -128,8 +128,21 @@ export class AuthService {
     const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
     const storedToken = await authRepository.findRefreshToken(tokenHash);
 
-    if (!storedToken || storedToken.revoked_at || new Date(storedToken.expires_at) < new Date()) {
-      throw new UnauthorizedError('Refresh token revocado o expirado');
+    if (!storedToken) {
+      throw new UnauthorizedError('Refresh token no encontrado');
+    }
+
+    // Detección de reutilización (Token Reuse Detection - OWASP ASVS V3.8 / RFC 6749):
+    // Si el cliente presenta un token previamente revocado, es indicio de robo o fuga de sesión.
+    // Inmediatamente se invalidan todas las sesiones activas del usuario para proteger su cuenta.
+    if (storedToken.revoked_at) {
+      console.warn(`[SECURITY WARNING] Intento de reutilización de refresh token revocado para user_id ${storedToken.user_id}. Revocando todas las sesiones.`);
+      await authRepository.revokeAllUserRefreshTokens(storedToken.user_id);
+      throw new UnauthorizedError('Alerta de seguridad: intento de reutilización de sesión previamente revocada. Todas sus sesiones han sido cerradas.');
+    }
+
+    if (new Date(storedToken.expires_at) < new Date()) {
+      throw new UnauthorizedError('Refresh token expirado');
     }
 
     // Rotación: revocar el token anterior
@@ -153,7 +166,8 @@ export class AuthService {
   }
 
   async forgotPassword({ email }) {
-    const user = await authRepository.findUserByEmail(email);
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const user = await authRepository.findUserByEmail(normalizedEmail);
     // Para mitigar user enumeration, siempre respondemos afirmativamente
     if (!user) {
       return { sent: true };
@@ -223,7 +237,7 @@ export class AuthService {
     } else {
       // Caso B: Token JWT firmado
       try {
-        const payload = jwt.verify(cleanToken, config.jwt.resetSecret);
+        const payload = jwt.verify(cleanToken, config.jwt.resetSecret, { algorithms: ['HS256'] });
         if (payload.type !== 'password_reset' || !payload.userId) {
           throw new Error();
         }
@@ -365,7 +379,7 @@ export class AuthService {
 
   handleOAuthBridgeCallback({ code, state, error, error_description }) {
     let returnUrl = 'http://localhost:8081';
-    let appState = '';
+    let _appState = '';
 
     if (state) {
       try {
@@ -374,10 +388,10 @@ export class AuthService {
           returnUrl = String(decoded.returnUrl).trim();
         }
         if (decoded?.appState) {
-          appState = String(decoded.appState).trim();
+          _appState = String(decoded.appState).trim();
         }
       } catch {
-        appState = String(state).trim();
+        _appState = String(state).trim();
       }
     }
 
@@ -505,7 +519,7 @@ export class AuthService {
     // 0. Si viene un registrationToken temporal firmado por nuestro propio backend (durante completado de perfil o vinculación)
     if (registrationToken) {
       try {
-        const decoded = jwt.verify(registrationToken, config.jwt.accessSecret);
+        const decoded = jwt.verify(registrationToken, config.jwt.accessSecret, { algorithms: ['HS256'] });
         if (decoded && decoded.type === 'social_registration') {
           return {
             provider: decoded.provider || normalizedProvider,
@@ -564,7 +578,7 @@ export class AuthService {
     throw new UnauthorizedError(`Token de autenticación de ${normalizedProvider} requerido y no válido`);
   }
 
-  async googleLogin({ idToken, accessToken, email, firstName, lastName, ipAddress, userAgent }) {
+  async googleLogin({ idToken, accessToken, email, firstName: _firstName, lastName: _lastName, ipAddress, userAgent }) {
     return await this.socialAuth({
       provider: 'google',
       idToken,

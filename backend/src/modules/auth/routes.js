@@ -24,7 +24,7 @@ import {
 
 export const authRouter = Router();
 
-const isTest = config.nodeEnv === 'test';
+const isTest = config.nodeEnv === 'test' || Boolean(process.env.NODE_TEST_CONTEXT);
 
 const createLimiter = (max, windowMinutes, message, useEmailKey = false) => rateLimit({
   windowMs: windowMinutes * 60 * 1000,
@@ -50,13 +50,16 @@ const createLimiter = (max, windowMinutes, message, useEmailKey = false) => rate
   }
 });
 
+// Limitadores específicos para mitigación de ataques de fuerza bruta y credential stuffing (OWASP A07 / API4)
+const loginLimiter = createLimiter(10, 15, 'Demasiados intentos de inicio de sesión. Por motivos de seguridad, reintente en 15 minutos.', true);
+const registerLimiter = createLimiter(20, 60, 'Demasiadas solicitudes de registro desde esta conexión. Reintente en una hora.');
 const forgotPasswordLimiter = createLimiter(20, 15, 'Demasiadas solicitudes de recuperación de contraseña. Reintente en 15 minutos.', true);
 const resetPasswordLimiter = createLimiter(15, 15, 'Demasiados intentos de restablecimiento de contraseña. Reintente en 15 minutos.', true);
 
 // Todos los endpoints usan POST según AGENTS.md y REQUISITOS.md
-authRouter.post('/register', validate(registerSchema), asyncHandler((req, res, next) => authController.register(req, res, next)));
-authRouter.post('/register-patient', validate(patientRegisterSchema), asyncHandler((req, res, next) => authController.registerPatient(req, res, next)));
-authRouter.post('/login', validate(loginSchema), asyncHandler((req, res, next) => authController.login(req, res, next)));
+authRouter.post('/register', registerLimiter, validate(registerSchema), asyncHandler((req, res, next) => authController.register(req, res, next)));
+authRouter.post('/register-patient', registerLimiter, validate(patientRegisterSchema), asyncHandler((req, res, next) => authController.registerPatient(req, res, next)));
+authRouter.post('/login', loginLimiter, validate(loginSchema), asyncHandler((req, res, next) => authController.login(req, res, next)));
 authRouter.post('/google', validate(googleAuthSchema), asyncHandler((req, res, next) => authController.google(req, res, next)));
 authRouter.post('/refresh', validate(refreshSchema), asyncHandler((req, res, next) => authController.refresh(req, res, next)));
 authRouter.post('/logout', validate(refreshSchema), asyncHandler((req, res, next) => authController.logout(req, res, next)));

@@ -11,9 +11,37 @@ import { logAudit } from '../../utils/auditLogger.js';
 import { generateClinicalRecordPdf } from './pdfGenerator.js';
 
 export class ClinicalRecordsService {
+  /**
+   * Valida que un kinesiólogo posea relación clínica legítima con el paciente (OWASP BOLA / IDOR).
+   * @private
+   */
+  async _assertKinesiologistPatientAccess(kinesiologistId, patientId, authorId = null) {
+    if (authorId && authorId === kinesiologistId) {
+      return true;
+    }
+    const patient = await patientsRepository.findById(patientId);
+    if (!patient) {
+      throw new NotFoundError('Paciente no encontrado');
+    }
+    if (patient.assigned_kinesiologist_id === kinesiologistId) {
+      return true;
+    }
+    const rel = await query(
+      'SELECT id FROM appointments WHERE patient_id = ? AND kinesiologist_id = ? LIMIT 1',
+      [patientId, kinesiologistId]
+    );
+    if (!rel.length) {
+      throw new ForbiddenError('No posee autorización clínica sobre pacientes no asignados');
+    }
+    return true;
+  }
+
   async searchByPatient(params, currentUser) {
     if (currentUser.role === 'receptionist') {
       throw new ForbiddenError('El rol de recepcionista no tiene acceso a historias clínicas ni diagnósticos');
+    }
+    if (currentUser.role === 'kinesiologist' && params.patientId) {
+      await this._assertKinesiologistPatientAccess(currentUser.id, params.patientId);
     }
     return await clinicalRecordsRepository.searchByPatient(params);
   }
@@ -25,6 +53,9 @@ export class ClinicalRecordsService {
     const record = await clinicalRecordsRepository.findById(id);
     if (!record) {
       throw new NotFoundError('Historia clínica no encontrada');
+    }
+    if (currentUser.role === 'kinesiologist') {
+      await this._assertKinesiologistPatientAccess(currentUser.id, record.patient_id, record.author_id);
     }
     return record;
   }
@@ -39,14 +70,8 @@ export class ClinicalRecordsService {
       throw new NotFoundError('Historia clínica no encontrada');
     }
 
-    if (currentUser.role === 'kinesiologist' && record.author_id !== currentUser.id) {
-      const rel = await query(
-        'SELECT id FROM appointments WHERE patient_id = ? AND kinesiologist_id = ? LIMIT 1',
-        [record.patient_id, currentUser.id]
-      );
-      if (!rel.length) {
-        throw new ForbiddenError('No posee autorización clínica sobre pacientes no asignados');
-      }
+    if (currentUser.role === 'kinesiologist') {
+      await this._assertKinesiologistPatientAccess(currentUser.id, record.patient_id, record.author_id);
     }
 
     const sessions = await clinicalRecordsRepository.findSessionsByClinicalRecordId(id);
@@ -78,17 +103,7 @@ export class ClinicalRecordsService {
     }
 
     if (currentUser.role === 'kinesiologist') {
-      const isAssigned = patient.assigned_kinesiologist_id === currentUser.id;
-      if (!isAssigned) {
-        // Verificar si tiene turno previo o asignado
-        const rel = await query(
-          'SELECT id FROM appointments WHERE patient_id = ? AND kinesiologist_id = ? LIMIT 1',
-          [data.patientId, currentUser.id]
-        );
-        if (!rel.length) {
-          throw new ForbiddenError('No posee autorización clínica sobre pacientes no asignados');
-        }
-      }
+      await this._assertKinesiologistPatientAccess(currentUser.id, data.patientId);
     }
 
     const id = await clinicalRecordsRepository.create({

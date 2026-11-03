@@ -29,7 +29,7 @@ export async function authenticateToken(req, res, next) {
     const token = authHeader.split(' ')[1];
     let payload;
     try {
-      payload = jwt.verify(token, config.jwt.accessSecret);
+      payload = jwt.verify(token, config.jwt.accessSecret, { algorithms: ['HS256'] });
     } catch {
       throw new UnauthorizedError('Token inválido o expirado');
     }
