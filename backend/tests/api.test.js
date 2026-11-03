@@ -6,8 +6,24 @@ import jwt from 'jsonwebtoken';
 import { config } from '../src/config/env.js';
 import { getPool } from '../src/config/database.js';
 
+let testPatientId = null;
+
+test.before(async () => {
+  const pool = getPool();
+  const [pRes] = await pool.query(`
+    INSERT INTO patients (first_name, last_name, dni, birth_date, phone, email, is_active)
+    VALUES ('Paciente', 'TestApi', 'DNI-API-TEST', '1990-01-01', '12345678', 'test.api.patient@example.com', 1)
+  `);
+  testPatientId = pRes.insertId;
+});
+
 test.after(async () => {
   const pool = getPool();
+  if (testPatientId) {
+    await pool.query('DELETE FROM clinical_records WHERE patient_id = ?', [testPatientId]);
+    await pool.query('DELETE FROM payments WHERE patient_id = ?', [testPatientId]);
+    await pool.query('DELETE FROM patients WHERE id = ?', [testPatientId]);
+  }
   await pool.end();
 });
 
@@ -220,7 +236,7 @@ test('12. Idempotencia de pagos: Recibo duplicado rechaza con 409 Conflict', asy
 
   const uniqueReceipt = `REC-TEST-${Date.now()}`;
   const paymentPayload = {
-    patientId: 1,
+    patientId: testPatientId,
     amount: 15000,
     paymentMethod: 'cash',
     receiptNumber: uniqueReceipt
@@ -306,8 +322,8 @@ test('16. Historias Clínicas: Exportación de PDF formal médico mediante POST 
   const pool = getPool();
   const [crRes] = await pool.query(`
     INSERT INTO clinical_records (patient_id, author_id, consultation_reason, initial_evaluation, diagnosis)
-    VALUES (1, 2, 'Evaluación y tratamiento PDF', 'Dolor en zona lumbar', 'Lumbalgia mecánica')
-  `);
+    VALUES (?, 2, 'Evaluación y tratamiento PDF', 'Dolor en zona lumbar', 'Lumbalgia mecánica')
+  `, [testPatientId]);
   const recordId = crRes.insertId;
 
   try {
