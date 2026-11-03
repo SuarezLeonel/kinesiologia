@@ -1,223 +1,218 @@
 /**
  * @file emailService.js
  * @description Servicio unificado de despacho de correos electrónicos transaccionales para KinesioGestión.
- * Soporta envío de alta disponibilidad mediante API HTTP (Gmail API / Resend / Brevo) sobre puerto 443
- * para compatibilidad con entornos cloud (Render, Vercel), con fallback a SMTP tradicional (Nodemailer)
- * y transportador JSON para entornos de testing automatizado.
+ * Opera exclusivamente mediante HTTPS sobre puerto 443 sin utilizar Nodemailer ni SMTP, garantizando
+ * máxima compatibilidad con entornos cloud (Render, Vercel) donde los puertos SMTP tradicionales (25, 465, 587)
+ * se encuentran bloqueados.
+ *
+ * Estrategia de proveedores (Patrón Adaptador desacoplado):
+ * 1. Google Apps Script Web App (Primario): Despacho gratuito desde cuenta personal de Gmail (@gmail.com)
+ *    sin necesidad de dominio propio ni configuración de registros DNS.
+ * 2. Resend API HTTP (Alternativo / Migración futura): Despacho profesional mediante API REST HTTPS.
+ * 3. Brevo API HTTP (Alternativo / Migración futura): Despacho transaccional mediante API REST HTTPS.
+ * 4. Mock en memoria: Entornos de testing automatizado (NODE_ENV=test o NODE_TEST_CONTEXT) sin llamadas externas.
+ *
+ * Seguridad:
+ * - Los códigos de verificación, tokens y contraseñas jamás se imprimen en logs.
+ * - Toda la lógica de autenticación, generación y expiración de códigos reside en Node.js y MySQL.
  */
 
-import nodemailer from 'nodemailer';
 import { config } from '../config/env.js';
-import { isGmailApiConfigured, sendWithGmailApi } from './gmailApiSender.js';
+import { isAppsScriptConfigured, sendWithAppsScript } from './appsScriptSender.js';
 
 /**
- * Servicio de gestión de envío de emails.
+ * Sanitiza una dirección de correo para auditoría segura sin exponer datos sensibles.
+ * @param {string} email
+ * @returns {string}
+ */
+function maskEmail(email) {
+  if (!email || typeof email !== 'string') return 'desconocido';
+  const parts = email.split('@');
+  if (parts.length !== 2) return '***';
+  const local = parts[0];
+  const domain = parts[1];
+  const visible = local.slice(0, 2);
+  return `${visible}***@${domain}`;
+}
+
+/**
+ * Servicio unificado de correos electrónicos.
  */
 class EmailService {
-  constructor() {
-    this.transporter = null;
-  }
+  /**
+   * Envía un correo genérico utilizando el proveedor configurado de mayor prioridad.
+   * @param {Object} options
+   * @param {string} options.to - Destinatario.
+   * @param {string} options.subject - Asunto.
+   * @param {string} [options.text] - Contenido en texto plano.
+   * @param {string} [options.html] - Contenido HTML.
+   * @param {string} [options.fromName='KinesioGestión'] - Nombre del remitente.
+   * @returns {Promise<{ success: boolean, messageId?: string, provider?: string, error?: string }>}
+   */
+  async sendEmail({ to, subject, text, html, fromName = 'KinesioGestión' }) {
+    const isAutomatedTest = config.nodeEnv === 'test' || Boolean(process.env.NODE_TEST_CONTEXT);
+    const maskedTo = maskEmail(to);
 
-  async getTransporter() {
-    if (this.transporter) {
-      return this.transporter;
-    }
-
-    if (config.nodeEnv === 'test') {
-      this.transporter = nodemailer.createTransport({ jsonTransport: true });
-      return this.transporter;
-    }
-
-    const transportTimeouts = {
-      connectionTimeout: 4000,
-      greetingTimeout: 4000,
-      socketTimeout: 5000
-    };
-
-    if (config.email.host && config.email.user && config.email.pass) {
-      try {
-        this.transporter = nodemailer.createTransport({
-          host: config.email.host,
-          port: config.email.port,
-          secure: config.email.secure,
-          auth: {
-            user: config.email.user.trim(),
-            pass: String(config.email.pass).replace(/\s+/g, '')
-          },
-          ...transportTimeouts
-        });
-        return this.transporter;
-      } catch (err) {
-        console.warn('[EMAIL] Fallo al instanciar transporter SMTP:', err.message);
-      }
-    }
-
-    // Si no hay configuración SMTP, crear cuenta de prueba en Ethereal con timeout
-    try {
-      const testAccount = await Promise.race([
-        nodemailer.createTestAccount(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Ethereal test account timeout (3000ms)')), 3000))
-      ]);
-      this.transporter = nodemailer.createTransport({
-        host: 'smtp.ethereal.email',
-        port: 587,
-        secure: false,
-        auth: {
-          user: testAccount.user,
-          pass: testAccount.pass
-        },
-        ...transportTimeouts
-      });
-      return this.transporter;
-    } catch {
-      // Fallback a transporter JSON en caso de no haber conexión saliente
-      this.transporter = nodemailer.createTransport({
-        jsonTransport: true
-      });
-      return this.transporter;
-    }
-  }
-
-  async sendPasswordResetEmail({ to, name = 'Usuario', resetCode }) {
-    try {
-      const mailOptions = {
-        from: config.email.from,
-        to,
-        subject: `KinesioGestión — Código de recuperación: ${resetCode}`,
-        text: `Hola ${name},\n\nHa solicitado restablecer su contraseña de acceso a KinesioGestión.\n\nSu código de verificación es: ${resetCode}\n\nEste código es de un solo uso y vencerá en 15 minutos.\n\nSi no ha solicitado este cambio, ignore este mensaje.\n\nEquipo KinesioGestión.`,
-        html: `
-          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #E2E8F0; border-radius: 8px; background-color: #FFFFFF;">
-            <div style="text-align: center; margin-bottom: 24px;">
-              <div style="display: inline-block; width: 44px; height: 44px; line-height: 44px; border-radius: 8px; background-color: #E8F0EC; color: #537C68; font-weight: bold; font-size: 18px; text-align: center; border: 1px solid #C4D9CD;">KG</div>
-              <h2 style="margin: 12px 0 4px 0; color: #1D211E; font-size: 20px;">KinesioGestión</h2>
-              <p style="margin: 0; color: #64748B; font-size: 13px;">Sistema Integral de Consultorio</p>
-            </div>
-
-            <div style="padding: 20px; background-color: #F8FAFC; border-radius: 6px; border: 1px solid #EDF2F7; margin-bottom: 20px;">
-              <p style="margin: 0 0 12px 0; color: #334155; font-size: 14px;">Estimado/a <strong>${name}</strong>,</p>
-              <p style="margin: 0 0 16px 0; color: #475569; font-size: 14px; line-height: 22px;">
-                Hemos recibido una solicitud para restablecer la contraseña de su cuenta en KinesioGestión. Utilice el siguiente código de verificación de 6 dígitos en la aplicación:
-              </p>
-
-              <div style="text-align: center; margin: 24px 0;">
-                <div style="display: inline-block; padding: 12px 24px; background-color: #E8F0EC; border: 2px dashed #537C68; border-radius: 8px; font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #537C68;">
-                  ${resetCode}
-                </div>
-              </div>
-
-              <p style="margin: 0 0 8px 0; color: #64748B; font-size: 12px; text-align: center;">
-                Este código expirará en <strong>15 minutos</strong> y puede utilizarse una sola vez.
-              </p>
-            </div>
-
-            <p style="margin: 0 0 16px 0; color: #94A3B8; font-size: 12px; line-height: 18px;">
-              Si usted no realizó esta solicitud, puede desestimar este mensaje de forma segura. Su contraseña actual no ha sido modificada.
-            </p>
-
-            <div style="border-top: 1px solid #E2E8F0; padding-top: 16px; margin-top: 24px; text-align: center; color: #94A3B8; font-size: 11px;">
-              KinesioGestión — Sistema Seguro de Gestión Clínica y Administrativa
-            </div>
-          </div>
-        `
-      };
-
-      // Las APIs HTTP reales (Gmail/Resend/Brevo) no se invocan en pruebas automatizadas (NODE_ENV=test o node --test)
-      const isAutomatedTest = config.nodeEnv === 'test' || Boolean(process.env.NODE_TEST_CONTEXT);
-
-      // 0. Envío por Gmail API (HTTPS, puerto 443): sale desde la cuenta Gmail configurada, sin dominio propio
-      if (isGmailApiConfigured() && !isAutomatedTest) {
-        try {
-          const result = await sendWithGmailApi(mailOptions);
-          console.log('[EMAIL] Correo enviado exitosamente vía Gmail API (id:', result.messageId, ')');
-          return result;
-        } catch (apiErr) {
-          console.warn('[EMAIL] Fallo al enviar con Gmail API:', apiErr.message);
-        }
-      }
-
-      // 1. Envío por API HTTP (Resend) si está configurado (Puerto 443 - HTTPS estándar, nunca bloqueado en Render)
-      if (config.email.resendApiKey && !isAutomatedTest) {
-        try {
-          // Resend en cuentas de prueba exige enviar desde onboarding@resend.dev a menos que se configure un dominio propio verificado
-          const fromSender = config.email.resendFrom
-            || (config.email.from && config.email.from.includes('@resend.dev') ? config.email.from : 'KinesioGestión <onboarding@resend.dev>');
-
-          const res = await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${config.email.resendApiKey}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              from: fromSender,
-              to: [to],
-              subject: mailOptions.subject,
-              text: mailOptions.text,
-              html: mailOptions.html
-            }),
-            signal: AbortSignal.timeout(6000)
-          });
-          const resData = await res.json().catch(() => ({}));
-          if (res.ok) {
-            console.log('[EMAIL] Correo enviado exitosamente vía Resend API (id:', resData.id, ')');
-            return { success: true, messageId: resData.id };
-          }
-          console.warn('[EMAIL] Fallo al enviar con Resend API:', resData);
-        } catch (apiErr) {
-          console.warn('[EMAIL] Error de conexión con Resend API:', apiErr.message);
-        }
-      }
-
-      // 2. Envío por API HTTP (Brevo) si está configurado (Puerto 443)
-      if (config.email.brevoApiKey && !isAutomatedTest) {
-        try {
-          const res = await fetch('https://api.brevo.com/v3/smtp/email', {
-            method: 'POST',
-            headers: {
-              'api-key': config.email.brevoApiKey,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              sender: { name: 'KinesioGestión', email: config.email.user || 'no-reply@kinesiologia.com' },
-              to: [{ email: to, name }],
-              subject: mailOptions.subject,
-              textContent: mailOptions.text,
-              htmlContent: mailOptions.html
-            }),
-            signal: AbortSignal.timeout(6000)
-          });
-          const resData = await res.json().catch(() => ({}));
-          if (res.ok) {
-            console.log('[EMAIL] Correo enviado exitosamente vía Brevo API (id:', resData.messageId, ')');
-            return { success: true, messageId: resData.messageId };
-          }
-          console.warn('[EMAIL] Fallo al enviar con Brevo API:', resData);
-        } catch (apiErr) {
-          console.warn('[EMAIL] Error de conexión con Brevo API:', apiErr.message);
-        }
-      }
-
-      // 3. Envío SMTP tradicional (Nodemailer / Gmail)
-      const transporter = await this.getTransporter();
-
-      const info = await Promise.race([
-        transporter.sendMail(mailOptions),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP sendMail timeout (5000ms excedido)')), 5000))
-      ]);
-      const previewUrl = nodemailer.getTestMessageUrl(info);
-
+    // 0. Mock seguro para pruebas automatizadas (sin tráfico de red saliente)
+    if (isAutomatedTest) {
       return {
         success: true,
-        messageId: info.messageId,
-        previewUrl: previewUrl || undefined
-      };
-    } catch (error) {
-      console.error('[EMAIL ERROR] Fallo al enviar correo:', error.message);
-      return {
-        success: false,
-        error: error.message
+        messageId: `test-mock-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        provider: 'test-mock'
       };
     }
+
+    // 1. Proveedor Primario: Google Apps Script Web App (HTTPS 443)
+    if (isAppsScriptConfigured()) {
+      try {
+        const result = await sendWithAppsScript({ to, subject, text, html, fromName });
+        return {
+          success: true,
+          messageId: result.messageId,
+          provider: 'apps-script'
+        };
+      } catch (err) {
+        console.error(`[EMAIL ERROR] Fallo en proveedor Google Apps Script para ${maskedTo}:`, err.message);
+        // Si falló Apps Script y no hay proveedor de respaldo configurado, retornar error
+        if (!config.email.resendApiKey && !config.email.brevoApiKey) {
+          return { success: false, error: err.message, provider: 'apps-script' };
+        }
+        console.warn('[EMAIL] Intentando proveedor alternativo de respaldo...');
+      }
+    }
+
+    // 2. Proveedor Secundario / Alternativo: Resend API (HTTPS 443)
+    if (config.email.resendApiKey) {
+      try {
+        const fromSender = config.email.resendFrom || 'KinesioGestión <onboarding@resend.dev>';
+        const response = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${config.email.resendApiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            from: fromSender,
+            to: [to],
+            subject,
+            text: text || '',
+            html: html || text || ''
+          }),
+          signal: AbortSignal.timeout(config.email.appsScript?.timeoutMs || 8000)
+        });
+
+        const resData = await response.json().catch(() => ({}));
+        if (response.ok && resData?.id) {
+          console.log(`[EMAIL] Correo enviado exitosamente vía Resend API a ${maskedTo}`);
+          return { success: true, messageId: resData.id, provider: 'resend' };
+        }
+        console.warn(`[EMAIL] Fallo reportado por Resend API para ${maskedTo}:`, resData?.message || response.statusText);
+      } catch (resendErr) {
+        console.warn(`[EMAIL] Error de conexión con Resend API para ${maskedTo}:`, resendErr.message);
+      }
+    }
+
+    // 3. Proveedor Secundario / Alternativo: Brevo API (HTTPS 443)
+    if (config.email.brevoApiKey) {
+      try {
+        const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+          method: 'POST',
+          headers: {
+            'api-key': config.email.brevoApiKey,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            sender: { name: fromName, email: 'no-reply@kinesiologia.com' },
+            to: [{ email: to }],
+            subject,
+            textContent: text || '',
+            htmlContent: html || text || ''
+          }),
+          signal: AbortSignal.timeout(config.email.appsScript?.timeoutMs || 8000)
+        });
+
+        const resData = await response.json().catch(() => ({}));
+        if (response.ok && (resData?.messageId || resData?.messageIds)) {
+          console.log(`[EMAIL] Correo enviado exitosamente vía Brevo API a ${maskedTo}`);
+          return {
+            success: true,
+            messageId: resData.messageId || resData.messageIds?.[0],
+            provider: 'brevo'
+          };
+        }
+        console.warn(`[EMAIL] Fallo reportado por Brevo API para ${maskedTo}:`, resData?.message || response.statusText);
+      } catch (brevoErr) {
+        console.warn(`[EMAIL] Error de conexión con Brevo API para ${maskedTo}:`, brevoErr.message);
+      }
+    }
+
+    // 4. Si ningún proveedor está configurado o todos fallaron
+    const errorMsg = 'No hay proveedor de correo disponible o configurado. Verifique APPS_SCRIPT_URL y APPS_SCRIPT_SECRET en backend/.env';
+    console.error(`[EMAIL ERROR] Despacho no completado para ${maskedTo}: ${errorMsg}`);
+    return {
+      success: false,
+      error: errorMsg
+    };
+  }
+
+  /**
+   * Envía el correo con el código de recuperación de contraseña de 6 dígitos.
+   * La generación, almacenamiento en base de datos y validación de expiración residen en auth/service.js.
+   * @param {Object} params
+   * @param {string} params.to - Dirección de correo electrónico del usuario.
+   * @param {string} [params.name='Usuario'] - Nombre del usuario destinatario.
+   * @param {string} params.resetCode - Código numérico de 6 dígitos.
+   * @returns {Promise<{ success: boolean, messageId?: string, provider?: string, error?: string }>}
+   */
+  async sendPasswordResetEmail({ to, name = 'Usuario', resetCode }) {
+    if (!resetCode) {
+      throw new Error('El código de recuperación es obligatorio para enviar el correo');
+    }
+
+    const subject = `KinesioGestión — Código de recuperación: ${resetCode}`;
+    const text = `Hola ${name},\n\nHa solicitado restablecer su contraseña de acceso a KinesioGestión.\n\nSu código de verificación es: ${resetCode}\n\nEste código es de un solo uso y vencerá en 15 minutos.\n\nSi no ha solicitado este cambio, ignore este mensaje.\n\nEquipo KinesioGestión.`;
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #E2E8F0; border-radius: 8px; background-color: #FFFFFF;">
+        <div style="text-align: center; margin-bottom: 24px;">
+          <div style="display: inline-block; width: 44px; height: 44px; line-height: 44px; border-radius: 8px; background-color: #E8F0EC; color: #537C68; font-weight: bold; font-size: 18px; text-align: center; border: 1px solid #C4D9CD;">KG</div>
+          <h2 style="margin: 12px 0 4px 0; color: #1D211E; font-size: 20px;">KinesioGestión</h2>
+          <p style="margin: 0; color: #64748B; font-size: 13px;">Sistema Integral de Consultorio</p>
+        </div>
+
+        <div style="padding: 20px; background-color: #F8FAFC; border-radius: 6px; border: 1px solid #EDF2F7; margin-bottom: 20px;">
+          <p style="margin: 0 0 12px 0; color: #334155; font-size: 14px;">Estimado/a <strong>${name}</strong>,</p>
+          <p style="margin: 0 0 16px 0; color: #475569; font-size: 14px; line-height: 22px;">
+            Hemos recibido una solicitud para restablecer la contraseña de su cuenta en KinesioGestión. Utilice el siguiente código de verificación de 6 dígitos en la aplicación:
+          </p>
+
+          <div style="text-align: center; margin: 24px 0;">
+            <div style="display: inline-block; padding: 12px 24px; background-color: #E8F0EC; border: 2px dashed #537C68; border-radius: 8px; font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #537C68;">
+              ${resetCode}
+            </div>
+          </div>
+
+          <p style="margin: 0 0 8px 0; color: #64748B; font-size: 12px; text-align: center;">
+            Este código expirará en <strong>15 minutos</strong> y puede utilizarse una sola vez.
+          </p>
+        </div>
+
+        <p style="margin: 0 0 16px 0; color: #94A3B8; font-size: 12px; line-height: 18px;">
+          Si usted no realizó esta solicitud, puede desestimar este mensaje de forma segura. Su contraseña actual no ha sido modificada.
+        </p>
+
+        <div style="border-top: 1px solid #E2E8F0; padding-top: 16px; margin-top: 24px; text-align: center; color: #94A3B8; font-size: 11px;">
+          KinesioGestión — Sistema Seguro de Gestión Clínica y Administrativa
+        </div>
+      </div>
+    `;
+
+    return this.sendEmail({
+      to,
+      subject,
+      text,
+      html,
+      fromName: 'KinesioGestión'
+    });
   }
 }
 

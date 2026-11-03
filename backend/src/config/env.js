@@ -54,23 +54,18 @@ export const config = {
     resetExpiresIn: process.env.JWT_RESET_EXPIRES_IN || '15m'
   },
   email: {
-    host: process.env.SMTP_HOST || null,
-    port: parseInt(process.env.SMTP_PORT || '587', 10),
-    secure: process.env.SMTP_SECURE === 'true',
-    user: process.env.SMTP_USER || null,
-    pass: process.env.SMTP_PASS || null,
-    from: process.env.SMTP_FROM || '"KinesioGestión" <no-reply@kinesiologia.com>',
+    // Google Apps Script Web App (HTTPS, puerto 443) — Remitente Gmail personal sin requerir dominio ni SMTP
+    appsScript: {
+      url: process.env.APPS_SCRIPT_URL || null,
+      secret: process.env.APPS_SCRIPT_SECRET || null,
+      timeoutMs: parseInt(process.env.APPS_SCRIPT_TIMEOUT_MS || '10000', 10)
+    },
+    from: process.env.EMAIL_FROM || '"KinesioGestión" <no-reply@kinesiologia.com>',
     appUrl: process.env.APP_URL || 'http://localhost:8081',
+    // Proveedores alternativos / migración futura (HTTPS sobre puerto 443)
     resendApiKey: process.env.RESEND_API_KEY || null,
     resendFrom: process.env.RESEND_FROM || null,
-    brevoApiKey: process.env.BREVO_API_KEY || null,
-    // Gmail API (HTTPS, puerto 443): envía desde una cuenta Gmail sin dominio propio
-    gmail: {
-      clientId: process.env.GMAIL_CLIENT_ID || null,
-      clientSecret: process.env.GMAIL_CLIENT_SECRET || null,
-      refreshToken: process.env.GMAIL_REFRESH_TOKEN || null,
-      sender: process.env.GMAIL_SENDER || process.env.SMTP_USER || null
-    }
+    brevoApiKey: process.env.BREVO_API_KEY || null
   },
   oauth: {
     google: {
