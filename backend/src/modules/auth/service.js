@@ -741,11 +741,13 @@ export class AuthService {
     throw new UnauthorizedError(`Token de autenticación de ${normalizedProvider} requerido y no válido`);
   }
 
-  async googleLogin({ idToken, accessToken, email, firstName: _firstName, lastName: _lastName, ipAddress, userAgent }) {
+  async googleLogin({ idToken, accessToken, code, redirectUri, email, firstName: _firstName, lastName: _lastName, ipAddress, userAgent }) {
     return await this.socialAuth({
       provider: 'google',
       idToken,
       accessToken,
+      code,
+      redirectUri,
       confirmedEmail: email,
       ipAddress,
       userAgent
@@ -843,7 +845,7 @@ export class AuthService {
     const dniPrefix = dniPrefixMap[normalizedProvider] || 'S';
 
     const txResult = await executeTransaction(async (conn) => {
-      // 1. Buscar si esta cuenta social ya está vinculada en social_accounts
+      // 1. Buscar si esta cuenta social ya está vinculada en social_accounts mediante el ID único inmutable (sub)
       const [socialRows] = await conn.execute(
         'SELECT user_id FROM social_accounts WHERE provider = ? AND provider_user_id = ?',
         [normalizedProvider, sub]
@@ -851,17 +853,35 @@ export class AuthService {
 
       let userId;
       if (socialRows.length > 0) {
-        // La cuenta social ya fue vinculada previamente y verificada
+        // La cuenta social ya fue vinculada previamente y verificada por el proveedor OAuth
         userId = socialRows[0].user_id;
+
+        // Comprobar que el usuario exista y esté activo
+        const [uRows] = await conn.execute(
+          'SELECT u.id, u.role_id, r.name as role_name, u.is_active, u.email_verified_at FROM users u JOIN roles r ON u.role_id = r.id WHERE u.id = ?',
+          [userId]
+        );
+        if (uRows.length === 0 || !uRows[0].is_active) {
+          throw new UnauthorizedError('La cuenta se encuentra inactiva o suspendida');
+        }
+
+        // Si el correo no estaba marcado como verificado, marcarlo (el proveedor ya lo validó criptográficamente)
+        if (!uRows[0].email_verified_at && verified.emailVerified) {
+          await conn.execute('UPDATE users SET email_verified_at = CURRENT_TIMESTAMP WHERE id = ?', [userId]);
+        }
       } else {
         // 2. No está en social_accounts: verificar si ya existe un usuario con este correo
         const [userRows] = await conn.execute(
-          'SELECT id, role_id, password_hash, is_active FROM users WHERE LOWER(TRIM(email)) = ?',
+          'SELECT u.id, u.role_id, r.name as role_name, u.password_hash, u.is_active, u.email_verified_at FROM users u JOIN roles r ON u.role_id = r.id WHERE LOWER(TRIM(u.email)) = ?',
           [resolvedEmail]
         );
 
         if (userRows.length > 0) {
           const existingUser = userRows[0];
+
+          if (!existingUser.is_active) {
+            throw new UnauthorizedError('La cuenta se encuentra inactiva o suspendida');
+          }
 
           // REGLA DE SEGURIDAD EXIGIDA:
           // "Si un usuario ya tiene una cuenta con correo y contraseña, no vincules automáticamente
@@ -902,6 +922,10 @@ export class AuthService {
             'INSERT IGNORE INTO social_accounts (user_id, provider, provider_user_id) VALUES (?, ?, ?)',
             [userId, normalizedProvider, sub]
           );
+
+          if (!existingUser.email_verified_at && verified.emailVerified) {
+            await conn.execute('UPDATE users SET email_verified_at = CURRENT_TIMESTAMP WHERE id = ?', [userId]);
+          }
         } else {
           // 3. Crear nuevo usuario con rol ESTRICTO de 'patient' (nunca rol profesional en registro público)
           // REQUISITO: Cuando se crea una cuenta con google/github/facebook, el usuario debe escribir su nombre, apellido, DNI, teléfono, etc.
@@ -1007,42 +1031,51 @@ export class AuthService {
         }
       }
 
-      // Asegurar ficha de paciente vinculada para usuario existente
-      const [pRows] = await conn.execute(
-        'SELECT id, dni FROM patients WHERE user_id = ? AND is_active = 1 FOR UPDATE',
+      // Consultar el rol del usuario para NO crear ficha clínica a personal administrativo o profesional (admin, kinesiologist, receptionist)
+      const [userRoleRows] = await conn.execute(
+        'SELECT u.id, u.role_id, r.name as role_name FROM users u JOIN roles r ON u.role_id = r.id WHERE u.id = ?',
         [userId]
       );
-      const [unlinkedByEmail] = await conn.execute(
-        'SELECT id, user_id FROM patients WHERE LOWER(TRIM(email)) = ? AND user_id IS NULL AND is_active = 1 FOR UPDATE',
-        [resolvedEmail]
-      );
+      const isPatientRole = userRoleRows.length > 0 && userRoleRows[0].role_name === 'patient';
 
-      let patientId;
-      if (unlinkedByEmail.length === 1 && pRows.length === 1 && /^(P-|G-|GH-|M-|F-|A-|S-)/.test(String(pRows[0].dni || ''))) {
-        await conn.execute('UPDATE appointments SET patient_id = ? WHERE patient_id = ?', [unlinkedByEmail[0].id, pRows[0].id]);
-        await conn.execute('UPDATE patients SET user_id = NULL, is_active = 0 WHERE id = ?', [pRows[0].id]);
-        await conn.execute('UPDATE patients SET user_id = ? WHERE id = ?', [userId, unlinkedByEmail[0].id]);
-        patientId = unlinkedByEmail[0].id;
-      } else if (pRows.length > 0) {
-        patientId = pRows[0].id;
-      } else if (unlinkedByEmail.length === 1) {
-        await conn.execute('UPDATE patients SET user_id = ? WHERE id = ?', [userId, unlinkedByEmail[0].id]);
-        patientId = unlinkedByEmail[0].id;
-      } else {
-        const [allByEmail] = await conn.execute(
-          'SELECT id FROM patients WHERE LOWER(TRIM(email)) = ? AND is_active = 1',
+      let patientId = null;
+      if (isPatientRole) {
+        // Asegurar ficha de paciente vinculada exclusivamente para usuarios con rol de paciente
+        const [pRows] = await conn.execute(
+          'SELECT id, dni FROM patients WHERE user_id = ? AND is_active = 1 FOR UPDATE',
+          [userId]
+        );
+        const [unlinkedByEmail] = await conn.execute(
+          'SELECT id, user_id FROM patients WHERE LOWER(TRIM(email)) = ? AND user_id IS NULL AND is_active = 1 FOR UPDATE',
           [resolvedEmail]
         );
-        if (allByEmail.length === 0) {
-          const fallbackDni = `${dniPrefix}-${Date.now().toString().slice(-8)}`;
-          const [newP] = await conn.execute(
-            `INSERT INTO patients (first_name, last_name, dni, birth_date, phone, email, user_id, is_active)
-             VALUES (?, ?, ?, '2000-01-01', '', ?, ?, 1)`,
-            [resolvedFirstName, resolvedLastName, fallbackDni, resolvedEmail, userId]
-          );
-          patientId = newP.insertId;
+
+        if (unlinkedByEmail.length === 1 && pRows.length === 1 && /^(P-|G-|GH-|M-|F-|A-|S-)/.test(String(pRows[0].dni || ''))) {
+          await conn.execute('UPDATE appointments SET patient_id = ? WHERE patient_id = ?', [unlinkedByEmail[0].id, pRows[0].id]);
+          await conn.execute('UPDATE patients SET user_id = NULL, is_active = 0 WHERE id = ?', [pRows[0].id]);
+          await conn.execute('UPDATE patients SET user_id = ? WHERE id = ?', [userId, unlinkedByEmail[0].id]);
+          patientId = unlinkedByEmail[0].id;
+        } else if (pRows.length > 0) {
+          patientId = pRows[0].id;
+        } else if (unlinkedByEmail.length === 1) {
+          await conn.execute('UPDATE patients SET user_id = ? WHERE id = ?', [userId, unlinkedByEmail[0].id]);
+          patientId = unlinkedByEmail[0].id;
         } else {
-          patientId = allByEmail[0].id;
+          const [allByEmail] = await conn.execute(
+            'SELECT id FROM patients WHERE LOWER(TRIM(email)) = ? AND is_active = 1',
+            [resolvedEmail]
+          );
+          if (allByEmail.length === 0) {
+            const fallbackDni = (dni?.trim()) || `${dniPrefix}-${Date.now().toString().slice(-8)}`;
+            const [newP] = await conn.execute(
+              `INSERT INTO patients (first_name, last_name, dni, birth_date, phone, email, user_id, is_active)
+               VALUES (?, ?, ?, '2000-01-01', '', ?, ?, 1)`,
+              [resolvedFirstName, resolvedLastName, fallbackDni, resolvedEmail, userId]
+            );
+            patientId = newP.insertId;
+          } else {
+            patientId = allByEmail[0].id;
+          }
         }
       }
 

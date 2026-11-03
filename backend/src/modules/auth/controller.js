@@ -110,6 +110,8 @@ export class AuthController {
       const userAgent = req.headers['user-agent'];
       const result = await authService.googleLogin({
         idToken: req.body.idToken,
+        code: req.body.code,
+        redirectUri: req.body.redirectUri,
         email: req.body.email,
         firstName: req.body.firstName,
         lastName: req.body.lastName,

@@ -262,8 +262,25 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
         if (!isAuthCodeAlreadyProcessed(code) && !isSubmittingRef.current) {
           markAuthCodeAsProcessed(code);
           isSubmittingRef.current = true;
-          setLoadingProvider('github');
-          processSocialAuthResponse('github', {
+
+          // Extraer proveedor dinámicamente desde el state de OAuth
+          let resolvedProvider: SocialProvider = 'google';
+          const rawState = searchParams.get('state');
+          if (rawState) {
+            try {
+              let parsedStr = rawState;
+              if (typeof atob === 'function') {
+                parsedStr = atob(rawState.replace(/-/g, '+').replace(/_/g, '/'));
+              }
+              const decoded = JSON.parse(parsedStr);
+              if (decoded.provider) {
+                resolvedProvider = decoded.provider;
+              }
+            } catch {}
+          }
+
+          setLoadingProvider(resolvedProvider);
+          processSocialAuthResponse(resolvedProvider, {
             code,
             redirectUri: window.location.origin
           }).finally(() => {

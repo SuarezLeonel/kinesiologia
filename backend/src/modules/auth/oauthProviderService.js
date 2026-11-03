@@ -5,6 +5,7 @@
  * Canjea códigos de autorización y obtiene perfiles de Google, GitHub y Facebook.
  */
 import crypto from 'crypto';
+import { OAuth2Client } from 'google-auth-library';
 import { config } from '../../config/env.js';
 import { UnauthorizedError } from '../../utils/errors.js';
 
@@ -14,7 +15,21 @@ const githubCodeExchangeResults = new Map();
 
 export class OAuthProviderService {
   /**
-   * Verifica la identidad del usuario contra Google OAuth 2.0 / OpenID Connect.
+   * Obtiene una instancia configurada de OAuth2Client para Google Identity Services.
+   * @param {string|null} redirectUri
+   * @returns {OAuth2Client}
+   */
+  getGoogleClient(redirectUri = null) {
+    return new OAuth2Client({
+      clientId: config.oauth?.google?.clientId || undefined,
+      clientSecret: config.oauth?.google?.clientSecret || undefined,
+      redirectUri: redirectUri || 'http://localhost:8081'
+    });
+  }
+
+  /**
+   * Verifica criptográficamente la identidad del usuario contra Google OAuth 2.0 / OpenID Connect.
+   * Valida firma RSA, audience (Client ID), issuer (accounts.google.com) y expiración con la biblioteca oficial google-auth-library.
    * @param {{ idToken?: string, accessToken?: string, code?: string, redirectUri?: string }} params
    * @returns {Promise<{ provider: 'google', providerUserId: string, email: string, emailVerified: boolean, firstName: string, lastName: string, avatarUrl: string|null }>}
    */
@@ -23,97 +38,127 @@ export class OAuthProviderService {
       throw new UnauthorizedError('Token o código de autenticación de Google requerido');
     }
 
-    // 0. Si se proporciona un código de autorización (Authorization Code Flow), canjearlo por tokens
+    const client = this.getGoogleClient(redirectUri);
+
+    // 0. Si se proporciona un código de autorización (Authorization Code Flow), canjearlo por tokens con google-auth-library
     if (!idToken && !accessToken && code) {
       if (!config.oauth?.google?.clientId || !config.oauth?.google?.clientSecret) {
         throw new UnauthorizedError('Credenciales de Google no configuradas en el servidor');
       }
 
-      const tokenParams = new URLSearchParams({
-        client_id: config.oauth.google.clientId,
-        client_secret: config.oauth.google.clientSecret,
-        code: String(code).trim(),
-        grant_type: 'authorization_code',
-        redirect_uri: redirectUri ? String(redirectUri).trim() : 'http://localhost:8081'
-      });
-
-      const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: tokenParams.toString()
-      });
-
-      if (!tokenRes.ok) {
-        const errText = await tokenRes.text();
-        console.error('Google token exchange error:', errText);
+      try {
+        const effectiveRedirectUri = redirectUri ? String(redirectUri).trim() : 'http://localhost:8081';
+        const { tokens } = await client.getToken({
+          code: String(code).trim(),
+          redirect_uri: effectiveRedirectUri
+        });
+        idToken = tokens.id_token;
+        accessToken = tokens.access_token || accessToken;
+      } catch (err) {
+        console.error('Google authorization code exchange error:', err?.message || err);
         throw new UnauthorizedError('Error al canjear el código de autorización con Google');
       }
-
-      const tokenData = await tokenRes.json();
-      idToken = tokenData.id_token;
-      accessToken = tokenData.access_token;
     }
 
-    // 1. Verificación primaria mediante tokeninfo de OpenID Connect
+    // 1. Verificación criptográfica oficial del ID token con google-auth-library (firma, exp, iss, aud)
     if (idToken) {
       try {
-        const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.sub && data.email) {
-            const isVerified = data.email_verified === 'true' || data.email_verified === true;
-            if (!isVerified) {
-              throw new UnauthorizedError('El correo electrónico de Google no está verificado por el proveedor');
-            }
+        const allowedAudiences = [
+          config.oauth?.google?.clientId,
+          process.env.GOOGLE_CLIENT_ID,
+          process.env.GOOGLE_WEB_CLIENT_ID,
+          process.env.GOOGLE_IOS_CLIENT_ID,
+          process.env.GOOGLE_ANDROID_CLIENT_ID,
+          process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID
+        ].filter(Boolean);
 
-            // Validar audiencia si el Client ID está configurado en el servidor
-            if (config.oauth?.google?.clientId && data.aud && data.aud !== config.oauth.google.clientId) {
-              throw new UnauthorizedError('El token de Google no corresponde al cliente configurado en esta aplicación');
-            }
+        const ticket = await client.verifyIdToken({
+          idToken: String(idToken).trim(),
+          audience: allowedAudiences.length > 0 ? allowedAudiences : undefined
+        });
 
-            return {
-              provider: 'google',
-              providerUserId: String(data.sub),
-              email: String(data.email).toLowerCase().trim(),
-              emailVerified: true,
-              firstName: data.given_name || data.name || 'Paciente',
-              lastName: data.family_name || 'Google',
-              avatarUrl: data.picture || null
-            };
-          }
+        const payload = ticket.getPayload();
+        if (!payload || !payload.sub || !payload.email) {
+          throw new UnauthorizedError('El token de Google no contiene información de identidad válida');
         }
+
+        // Comprobar emisor oficial (accounts.google.com o https://accounts.google.com)
+        const validIssuers = ['accounts.google.com', 'https://accounts.google.com'];
+        if (!validIssuers.includes(payload.iss)) {
+          throw new UnauthorizedError('Emisor (issuer) del token de Google no válido');
+        }
+
+        // Comprobar expiración
+        const nowSec = Math.floor(Date.now() / 1000);
+        if (payload.exp && payload.exp < nowSec - 60) {
+          throw new UnauthorizedError('El token de Google ha expirado');
+        }
+
+        // Comprobar que el email esté verificado por Google
+        const isEmailVerified = payload.email_verified === true || payload.email_verified === 'true';
+        if (!isEmailVerified) {
+          throw new UnauthorizedError('El correo electrónico de Google no está verificado por el proveedor');
+        }
+
+        return {
+          provider: 'google',
+          providerUserId: String(payload.sub),
+          email: String(payload.email).toLowerCase().trim(),
+          emailVerified: true,
+          firstName: payload.given_name || payload.name || 'Paciente',
+          lastName: payload.family_name || 'Google',
+          avatarUrl: payload.picture || null
+        };
       } catch (err) {
         if (err instanceof UnauthorizedError) throw err;
+        console.error('Google token cryptographic verification error:', err?.message || err);
+        throw new UnauthorizedError('Token de Google inválido, expirado o con firma no verificable');
       }
     }
 
-    // 2. Verificación secundaria mediante UserInfo con Bearer token
+    // 2. Verificación secundaria mediante UserInfo con Bearer access token
     if (accessToken) {
       try {
-        const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-          headers: { Authorization: `Bearer ${accessToken}` }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.sub && data.email) {
-            const isVerified = data.email_verified === true || data.email_verified === 'true';
-            if (!isVerified) {
-              throw new UnauthorizedError('El correo electrónico de Google no está verificado por el proveedor');
-            }
-
-            return {
-              provider: 'google',
-              providerUserId: String(data.sub),
-              email: String(data.email).toLowerCase().trim(),
-              emailVerified: true,
-              firstName: data.given_name || data.name || 'Paciente',
-              lastName: data.family_name || 'Google',
-              avatarUrl: data.picture || null
-            };
-          }
+        const tokenInfo = await client.getTokenInfo(String(accessToken).trim());
+        if (!tokenInfo.sub || !tokenInfo.email) {
+          throw new UnauthorizedError('El token de acceso de Google no contiene datos de usuario válidos');
         }
+
+        const isVerified = tokenInfo.email_verified === true || tokenInfo.email_verified === 'true';
+        if (!isVerified) {
+          throw new UnauthorizedError('El correo electrónico de Google no está verificado por el proveedor');
+        }
+
+        let firstName = 'Paciente';
+        let lastName = 'Google';
+        let avatarUrl = null;
+        try {
+          const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { Authorization: `Bearer ${accessToken}` }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            firstName = data.given_name || data.name || firstName;
+            lastName = data.family_name || lastName;
+            avatarUrl = data.picture || null;
+          }
+        } catch (profileErr) {
+          console.warn('No se pudo obtener información adicional de perfil de Google UserInfo:', profileErr?.message || profileErr);
+        }
+
+        return {
+          provider: 'google',
+          providerUserId: String(tokenInfo.sub),
+          email: String(tokenInfo.email).toLowerCase().trim(),
+          emailVerified: true,
+          firstName,
+          lastName,
+          avatarUrl
+        };
       } catch (err) {
         if (err instanceof UnauthorizedError) throw err;
+        console.error('Google access token verification error:', err?.message || err);
+        throw new UnauthorizedError('Token de acceso de Google inválido o expirado');
       }
     }
 

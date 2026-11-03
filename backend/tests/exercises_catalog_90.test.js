@@ -118,9 +118,20 @@ test('Catálogo 90: Selección de ejercicios del catálogo para prescribir una r
   const deadBug = searchRes.body.data.items[0];
   assert.ok(deadBug, 'Debe encontrar el ejercicio Dead-Bug');
 
-  // Obtener un paciente activo existente
+  // Obtener un paciente activo existente o crear uno de prueba
+  let patientId;
   const patients = await query('SELECT id FROM patients WHERE is_active = 1 LIMIT 1');
-  const patientId = patients[0] ? patients[0].id : 1;
+  if (patients.length > 0) {
+    patientId = patients[0].id;
+  } else {
+    const pDni = `CAT90-${Date.now().toString().slice(-8)}`;
+    const pRes = await query(
+      `INSERT INTO patients (first_name, last_name, dni, birth_date, phone, email, is_active)
+       VALUES ('Paciente', 'Test Catálogo', ?, '1990-01-01', '1122334455', 'paciente.cat90@test.com', 1)`,
+      [pDni]
+    );
+    patientId = pRes.insertId;
+  }
 
   // Crear plan de tratamiento para asociar la rutina
   const treatResult = await query(
@@ -166,4 +177,5 @@ test('Catálogo 90: Selección de ejercicios del catálogo para prescribir una r
   await query('DELETE FROM routine_exercises WHERE routine_id = ?', [routineRes.body.data.id]);
   await query('DELETE FROM treatment_routines WHERE id = ?', [routineRes.body.data.id]);
   await query('DELETE FROM treatments WHERE id = ?', [treatmentId]);
+  await query("DELETE FROM patients WHERE dni LIKE 'CAT90-%'");
 });

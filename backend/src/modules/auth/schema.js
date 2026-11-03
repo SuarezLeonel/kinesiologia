@@ -89,11 +89,13 @@ export const patientRegisterSchema = z.object({
 export const googleAuthSchema = z.object({
   body: z.object({
     idToken: z.string().min(1, 'Token de Google requerido').optional(),
+    code: z.string().min(1).optional(),
+    redirectUri: z.string().optional(),
     email: z.string().email('Email no válido').optional(),
     firstName: z.string().min(1).optional(),
     lastName: z.string().min(1).optional()
-  }).refine((data) => Boolean(data.idToken || data.email), {
-    message: 'Token o correo electrónico de Google requerido'
+  }).refine((data) => Boolean(data.idToken || data.code || data.email), {
+    message: 'Token, código o correo electrónico de Google requerido'
   })
 });
 

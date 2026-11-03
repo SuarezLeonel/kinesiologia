@@ -45,10 +45,19 @@ test('Routines 1. Recepcionista no puede consultar ni prescribir rutinas terapé
 });
 
 test('Routines 2. Preparar paciente y crear plan de tratamiento para asociar rutinas', async () => {
-  // Obtener un paciente existente de la BD
+  // Obtener un paciente existente de la BD o crear uno de prueba si la base está limpia
   const patients = await query('SELECT id FROM patients WHERE is_active = 1 LIMIT 1');
-  assert.ok(patients.length > 0, 'Debe existir al menos un paciente para la prueba');
-  testPatientId = patients[0].id;
+  if (patients.length > 0) {
+    testPatientId = patients[0].id;
+  } else {
+    const pDni = `TR-PAT-${Date.now().toString().slice(-8)}`;
+    const pRes = await query(
+      `INSERT INTO patients (first_name, last_name, dni, birth_date, phone, email, is_active)
+       VALUES ('Paciente', 'Test Rutina', ?, '1990-01-01', '1122334455', 'paciente.rutina@test.com', 1)`,
+      [pDni]
+    );
+    testPatientId = pRes.insertId;
+  }
 
   const res = await request(app)
     .post('/api/v1/treatments')
@@ -273,5 +282,6 @@ test('Routines 9. Limpieza de datos de prueba', async () => {
   if (testTreatmentId) {
     await query('DELETE FROM treatments WHERE id = ?', [testTreatmentId]);
   }
+  await query("DELETE FROM patients WHERE dni LIKE 'TR-PAT-%'");
 });
 
