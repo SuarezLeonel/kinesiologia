@@ -9,7 +9,7 @@ import { query } from '../../config/database.js';
 export class AuthRepository {
   async findUserByEmail(email) {
     const rows = await query(`
-      SELECT u.id, u.role_id, r.name as role_name, u.name, u.last_name, u.email, u.password_hash, u.is_active
+      SELECT u.id, u.role_id, r.name as role_name, u.name, u.last_name, u.email, u.password_hash, u.is_active, u.email_verified_at
       FROM users u
       JOIN roles r ON u.role_id = r.id
       WHERE u.email = ?
@@ -23,7 +23,7 @@ export class AuthRepository {
 
   async findUserById(id) {
     const rows = await query(`
-      SELECT u.id, u.role_id, r.name as role_name, u.name, u.last_name, u.email, u.is_active
+      SELECT u.id, u.role_id, r.name as role_name, u.name, u.last_name, u.email, u.is_active, u.email_verified_at
       FROM users u
       JOIN roles r ON u.role_id = r.id
       WHERE u.id = ?
@@ -112,6 +112,45 @@ export class AuthRepository {
       SET used_at = CURRENT_TIMESTAMP
       WHERE token_hash = ?
     `, [tokenHash]);
+  }
+
+  async saveEmailVerificationToken({ userId, tokenHash, expiresAt }) {
+    // Invalida cualquier token de verificación previo del usuario para asegurar un solo token vigente
+    await query(`
+      DELETE FROM email_verification_tokens
+      WHERE user_id = ?
+    `, [userId]);
+
+    await query(`
+      INSERT INTO email_verification_tokens (user_id, token_hash, expires_at)
+      VALUES (?, ?, ?)
+    `, [userId, tokenHash, expiresAt]);
+  }
+
+  async findEmailVerificationToken(tokenHash) {
+    const rows = await query(`
+      SELECT id, user_id, token_hash, expires_at, used_at
+      FROM email_verification_tokens
+      WHERE token_hash = ?
+      LIMIT 1
+    `, [tokenHash]);
+    return rows[0] || null;
+  }
+
+  async markEmailVerificationTokenUsed(id) {
+    await query(`
+      UPDATE email_verification_tokens
+      SET used_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, [id]);
+  }
+
+  async markUserEmailVerified(userId) {
+    await query(`
+      UPDATE users
+      SET email_verified_at = CURRENT_TIMESTAMP, is_active = 1
+      WHERE id = ?
+    `, [userId]);
   }
 }
 

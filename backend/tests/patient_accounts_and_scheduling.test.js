@@ -126,12 +126,24 @@ test('3. Paciente con ficha previa se registra con email coincidente y se vincul
   assert.strictEqual(registerRes.body.data.linkedToExistingPatient, true, 'Debe vincularse a la ficha existente');
   assert.strictEqual(registerRes.body.data.patientId, createdPatientId);
   assert.strictEqual(registerRes.body.data.user.role, 'patient');
+  assert.strictEqual(registerRes.body.data.requiresVerification, true);
 
   patientUserId = registerRes.body.data.user.id;
-  patientAuthToken = registerRes.body.data.tokens.accessToken;
+
+  // Activar y verificar la cuenta para obtener token mediante login legítimo
+  const pool = getPool();
+  await pool.execute('UPDATE users SET email_verified_at = CURRENT_TIMESTAMP, is_active = 1 WHERE id = ?', [patientUserId]);
+
+  const loginRes = await request(app)
+    .post('/api/v1/auth/login')
+    .send({
+      email: createdPatientEmail,
+      password: 'Password123!'
+    });
+  assert.strictEqual(loginRes.status, 200);
+  patientAuthToken = loginRes.body.data.accessToken;
 
   // Comprobar que en la base de datos la ficha ahora tiene user_id
-  const pool = getPool();
   const [rows] = await pool.execute('SELECT user_id FROM patients WHERE id = ?', [createdPatientId]);
   assert.strictEqual(rows[0].user_id, patientUserId);
 });
@@ -254,9 +266,21 @@ test('9. Cancelación de turno por paciente respeta reglas y no permite cancelar
       phone: '+5491144445555'
     });
   assert.strictEqual(regRes.status, 201);
-  const otherPatientToken = regRes.body.data.tokens.accessToken;
   const otherUserId = regRes.body.data.user.id;
   const otherPatientId = regRes.body.data.patientId;
+
+  // Activar y verificar para obtener token mediante login
+  const pool = getPool();
+  await pool.execute('UPDATE users SET email_verified_at = CURRENT_TIMESTAMP, is_active = 1 WHERE id = ?', [otherUserId]);
+
+  const loginRes = await request(app)
+    .post('/api/v1/auth/login')
+    .send({
+      email: secondPatientEmail,
+      password: 'Password123!'
+    });
+  assert.strictEqual(loginRes.status, 200);
+  const otherPatientToken = loginRes.body.data.accessToken;
 
   // Intento de cancelar el turno de createdPatientId usando la cuenta del segundo paciente
   const unauthorizedRes = await request(app)
@@ -271,7 +295,6 @@ test('9. Cancelación de turno por paciente respeta reglas y no permite cancelar
   assert.strictEqual(unauthorizedRes.body.success, false);
 
   // Limpiar segundo paciente
-  const pool = getPool();
   await pool.execute('DELETE FROM patients WHERE id = ?', [otherPatientId]);
   await pool.execute('DELETE FROM users WHERE id = ?', [otherUserId]);
 });

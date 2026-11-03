@@ -111,6 +111,10 @@ test('OAuth 4. Protección contra Account Takeover: no auto-vincula usuarios exi
     });
   assert.strictEqual(regRes.status, 201);
 
+  // Activar y marcar correo como verificado para simular cuenta confirmada existente
+  const pool = getPool();
+  await pool.query('UPDATE users SET is_active = 1, email_verified_at = CURRENT_TIMESTAMP WHERE email = ?', [uniqueEmail]);
+
   // 2. Intentar autenticar con cuenta social sin contraseña
   const socialRes = await request(app)
     .post('/api/v1/auth/social')

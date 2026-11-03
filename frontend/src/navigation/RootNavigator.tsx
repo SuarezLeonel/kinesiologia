@@ -18,6 +18,7 @@ import { LoadingState } from '../components/FeedbackStates';
 import { LoginScreen } from '../screens/LoginScreen';
 import { RegisterScreen } from '../screens/RegisterScreen';
 import { ForgotPasswordScreen } from '../screens/ForgotPasswordScreen';
+import { VerifyEmailScreen } from '../screens/VerifyEmailScreen';
 import { PatientPortalScreen } from '../screens/PatientPortalScreen';
 import { DashboardScreen } from '../screens/DashboardScreen';
 import { PatientsScreen } from '../screens/PatientsScreen';
@@ -127,6 +128,7 @@ export const RootNavigator = () => {
             <Stack.Screen name="Login" component={LoginScreen} />
             <Stack.Screen name="Register" component={RegisterScreen} />
             <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+            <Stack.Screen name="VerifyEmail" component={VerifyEmailScreen} />
           </>
         )}
       </Stack.Navigator>

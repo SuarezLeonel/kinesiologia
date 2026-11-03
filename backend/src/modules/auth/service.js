@@ -10,7 +10,7 @@ import { config } from '../../config/env.js';
 import { executeTransaction } from '../../config/database.js';
 import { authRepository } from './repository.js';
 import { emailService } from '../../services/emailService.js';
-import { AppError, UnauthorizedError, ConflictError } from '../../utils/errors.js';
+import { AppError, UnauthorizedError, ConflictError, ValidationError } from '../../utils/errors.js';
 import { logAudit } from '../../utils/auditLogger.js';
 import { oauthProviderService } from './oauthProviderService.js';
 
@@ -55,13 +55,23 @@ export class AuthService {
       throw new UnauthorizedError('Credenciales incorrectas');
     }
 
-    if (!user.is_active) {
-      throw new UnauthorizedError('Cuenta inactiva o pendiente de aprobación');
-    }
-
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
       throw new UnauthorizedError('Credenciales incorrectas');
+    }
+
+    // Comprobación de verificación de email: ninguna cuenta no verificada puede iniciar sesión
+    if (!user.email_verified_at) {
+      throw new AppError(
+        'Debes verificar tu correo electrónico antes de iniciar sesión. Revisá tu casilla de correo o solicitá un nuevo enlace.',
+        403,
+        'EMAIL_NOT_VERIFIED',
+        { email: normalizedEmail }
+      );
+    }
+
+    if (!user.is_active) {
+      throw new UnauthorizedError('Cuenta inactiva o pendiente de aprobación');
     }
 
     let patientId = null;
@@ -279,11 +289,137 @@ export class AuthService {
     return { success: true, message: 'Contraseña actualizada con éxito' };
   }
 
+  /**
+   * Valida el token de verificación de un solo uso y activa la cuenta del usuario.
+   * @param {string} token - Token en texto plano recibido por parámetro o cuerpo.
+   * @returns {Promise<{ success: boolean, message: string, user: Object }>}
+   */
+  async verifyEmail(token) {
+    if (!token || typeof token !== 'string') {
+      throw new ValidationError('Token de verificación requerido');
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
+    const verification = await authRepository.findEmailVerificationToken(tokenHash);
+
+    if (!verification) {
+      throw new UnauthorizedError('El enlace de verificación es inválido o no existe.');
+    }
+
+    if (verification.used_at) {
+      throw new UnauthorizedError('Este enlace de verificación ya fue utilizado. Tu cuenta ya está activa.');
+    }
+
+    const now = new Date();
+    const expiresAt = new Date(verification.expires_at).getTime();
+    if (Number.isNaN(expiresAt) || expiresAt < now.getTime()) {
+      throw new UnauthorizedError('El enlace de verificación ha expirado (validez de 30 minutos). Por favor solicitá un nuevo enlace.');
+    }
+
+    // Marcar token como utilizado e invalidar su reuso (OWASP ASVS)
+    await authRepository.markEmailVerificationTokenUsed(verification.id);
+    // Activar al usuario e indicar fecha de verificación
+    await authRepository.markUserEmailVerified(verification.user_id);
+
+    const { logAudit } = await import('../../utils/auditLogger.js');
+    await logAudit({
+      userId: verification.user_id,
+      action: 'EMAIL_VERIFIED',
+      entityType: 'user',
+      entityId: verification.user_id,
+      details: { verifiedAt: now.toISOString() }
+    });
+
+    const user = await authRepository.findUserById(verification.user_id);
+    return {
+      success: true,
+      message: '¡Tu cuenta fue verificada! Ya podés iniciar sesión en KinesioGestión.',
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        lastName: user.last_name,
+        role: user.role
+      }
+    };
+  }
+
+  /**
+   * Reenvía un nuevo correo de verificación invalidando cualquier token previo.
+   * No revela si el correo existe o no para evitar enumeración de cuentas.
+   * @param {string} email - Correo del usuario.
+   * @returns {Promise<{ success: boolean, message: string, alreadyVerified?: boolean }>}
+   */
+  async resendVerificationEmail(email) {
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (!normalizedEmail) {
+      throw new ValidationError('Correo electrónico requerido');
+    }
+
+    const user = await authRepository.findUserByEmail(normalizedEmail);
+    // Respuesta neutral si el usuario no existe para prevenir enumeración (OWASP A07)
+    if (!user) {
+      return {
+        success: true,
+        message: 'Si la dirección de correo corresponde a una cuenta pendiente de activación, recibirás un nuevo enlace de verificación en breve.'
+      };
+    }
+
+    if (user.email_verified_at) {
+      return {
+        success: true,
+        alreadyVerified: true,
+        message: 'Tu cuenta ya se encuentra verificada. Podés iniciar sesión normalmente.'
+      };
+    }
+
+    // Generar nuevo token criptográfico de un solo uso
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutos
+
+    // Invalida tokens anteriores automáticamente
+    await authRepository.saveEmailVerificationToken({
+      userId: user.id,
+      tokenHash,
+      expiresAt
+    });
+
+    const verificationUrl = `${config.serverUrl}${config.apiPrefix}/auth/verify-email?token=${rawToken}`;
+    const emailResult = await emailService.sendAccountVerificationEmail({
+      to: normalizedEmail,
+      name: user.name || 'Paciente',
+      verificationUrl
+    });
+
+    if (!emailResult.success) {
+      throw new AppError(
+        'No se pudo despachar el correo de verificación en este momento. Por favor intentá nuevamente más tarde.',
+        500,
+        'EMAIL_DELIVERY_FAILED'
+      );
+    }
+
+    const { logAudit } = await import('../../utils/auditLogger.js');
+    await logAudit({
+      userId: user.id,
+      action: 'EMAIL_VERIFICATION_RESENT',
+      entityType: 'user',
+      entityId: user.id,
+      details: { email: normalizedEmail }
+    });
+
+    return {
+      success: true,
+      message: 'Enviamos un nuevo enlace de verificación a tu correo electrónico. Por favor revisá tu bandeja de entrada o spam.'
+    };
+  }
+
   // ==========================================
   // Registro e Inicio de Sesión de Pacientes
   // ==========================================
 
-  async registerPatient({ email, password, firstName, lastName, phone, dni, birthDate, insuranceProvider, insuranceNumber, address }, { ipAddress, userAgent } = {}) {
+  async registerPatient({ email, password, firstName, lastName, phone, dni, birthDate, insuranceProvider, insuranceNumber, address }, { ipAddress = null, userAgent: _userAgent = null } = {}) {
     const normalizedEmail = email.toLowerCase().trim();
     const rawCoverage = (insuranceProvider || address || 'Particular').trim();
     const coverageValue = (rawCoverage !== 'Particular' && insuranceNumber?.trim())
@@ -303,10 +439,10 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(password, salt);
 
     const { userId, patientId, linkedToExistingPatient } = await executeTransaction(async (conn) => {
-      // 1. Crear usuario estrictamente con rol patient y activo
+      // 1. Crear usuario estrictamente con rol patient e inactivo hasta verificar el correo
       const [uRes] = await conn.execute(`
-        INSERT INTO users (role_id, name, last_name, email, password_hash, phone, is_active)
-        VALUES (?, ?, ?, ?, ?, ?, 1)
+        INSERT INTO users (role_id, name, last_name, email, password_hash, phone, is_active, email_verified_at)
+        VALUES (?, ?, ?, ?, ?, ?, 0, NULL)
       `, [patientRole.id, firstName.trim(), lastName.trim(), normalizedEmail, passwordHash, phone?.trim() || null]);
 
       const userId = uRes.insertId;
@@ -367,10 +503,37 @@ export class AuthService {
       details: { patientId, linked: Boolean(patientId) }
     });
 
+    // Generar token criptográficamente seguro de 32 bytes (64 caracteres hex) y almacenar su hash SHA-256
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutos
+
+    await authRepository.saveEmailVerificationToken({
+      userId,
+      tokenHash,
+      expiresAt
+    });
+
+    const verificationUrl = `${config.serverUrl}${config.apiPrefix}/auth/verify-email?token=${rawToken}`;
+    const emailResult = await emailService.sendAccountVerificationEmail({
+      to: normalizedEmail,
+      name: firstName.trim(),
+      verificationUrl
+    });
+
     const user = await authRepository.findUserById(userId);
-    const tokens = await this._generateTokens(user, ipAddress, userAgent);
-    const { password_hash, ...safeUser } = user;
-    return { user: { ...safeUser, patientId }, tokens, linkedToExistingPatient, patientId };
+    const { password_hash: _pass, ...safeUser } = user;
+
+    return {
+      user: { ...safeUser, patientId, isVerified: false },
+      linkedToExistingPatient,
+      patientId,
+      requiresVerification: true,
+      emailSent: emailResult.success,
+      message: emailResult.success
+        ? 'Cuenta registrada con éxito. Enviamos un enlace de verificación a tu correo electrónico para que actives tu cuenta.'
+        : 'Cuenta registrada, pero no se pudo enviar el correo de verificación en este momento. Podés presionar "Reenviar correo" para intentarlo nuevamente.'
+    };
   }
 
   getOAuthConfig() {
@@ -783,9 +946,19 @@ export class AuthService {
           const passwordHash = await bcrypt.hash(randomSecret, 10);
 
           const [newUser] = await conn.execute(
-            `INSERT INTO users (role_id, name, last_name, dni, email, phone, password_hash, is_active)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
-            [patientRole.id, finalFirstName, finalLastName, finalDni, resolvedEmail, finalPhone, passwordHash]
+            `INSERT INTO users (role_id, name, last_name, dni, email, phone, password_hash, is_active, email_verified_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              patientRole.id,
+              finalFirstName,
+              finalLastName,
+              finalDni,
+              resolvedEmail,
+              finalPhone,
+              passwordHash,
+              verified?.emailVerified ? 1 : 0,
+              verified?.emailVerified ? new Date() : null
+            ]
           );
           userId = newUser.insertId;
 

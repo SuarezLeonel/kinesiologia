@@ -76,8 +76,8 @@ test('0. Setup: Crear paciente, tratamiento, rutina y catálogo para pruebas de 
 
   // 2. Paciente con usuario
   const uRes = await query(`
-    INSERT INTO users (role_id, email, password_hash, name, last_name, is_active)
-    VALUES (4, 'paciente.tracking.${ts}@test.com', 'hash_test', 'Juan', 'Tracking', 1)
+    INSERT INTO users (role_id, email, password_hash, name, last_name, is_active, email_verified_at)
+    VALUES (4, 'paciente.tracking.${ts}@test.com', 'hash_test', 'Juan', 'Tracking', 1, CURRENT_TIMESTAMP)
   `);
   testPatientUserId = uRes.insertId;
 

@@ -19,7 +19,9 @@ import {
   socialLoginSchema,
   patientRegisterSchema,
   googleAuthSchema,
-  oauthConfigSchema
+  oauthConfigSchema,
+  verifyEmailSchema,
+  resendVerificationSchema
 } from './schema.js';
 
 export const authRouter = Router();
@@ -55,6 +57,7 @@ const loginLimiter = createLimiter(10, 15, 'Demasiados intentos de inicio de ses
 const registerLimiter = createLimiter(20, 60, 'Demasiadas solicitudes de registro desde esta conexión. Reintente en una hora.');
 const forgotPasswordLimiter = createLimiter(20, 15, 'Demasiadas solicitudes de recuperación de contraseña. Reintente en 15 minutos.', true);
 const resetPasswordLimiter = createLimiter(15, 15, 'Demasiados intentos de restablecimiento de contraseña. Reintente en 15 minutos.', true);
+const resendVerificationLimiter = createLimiter(5, 15, 'Demasiadas solicitudes de reenvío de correo de verificación. Por motivos de seguridad, reintente en 15 minutos.', true);
 
 // Todos los endpoints usan POST según AGENTS.md y REQUISITOS.md
 authRouter.post('/register', registerLimiter, validate(registerSchema), asyncHandler((req, res, next) => authController.register(req, res, next)));
@@ -65,8 +68,12 @@ authRouter.post('/refresh', validate(refreshSchema), asyncHandler((req, res, nex
 authRouter.post('/logout', validate(refreshSchema), asyncHandler((req, res, next) => authController.logout(req, res, next)));
 authRouter.post('/forgot-password', forgotPasswordLimiter, validate(forgotPasswordSchema), asyncHandler((req, res, next) => authController.forgotPassword(req, res, next)));
 authRouter.post('/reset-password', resetPasswordLimiter, validate(resetPasswordSchema), asyncHandler((req, res, next) => authController.resetPassword(req, res, next)));
+authRouter.post('/verify-email', validate(verifyEmailSchema), asyncHandler((req, res, next) => authController.verifyEmail(req, res, next)));
+authRouter.post('/resend-verification-email', resendVerificationLimiter, validate(resendVerificationSchema), asyncHandler((req, res, next) => authController.resendVerificationEmail(req, res, next)));
 authRouter.post('/social', validate(socialLoginSchema), asyncHandler((req, res, next) => authController.social(req, res, next)));
 authRouter.post('/oauth-config', validate(oauthConfigSchema), asyncHandler((req, res, next) => authController.oauthConfig(req, res, next)));
+// Enlace web de verificación al hacer clic en el correo electrónico desde clientes de mail
+authRouter.get('/verify-email', asyncHandler((req, res, next) => authController.verifyEmailWeb(req, res, next)));
 // Callback bridge OAuth para redirección universal de navegadores (Google, GitHub, Facebook) hacia Expo Go, Standalone APK y Web
 authRouter.get('/oauth/callback', asyncHandler((req, res, next) => authController.oauthCallback(req, res, next)));
 

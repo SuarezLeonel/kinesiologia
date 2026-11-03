@@ -147,8 +147,8 @@ test('Security Hardening 4. Aislamiento de Paciente: No puede consultar turnos n
 
   // Crear Paciente A y Paciente B
   const resA = await query(`
-    INSERT INTO users (role_id, name, last_name, email, password_hash, is_active)
-    VALUES (4, 'Paciente', 'Alfa', ?, '$2a$10$abcdefghijklmnopqrstuu', 1)
+    INSERT INTO users (role_id, name, last_name, email, password_hash, is_active, email_verified_at)
+    VALUES (4, 'Paciente', 'Alfa', ?, '$2a$10$abcdefghijklmnopqrstuu', 1, CURRENT_TIMESTAMP)
   `, [`paciente.alfa.sec_${uidA}@test.com`]);
   const userAId = resA.insertId;
   const patA = await query(`
@@ -158,8 +158,8 @@ test('Security Hardening 4. Aislamiento de Paciente: No puede consultar turnos n
   const patientAId = patA.insertId;
 
   const resB = await query(`
-    INSERT INTO users (role_id, name, last_name, email, password_hash, is_active)
-    VALUES (4, 'Paciente', 'Beta', ?, '$2a$10$abcdefghijklmnopqrstuu', 1)
+    INSERT INTO users (role_id, name, last_name, email, password_hash, is_active, email_verified_at)
+    VALUES (4, 'Paciente', 'Beta', ?, '$2a$10$abcdefghijklmnopqrstuu', 1, CURRENT_TIMESTAMP)
   `, [`paciente.beta.sec_${uidB}@test.com`]);
   const userBId = resB.insertId;
   const patB = await query(`

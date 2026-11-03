@@ -38,6 +38,7 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   const { theme } = useAppTheme();
   const insets = useSafeAreaInsets();
   const [serverError, setServerError] = useState<string | null>(null);
+  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [emailFocused, setEmailFocused] = useState<boolean>(false);
   const [passFocused, setPassFocused] = useState<boolean>(false);
@@ -54,9 +55,13 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
 
   const onSubmit = async (data: LoginFormData) => {
     setServerError(null);
+    setUnverifiedEmail(null);
     const result = await login(data.email, data.password);
     if (!result.success) {
       setServerError(result.error || 'Credenciales inválidas');
+      if (result.code === 'EMAIL_NOT_VERIFIED') {
+        setUnverifiedEmail(data.email.trim().toLowerCase());
+      }
     }
   };
 
@@ -113,8 +118,18 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           </Text>
 
           {serverError && (
-            <View style={styles.errorBanner}>
-              <Text style={styles.errorBannerText}>{serverError}</Text>
+            <View style={[styles.errorBanner, Boolean(unverifiedEmail) && styles.unverifiedBanner]}>
+              <Text style={[styles.errorBannerText, Boolean(unverifiedEmail) && styles.unverifiedBannerText]}>{serverError}</Text>
+              {Boolean(unverifiedEmail) && (
+                <TouchableOpacity
+                  style={styles.verifyAccountButton}
+                  onPress={() => navigation?.navigate('VerifyEmail', { email: unverifiedEmail })}
+                  activeOpacity={0.8}
+                >
+                  <MaterialIcons name="mark-email-unread" size={16} color="#0D9488" style={{ marginRight: 6 }} />
+                  <Text style={styles.verifyAccountButtonText}>Revisar o reenviar verificación</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
 
@@ -453,6 +468,30 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
     color: '#EF4444'
+  },
+  unverifiedBanner: {
+    backgroundColor: 'rgba(217, 119, 6, 0.15)',
+    borderColor: 'rgba(217, 119, 6, 0.4)'
+  },
+  unverifiedBannerText: {
+    color: '#F59E0B'
+  },
+  verifyAccountButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E6FFFA',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#99F6E4'
+  },
+  verifyAccountButtonText: {
+    color: '#0D9488',
+    fontSize: 12,
+    fontWeight: '700'
   },
   fieldGroup: {
     marginBottom: 14

@@ -102,8 +102,10 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
     if (!result.success) {
       setServerError(result.error || 'Error al registrar la cuenta');
     } else {
-      if (result.linkedToExistingPatient) {
-        setSuccessInfo(result.message || '¡Ficha médica vinculada exitosamente!');
+      if (navigation?.navigate) {
+        navigation.navigate('VerifyEmail', { email: data.email.trim() });
+      } else {
+        setSuccessInfo(result.message || '¡Cuenta creada! Enviamos un enlace de verificación a tu correo.');
       }
     }
   };

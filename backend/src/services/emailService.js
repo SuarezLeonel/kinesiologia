@@ -214,6 +214,83 @@ class EmailService {
       fromName: 'KinesioGestión'
     });
   }
+
+  /**
+   * Envía el correo de verificación de cuenta con enlace de un solo uso y botón destacado.
+   * Diseñado respetando la identidad visual médica y botánica de KinesioGestión.
+   * @param {Object} params
+   * @param {string} params.to - Destinatario.
+   * @param {string} [params.name='Usuario'] - Nombre del usuario.
+   * @param {string} params.verificationUrl - URL completa de verificación generada por el backend.
+   * @returns {Promise<{ success: boolean, messageId?: string, provider?: string, error?: string }>}
+   */
+  async sendAccountVerificationEmail({ to, name = 'Usuario', verificationUrl }) {
+    if (!verificationUrl) {
+      throw new Error('La URL de verificación es obligatoria para enviar el correo');
+    }
+
+    const subject = 'KinesioGestión — Verificá tu correo electrónico para activar tu cuenta';
+    const text = `Hola ${name},\n\nGracias por registrarte en KinesioGestión.\n\nPara activar tu cuenta y acceder al portal, por favor verificá tu dirección de correo electrónico ingresando al siguiente enlace:\n\n${verificationUrl}\n\nEste enlace de verificación es de un solo uso y vencerá en 30 minutos.\n\nSi no solicitaste crear una cuenta en KinesioGestión, podés ignorar este correo de forma segura. La cuenta no será activada.\n\nEquipo KinesioGestión.`;
+
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 24px; border: 1px solid #E2E8F0; border-radius: 12px; background-color: #FFFFFF; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+        <div style="text-align: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid #F1F5F9;">
+          <div style="display: inline-block; width: 48px; height: 48px; line-height: 48px; border-radius: 10px; background-color: #E8F0EC; color: #537C68; font-weight: bold; font-size: 20px; text-align: center; border: 1px solid #C4D9CD;">KG</div>
+          <h1 style="margin: 12px 0 4px 0; color: #0F172A; font-size: 22px; font-weight: 700;">KinesioGestión</h1>
+          <p style="margin: 0; color: #64748B; font-size: 13px;">Sistema Integral de Gestión Clínica y Consultorio</p>
+        </div>
+
+        <div style="padding: 24px; background-color: #F8FAFC; border-radius: 8px; border: 1px solid #E2E8F0; margin-bottom: 20px;">
+          <p style="margin: 0 0 14px 0; color: #1E293B; font-size: 15px;">Hola <strong>${name}</strong>,</p>
+          <p style="margin: 0 0 16px 0; color: #334155; font-size: 14px; line-height: 22px;">
+            Hemos recibido una solicitud para crear una cuenta con esta dirección de correo electrónico en <strong>KinesioGestión</strong>.
+          </p>
+          <p style="margin: 0 0 24px 0; color: #334155; font-size: 14px; line-height: 22px;">
+            Para completar tu registro, proteger la seguridad de tu información de salud y habilitar el acceso a tu portal de turnos y tratamientos, es necesario que verifiques tu correo presionando el siguiente botón:
+          </p>
+
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${verificationUrl}" target="_blank" style="display: inline-block; background-color: #0D9488; color: #FFFFFF; font-size: 15px; font-weight: 700; text-decoration: none; padding: 14px 32px; border-radius: 8px; box-shadow: 0 2px 4px rgba(13, 148, 136, 0.3);">
+              Verificar mi cuenta
+            </a>
+          </div>
+
+          <div style="background-color: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 6px; padding: 10px 14px; margin-top: 16px; text-align: center;">
+            <p style="margin: 0; color: #166534; font-size: 12px;">
+              Este enlace es de <strong>un solo uso</strong> y vence en <strong>30 minutos</strong>.
+            </p>
+          </div>
+        </div>
+
+        <div style="margin-bottom: 20px; padding: 0 8px;">
+          <p style="margin: 0 0 6px 0; color: #64748B; font-size: 12px;">
+            Si el botón no funciona, copiá y pegá el siguiente enlace directamente en tu navegador:
+          </p>
+          <p style="margin: 0; word-break: break-all; font-size: 12px; color: #0D9488;">
+            <a href="${verificationUrl}" style="color: #0D9488; text-decoration: underline;">${verificationUrl}</a>
+          </p>
+        </div>
+
+        <div style="padding: 12px 14px; background-color: #F8FAFC; border-left: 3px solid #94A3B8; border-radius: 0 6px 6px 0; margin-bottom: 20px;">
+          <p style="margin: 0; color: #64748B; font-size: 12px; line-height: 18px;">
+            <strong>Aviso de seguridad:</strong> Si no solicitaste registrarte en KinesioGestión, podés desestimar este mensaje de forma segura. La cuenta no será activada ni se podrá acceder a ninguna funcionalidad.
+          </p>
+        </div>
+
+        <div style="border-top: 1px solid #E2E8F0; padding-top: 16px; margin-top: 24px; text-align: center; color: #94A3B8; font-size: 11px;">
+          KinesioGestión — Sistema Seguro de Gestión Clínica y Administrativa
+        </div>
+      </div>
+    `;
+
+    return this.sendEmail({
+      to,
+      subject,
+      text,
+      html,
+      fromName: 'KinesioGestión'
+    });
+  }
 }
 
 export const emailService = new EmailService();

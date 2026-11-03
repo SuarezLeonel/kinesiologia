@@ -97,3 +97,16 @@ export const googleAuthSchema = z.object({
   })
 });
 
+export const verifyEmailSchema = z.object({
+  body: z.object({
+    token: z.string().min(1, 'Token de verificación requerido')
+  })
+});
+
+export const resendVerificationSchema = z.object({
+  body: z.object({
+    email: z.string().email('Email no válido')
+  })
+});
+
+

@@ -92,8 +92,18 @@ interface AuthContextType {
   isKinesiologist: boolean;
   isReceptionist: boolean;
   isPatient: boolean;
-  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  registerPatient: (data: RegisterPatientPayload) => Promise<{ success: boolean; error?: string; linkedToExistingPatient?: boolean; message?: string }>;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string; code?: string; email?: string }>;
+  registerPatient: (data: RegisterPatientPayload) => Promise<{
+    success: boolean;
+    error?: string;
+    linkedToExistingPatient?: boolean;
+    requiresVerification?: boolean;
+    emailSent?: boolean;
+    email?: string;
+    message?: string;
+  }>;
+  resendVerificationEmail: (email: string) => Promise<{ success: boolean; message?: string; error?: string }>;
+  verifyEmailToken: (token: string) => Promise<{ success: boolean; message?: string; error?: string }>;
   googleLogin: (idToken?: string, email?: string) => Promise<SocialLoginResult>;
   socialLogin: (payload: SocialLoginPayload) => Promise<SocialLoginResult>;
   getOAuthConfig: () => Promise<OAuthConfig | null>;
@@ -182,11 +192,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, error: response.data?.error?.message || 'Error al iniciar sesión' };
     } catch (err: any) {
       const isNetworkErr = err.code === 'ERR_NETWORK' || err.message === 'Network Error' || !err.response;
-      const msg = err.response?.data?.error?.message ||
+      const errData = err.response?.data?.error;
+      const code = errData?.code;
+      const msg = errData?.message ||
         (isNetworkErr
           ? `Error de red al conectar con el servidor (${API_BASE_URL}). Verifique su conexión a internet.`
           : err.message || 'No se pudo conectar con el servidor');
-      return { success: false, error: msg };
+      return { success: false, error: msg, code, email };
     }
   };
 
@@ -194,14 +206,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const response = await apiClient.post('/auth/register-patient', data);
       if (response.data?.success) {
-        const { user: rawUser, tokens, linkedToExistingPatient } = response.data.data;
-        const normalizedUser: User = {
-          ...rawUser,
-          role: normalizeRole(rawUser.role || rawUser.role_name),
-          lastName: rawUser.lastName || rawUser.last_name || '',
-          patientId: response.data.data.patientId
-        };
+        const resData = response.data.data;
+        const { user: rawUser, tokens, linkedToExistingPatient, requiresVerification, emailSent } = resData;
         if (tokens?.accessToken) {
+          const normalizedUser: User = {
+            ...rawUser,
+            role: normalizeRole(rawUser.role || rawUser.role_name),
+            lastName: rawUser.lastName || rawUser.last_name || '',
+            patientId: resData.patientId
+          };
           await storage.setItem(ACCESS_TOKEN_KEY, tokens.accessToken);
           await storage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
           await storage.setItem(USER_STORAGE_KEY, JSON.stringify(normalizedUser));
@@ -210,14 +223,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return {
           success: true,
           linkedToExistingPatient,
-          message: linkedToExistingPatient
-            ? '¡Tu cuenta ha sido vinculada con éxito a tu ficha médica existente!'
-            : 'Tu cuenta de paciente ha sido creada exitosamente.'
+          requiresVerification: Boolean(requiresVerification),
+          emailSent: Boolean(emailSent),
+          email: data.email,
+          message: response.data.message || resData.message
         };
       }
       return { success: false, error: response.data?.error?.message || 'Error al registrar paciente' };
     } catch (err: any) {
       const msg = err.response?.data?.error?.message || 'No se pudo procesar el registro';
+      return { success: false, error: msg };
+    }
+  };
+
+  const resendVerificationEmail = async (email: string) => {
+    try {
+      const response = await apiClient.post('/auth/resend-verification-email', { email });
+      if (response.data?.success) {
+        return { success: true, message: response.data.message || response.data.data?.message };
+      }
+      return { success: false, error: response.data?.error?.message || 'No se pudo reenviar el correo de verificación' };
+    } catch (err: any) {
+      const msg = err.response?.data?.error?.message || 'Error al solicitar el reenvío del correo';
+      return { success: false, error: msg };
+    }
+  };
+
+  const verifyEmailToken = async (token: string) => {
+    try {
+      const response = await apiClient.post('/auth/verify-email', { token });
+      if (response.data?.success) {
+        return { success: true, message: response.data.message || response.data.data?.message };
+      }
+      return { success: false, error: response.data?.error?.message || 'Token de verificación inválido' };
+    } catch (err: any) {
+      const msg = err.response?.data?.error?.message || 'Error al verificar la cuenta';
       return { success: false, error: msg };
     }
   };
@@ -354,6 +394,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isPatient,
         login,
         registerPatient,
+        resendVerificationEmail,
+        verifyEmailToken,
         googleLogin,
         socialLogin,
         getOAuthConfig,

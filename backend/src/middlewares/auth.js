@@ -42,8 +42,8 @@ export async function authenticateToken(req, res, next) {
     // Identidad, rol y estado se leen SIEMPRE de la base (fail-closed): si la consulta falla,
     // el error se propaga y la petición no se autentica.
     const user = await authRepository.findUserById(payload.userId);
-    if (!user || !user.is_active) {
-      throw new UnauthorizedError('Usuario inactivo o no encontrado');
+    if (!user || !user.is_active || !user.email_verified_at) {
+      throw new UnauthorizedError('Usuario inactivo, no verificado o no encontrado');
     }
 
     req.user = {

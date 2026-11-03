@@ -40,6 +40,7 @@ import crypto from 'crypto';
 export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   nodeEnv,
+  serverUrl: process.env.SERVER_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || '3000'}`,
   apiPrefix: process.env.API_PREFIX || '/api/v1',
   corsOrigin: process.env.CORS_ORIGIN || '*',
   db: {

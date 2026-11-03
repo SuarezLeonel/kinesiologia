@@ -77,8 +77,8 @@ test('0. Setup: Preparar pacientes A y B con rutinas y ejercicios para pruebas c
 
   // 2. Crear usuario y ficha de Paciente A
   const uARes = await query(`
-    INSERT INTO users (role_id, email, password_hash, name, last_name, is_active)
-    VALUES (4, 'paciente.portal.a.${ts}@test.com', 'hash_test', 'PacienteA', 'Test', 1)
+    INSERT INTO users (role_id, email, password_hash, name, last_name, is_active, email_verified_at)
+    VALUES (4, 'paciente.portal.a.${ts}@test.com', 'hash_test', 'PacienteA', 'Test', 1, CURRENT_TIMESTAMP)
   `);
   patientAUserId = uARes.insertId;
   const pARes = await query(`
@@ -91,8 +91,8 @@ test('0. Setup: Preparar pacientes A y B con rutinas y ejercicios para pruebas c
 
   // 3. Crear usuario y ficha de Paciente B
   const uBRes = await query(`
-    INSERT INTO users (role_id, email, password_hash, name, last_name, is_active)
-    VALUES (4, 'paciente.portal.b.${ts}@test.com', 'hash_test', 'PacienteB', 'Test', 1)
+    INSERT INTO users (role_id, email, password_hash, name, last_name, is_active, email_verified_at)
+    VALUES (4, 'paciente.portal.b.${ts}@test.com', 'hash_test', 'PacienteB', 'Test', 1, CURRENT_TIMESTAMP)
   `);
   patientBUserId = uBRes.insertId;
   const pBRes = await query(`
