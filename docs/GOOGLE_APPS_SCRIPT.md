@@ -240,3 +240,4 @@ El script ejecutará:
 1. Comprobación del endpoint y cuota diaria disponible (`doGet`).
 2. Despacho de un correo de prueba formal con diseño de KinesioGestión (`doPost`).
 3. Verificación de la respuesta con confirmación explícita (`success: true`) y cuota restante.
+
