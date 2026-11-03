@@ -12,7 +12,8 @@
     "migrate": "node scripts/migrate.js",
     "seed": "node scripts/seed.js",
     "seed:exercises": "node scripts/seed-exercises.js",
-    "create-admin": "node scripts/create-admin.js"
+    "create-admin": "node scripts/create-admin.js",
+    "db:reset": "node scripts/reset-db.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

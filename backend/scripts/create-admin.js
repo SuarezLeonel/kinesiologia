@@ -23,8 +23,8 @@ async function run() {
       throw new Error('Ya existe un usuario con ese correo; no se modificó nada');
     }
     await connection.query(
-      `INSERT INTO users (role_id, name, last_name, email, password_hash, is_active)
-       VALUES (?, ?, ?, ?, ?, 1)`,
+      `INSERT INTO users (role_id, name, last_name, email, password_hash, is_active, email_verified_at)
+       VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)`,
       [roles[0].id, env.ADMIN_NAME, env.ADMIN_LAST_NAME, env.ADMIN_EMAIL, passwordHash]
     );
     console.log(`Administrador creado: ${env.ADMIN_EMAIL}`);

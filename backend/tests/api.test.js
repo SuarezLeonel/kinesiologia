@@ -303,44 +303,55 @@ test('15. Búsqueda de cobros: Filtro todayOnly limita a transacciones de la jor
 });
 
 test('16. Historias Clínicas: Exportación de PDF formal médico mediante POST /clinical-records/export-pdf', async () => {
-  const adminToken = jwt.sign(
-    { type: 'access', userId: 1, role: 'admin', email: 'admin@kinesiologia.com' },
-    config.jwt.accessSecret,
-    { expiresIn: '15m' }
-  );
+  const pool = getPool();
+  const [crRes] = await pool.query(`
+    INSERT INTO clinical_records (patient_id, author_id, consultation_reason, initial_evaluation, diagnosis)
+    VALUES (1, 2, 'Evaluación y tratamiento PDF', 'Dolor en zona lumbar', 'Lumbalgia mecánica')
+  `);
+  const recordId = crRes.insertId;
 
-  const recepToken = jwt.sign(
-    { type: 'access', userId: 3, role: 'receptionist', email: 'mariana.recep@kinesiologia.com' },
-    config.jwt.accessSecret,
-    { expiresIn: '15m' }
-  );
+  try {
+    const adminToken = jwt.sign(
+      { type: 'access', userId: 1, role: 'admin', email: 'kinesiogestion58@gmail.com' },
+      config.jwt.accessSecret,
+      { expiresIn: '15m' }
+    );
 
-  // 1. Recepcionista bloqueada con 403 Forbidden
-  const forbiddenRes = await request(app)
-    .post('/api/v1/clinical-records/export-pdf')
-    .set('Authorization', `Bearer ${recepToken}`)
-    .send({ id: 30001 });
+    const recepToken = jwt.sign(
+      { type: 'access', userId: 3, role: 'receptionist', email: 'mariana.recep@kinesiologia.com' },
+      config.jwt.accessSecret,
+      { expiresIn: '15m' }
+    );
 
-  assert.strictEqual(forbiddenRes.status, 403);
+    // 1. Recepcionista bloqueada con 403 Forbidden
+    const forbiddenRes = await request(app)
+      .post('/api/v1/clinical-records/export-pdf')
+      .set('Authorization', `Bearer ${recepToken}`)
+      .send({ id: recordId });
 
-  // 2. Admin exporta en formato binario PDF (Content-Type: application/pdf)
-  const binaryRes = await request(app)
-    .post('/api/v1/clinical-records/export-pdf')
-    .set('Authorization', `Bearer ${adminToken}`)
-    .send({ id: 30001 });
+    assert.strictEqual(forbiddenRes.status, 403);
 
-  assert.strictEqual(binaryRes.status, 200);
-  assert.ok(binaryRes.headers['content-type'].includes('application/pdf'));
-  assert.ok(binaryRes.headers['content-disposition'].includes('.pdf'));
+    // 2. Admin exporta en formato binario PDF (Content-Type: application/pdf)
+    const binaryRes = await request(app)
+      .post('/api/v1/clinical-records/export-pdf')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ id: recordId });
 
-  // 3. Admin exporta en formato JSON base64
-  const base64Res = await request(app)
-    .post('/api/v1/clinical-records/export-pdf')
-    .set('Authorization', `Bearer ${adminToken}`)
-    .send({ id: 30001, format: 'base64' });
+    assert.strictEqual(binaryRes.status, 200);
+    assert.ok(binaryRes.headers['content-type'].includes('application/pdf'));
+    assert.ok(binaryRes.headers['content-disposition'].includes('.pdf'));
 
-  assert.strictEqual(base64Res.status, 200);
-  assert.strictEqual(base64Res.body.success, true);
-  assert.ok(typeof base64Res.body.data.pdfBase64 === 'string');
-  assert.ok(base64Res.body.data.pdfBase64.length > 500);
+    // 3. Admin exporta en formato JSON base64
+    const base64Res = await request(app)
+      .post('/api/v1/clinical-records/export-pdf')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ id: recordId, format: 'base64' });
+
+    assert.strictEqual(base64Res.status, 200);
+    assert.strictEqual(base64Res.body.success, true);
+    assert.ok(typeof base64Res.body.data.pdfBase64 === 'string');
+    assert.ok(base64Res.body.data.pdfBase64.length > 500);
+  } finally {
+    await pool.query('DELETE FROM clinical_records WHERE id = ?', [recordId]);
+  }
 });

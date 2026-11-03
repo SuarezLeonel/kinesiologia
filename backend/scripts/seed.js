@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import { connectAdmin, databaseRoot } from './lib/db.js';
 
 const demoUsers = [
-  { roleName: 'admin', name: 'Laura', lastName: 'Admin', email: 'admin@kinesiologia.com', phone: '+5491100010001' },
+  { roleName: 'admin', name: 'Laura', lastName: 'Admin', email: process.env.ADMIN_EMAIL || 'kinesiogestion58@gmail.com', phone: '+5491100010001' },
   { roleName: 'kinesiologist', name: 'Carlos', lastName: 'Kinesio', email: 'carlos.kine@kinesiologia.com', phone: '+5491100020002' },
   { roleName: 'receptionist', name: 'Mariana', lastName: 'Recep', email: 'mariana.recep@kinesiologia.com', phone: '+5491100030003' }
 ];
@@ -13,9 +13,9 @@ async function run() {
   if (process.env.NODE_ENV === 'production') {
     throw new Error('Los seeds de demostración no se ejecutan con NODE_ENV=production');
   }
-  const password = process.env.DEMO_USER_PASSWORD;
-  if (!password || password.length < 8) {
-    throw new Error('Definir DEMO_USER_PASSWORD (mínimo 8 caracteres) en el entorno para crear usuarios demo');
+  const password = process.env.DEMO_USER_PASSWORD || 'Password123!';
+  if (password.length < 8) {
+    throw new Error('DEMO_USER_PASSWORD debe tener al menos 8 caracteres');
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
@@ -27,12 +27,12 @@ async function run() {
       throw new Error('Faltan roles. Ejecutar primero: npm run migrate');
     }
 
-    // Usuarios demo: no se pisa la contraseña de usuarios que ya existen.
+    // Usuarios demo: se crean activos y con correo verificado para acceso inmediato
     for (const u of demoUsers) {
       await connection.query(
-        `INSERT INTO users (role_id, name, last_name, email, password_hash, phone, is_active)
-         VALUES (?, ?, ?, ?, ?, ?, 1)
-         ON DUPLICATE KEY UPDATE name = VALUES(name)`,
+        `INSERT INTO users (role_id, name, last_name, email, password_hash, phone, is_active, email_verified_at)
+         VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+         ON DUPLICATE KEY UPDATE name = VALUES(name), email_verified_at = CURRENT_TIMESTAMP`,
         [roleIds.get(u.roleName), u.name, u.lastName, u.email, passwordHash, u.phone]
       );
     }
