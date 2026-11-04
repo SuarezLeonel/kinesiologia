@@ -40,15 +40,17 @@ export class PaymentsRepository {
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const sql = `
-      SELECT p.id, p.patient_id, p.package_id, p.service_id, p.recorded_by, p.amount, p.currency,
+      SELECT p.id, p.patient_id, p.package_id, p.service_id, p.appointment_id, p.recorded_by, p.amount, p.currency,
              p.payment_method, p.payment_date, p.receipt_number, p.notes, p.created_at,
              pt.first_name as patient_first_name, pt.last_name as patient_last_name,
              u.name as recorded_by_name, u.last_name as recorded_by_last_name,
-             s.name as service_name
+             s.name as service_name,
+             a.start_time as appointment_date, a.status as appointment_status
       FROM payments p
       JOIN patients pt ON p.patient_id = pt.id
       JOIN users u ON p.recorded_by = u.id
       LEFT JOIN services s ON p.service_id = s.id
+      LEFT JOIN appointments a ON p.appointment_id = a.id
       ${where}
       ORDER BY p.payment_date DESC
       LIMIT ? OFFSET ?
@@ -100,18 +102,26 @@ export class PaymentsRepository {
 
   async findById(id) {
     const rows = await query(`
-      SELECT p.id, p.patient_id, p.package_id, p.service_id, p.recorded_by, p.amount, p.currency,
+      SELECT p.id, p.patient_id, p.package_id, p.service_id, p.appointment_id, p.recorded_by, p.amount, p.currency,
              p.payment_method, p.payment_date, p.receipt_number, p.notes, p.created_at,
              pt.first_name as patient_first_name, pt.last_name as patient_last_name,
              u.name as recorded_by_name, u.last_name as recorded_by_last_name,
-             s.name as service_name
+             s.name as service_name,
+             a.start_time as appointment_date, a.status as appointment_status
       FROM payments p
       JOIN patients pt ON p.patient_id = pt.id
       JOIN users u ON p.recorded_by = u.id
       LEFT JOIN services s ON p.service_id = s.id
+      LEFT JOIN appointments a ON p.appointment_id = a.id
       WHERE p.id = ?
       LIMIT 1
     `, [id]);
+    return rows[0] || null;
+  }
+
+  async findByAppointmentId(appointmentId) {
+    if (!appointmentId) return null;
+    const rows = await query('SELECT id, patient_id, appointment_id, amount, receipt_number FROM payments WHERE appointment_id = ? LIMIT 1', [appointmentId]);
     return rows[0] || null;
   }
 
@@ -140,12 +150,13 @@ export class PaymentsRepository {
       }
 
       const [payResult] = await conn.execute(`
-        INSERT INTO payments (patient_id, package_id, service_id, recorded_by, amount, currency, payment_method, payment_date, receipt_number, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)
+        INSERT INTO payments (patient_id, package_id, service_id, appointment_id, recorded_by, amount, currency, payment_method, payment_date, receipt_number, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)
       `, [
         data.patientId,
         packageId,
         data.serviceId || null,
+        data.appointmentId || null,
         recordedById,
         data.amount,
         data.currency || 'ARS',

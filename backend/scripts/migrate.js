@@ -22,6 +22,9 @@ async function run() {
     const files = fs.readdirSync(migrationsDir).filter((f) => /^\d+_.+\.sql$/.test(f)).sort();
     let count = 0;
 
+    const [verRows] = await connection.query('SELECT VERSION() as v');
+    const isTiDB = verRows[0]?.v?.includes('TiDB');
+
     for (const file of files) {
       const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
       const checksum = crypto.createHash('sha256').update(sql).digest('hex');
@@ -45,7 +48,23 @@ async function run() {
       }
 
       console.log(`> Aplicando ${file}...`);
-      await connection.query(sql);
+      let execSql = sql;
+      if (!isTiDB) {
+        execSql = execSql
+          .replace(/ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS/gi, 'ADD COLUMN')
+          .replace(/ADD\s+INDEX\s+IF\s+NOT\s+EXISTS/gi, 'ADD INDEX');
+      }
+
+      try {
+        await connection.query(execSql);
+      } catch (err) {
+        if (!isTiDB && (err.code === 'ER_DUP_FIELDNAME' || err.code === 'ER_DUP_KEYNAME')) {
+          console.log(`   (columna o índice ya existía en ${file}, continuando)`);
+        } else {
+          throw err;
+        }
+      }
+
       await connection.query('INSERT INTO schema_migrations (filename, checksum) VALUES (?, ?)', [file, checksum]);
       count += 1;
     }

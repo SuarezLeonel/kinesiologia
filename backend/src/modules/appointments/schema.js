@@ -9,13 +9,20 @@ import { z } from 'zod';
 export const appointmentSearchSchema = z.object({
   body: z.object({
     kinesiologistId: z.number().int().positive().optional(),
+    kinesiologist_id: z.number().int().positive().optional(),
     patientId: z.number().int().positive().optional(),
+    patient_id: z.number().int().positive().optional(),
     startDate: z.string().optional(),
     endDate: z.string().optional(),
     status: z.enum(['pending', 'confirmed', 'attended', 'cancelled', 'absent']).optional(),
+    unpaidOnly: z.boolean().optional(),
     page: z.number().int().positive().default(1),
     limit: z.number().int().positive().max(100).default(50)
-  })
+  }).transform((val) => ({
+    ...val,
+    kinesiologistId: val.kinesiologistId || val.kinesiologist_id,
+    patientId: val.patientId || val.patient_id
+  }))
 });
 
 export const appointmentDetailSchema = z.object({

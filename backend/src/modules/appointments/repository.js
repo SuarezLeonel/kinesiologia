@@ -8,7 +8,7 @@ import { query, executeTransaction } from '../../config/database.js';
 import { ConflictError } from '../../utils/errors.js';
 
 export class AppointmentsRepository {
-  async search({ kinesiologistId, patientId, startDate, endDate, status, page = 1, limit = 50 }) {
+  async search({ kinesiologistId, patientId, startDate, endDate, status, unpaidOnly, page = 1, limit = 50 }) {
     const offset = (page - 1) * limit;
     const conditions = [];
     const params = [];
@@ -18,17 +18,22 @@ export class AppointmentsRepository {
     if (status) { conditions.push('a.status = ?'); params.push(status); }
     if (startDate) { conditions.push('a.start_time >= ?'); params.push(startDate); }
     if (endDate) { conditions.push('a.end_time <= ?'); params.push(endDate); }
+    if (unpaidOnly) { conditions.push('pay.id IS NULL'); }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const sql = `
       SELECT a.id, a.patient_id, p.first_name as patient_first_name, p.last_name as patient_last_name,
              a.kinesiologist_id, u.name as kinesiologist_name, u.last_name as kinesiologist_last_name,
-             a.service_id, s.name as service_name, a.start_time, a.end_time, a.status, a.notes,
-             a.agreed_price, a.currency, a.created_at
+             a.service_id, s.name as service_name, s.default_price as service_default_price,
+             a.start_time, a.end_time, a.status, a.notes,
+             a.agreed_price, a.currency, a.created_at,
+             pay.id as payment_id,
+             CASE WHEN pay.id IS NOT NULL THEN 1 ELSE 0 END as is_paid
       FROM appointments a
       JOIN patients p ON a.patient_id = p.id
       JOIN users u ON a.kinesiologist_id = u.id
       JOIN services s ON a.service_id = s.id
+      LEFT JOIN payments pay ON pay.appointment_id = a.id
       ${whereClause}
       ORDER BY a.start_time ASC
       LIMIT ? OFFSET ?
@@ -41,11 +46,14 @@ export class AppointmentsRepository {
     const rows = await query(`
       SELECT a.*, p.first_name as patient_first_name, p.last_name as patient_last_name,
              u.name as kinesiologist_name, u.last_name as kinesiologist_last_name,
-             s.name as service_name
+             s.name as service_name, s.default_price as service_default_price,
+             pay.id as payment_id,
+             CASE WHEN pay.id IS NOT NULL THEN 1 ELSE 0 END as is_paid
       FROM appointments a
       JOIN patients p ON a.patient_id = p.id
       JOIN users u ON a.kinesiologist_id = u.id
       JOIN services s ON a.service_id = s.id
+      LEFT JOIN payments pay ON pay.appointment_id = a.id
       WHERE a.id = ?
       LIMIT 1
     `, [id]);

@@ -27,6 +27,20 @@ export class AppError extends Error {
 }
 
 /**
+ * Error 400: Parámetros inválidos, estados inconsistentes o reglas de negocio no satisfechas.
+ * @extends AppError
+ */
+export class BadRequestError extends AppError {
+  /**
+   * @param {string} [message='Solicitud incorrecta']
+   * @param {Array|Object|null} [details=null]
+   */
+  constructor(message = 'Solicitud incorrecta', details = null) {
+    super(message, 400, 'BAD_REQUEST', details);
+  }
+}
+
+/**
  * Error 404: Indica que el recurso solicitado no existe en la base de datos o el sistema.
  * @extends AppError
  */

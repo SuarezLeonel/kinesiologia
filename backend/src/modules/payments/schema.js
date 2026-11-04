@@ -34,7 +34,9 @@ export const paymentCreateSchema = z.object({
   body: z.object({
     patientId: z.coerce.number().int().positive().optional(),
     patient_id: z.coerce.number().int().positive().optional(),
-    amount: z.coerce.number().positive('El importe debe ser mayor a 0'),
+    appointmentId: z.coerce.number().int().positive().optional().nullable(),
+    appointment_id: z.coerce.number().int().positive().optional().nullable(),
+    amount: z.coerce.number().positive('El importe debe ser mayor a 0').optional().nullable(),
     paymentMethod: z.string().optional(),
     payment_method: z.string().optional(),
     currency: z.string().default('ARS'),
@@ -52,7 +54,8 @@ export const paymentCreateSchema = z.object({
     }
     return {
       patientId: val.patientId || val.patient_id,
-      amount: val.amount,
+      appointmentId: val.appointmentId || val.appointment_id || null,
+      amount: val.amount != null ? Number(val.amount) : undefined,
       paymentMethod: method,
       currency: val.currency || 'ARS',
       receiptNumber: val.receiptNumber || val.receipt_number || null,
