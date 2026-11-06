@@ -24,7 +24,6 @@ import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { spacing, radii } from '../theme/tokens';
 import { SocialAuthButtons } from '../components/ui';
-import { API_BASE_URL } from '../api/config';
 
 const loginSchema = z.object({
   email: z.string().email('Ingrese un correo electrónico válido'),
@@ -46,7 +45,6 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   const {
     control,
     handleSubmit,
-    setValue,
     formState: { errors, isSubmitting }
   } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
@@ -63,12 +61,6 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
         setUnverifiedEmail(data.email.trim().toLowerCase());
       }
     }
-  };
-
-  const fillDemoCredentials = (email: string) => {
-    setValue('email', email, { shouldValidate: true });
-    setValue('password', 'Password123!', { shouldValidate: true });
-    setServerError(null);
   };
 
   return (
@@ -293,41 +285,10 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             <Text style={styles.patientPortalButtonText}>Crear cuenta de Paciente</Text>
           </TouchableOpacity>
 
-          {/* Acceso Rápido Cuentas Demo */}
-          <View style={styles.demoSection}>
-            <Text style={styles.demoSectionTitle}>CUENTAS DEMO (CLIC RÁPIDO):</Text>
-            <View style={styles.demoPillsRow}>
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => fillDemoCredentials('kinesiogestion58@gmail.com')}
-                style={styles.demoPill}
-              >
-                <Text style={styles.demoPillText}>Admin</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => fillDemoCredentials('carlos.kine@kinesiologia.com')}
-                style={styles.demoPill}
-              >
-                <Text style={styles.demoPillText}>Kinesiólogo</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => fillDemoCredentials('mariana.recep@kinesiologia.com')}
-                style={styles.demoPill}
-              >
-                <Text style={styles.demoPillText}>Recepción</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
           {/* Pie de Pantalla */}
           <View style={styles.footerContainer}>
             <Text style={styles.footerNoteText}>
               Acceso seguro con token cifrado y control de sesiones por rol.
-            </Text>
-            <Text style={styles.footerServerText}>
-              Servidor API: {API_BASE_URL}
             </Text>
           </View>
         </View>
@@ -608,34 +569,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#58B988'
   },
-  demoSection: {
-    marginBottom: 16
-  },
-  demoSectionTitle: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#657D70',
-    letterSpacing: 0.5,
-    marginBottom: 8
-  },
-  demoPillsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8
-  },
-  demoPill: {
-    backgroundColor: '#13251E',
-    borderWidth: 1,
-    borderColor: '#1E3B2E',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 6
-  },
-  demoPillText: {
-    color: '#58B988',
-    fontSize: 12,
-    fontWeight: '500'
-  },
   footerContainer: {
     alignItems: 'center',
     paddingTop: 8
@@ -645,11 +578,5 @@ const styles = StyleSheet.create({
     color: '#587063',
     textAlign: 'center',
     lineHeight: 16
-  },
-  footerServerText: {
-    fontSize: 11,
-    color: '#587063',
-    textAlign: 'center',
-    marginTop: 4
   }
 });
