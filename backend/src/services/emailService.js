@@ -169,7 +169,7 @@ class EmailService {
       throw new Error('El código de recuperación es obligatorio para enviar el correo');
     }
 
-    const subject = `KinesioGestión — Código de recuperación: ${resetCode}`;
+    const subject = 'KinesioGestión — Código de recuperación de cuenta';
     const text = `Hola ${name},\n\nHa solicitado restablecer su contraseña de acceso a KinesioGestión.\n\nSu código de verificación es: ${resetCode}\n\nEste código es de un solo uso y vencerá en 15 minutos.\n\nSi no ha solicitado este cambio, ignore este mensaje.\n\nEquipo KinesioGestión.`;
     const html = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #E2E8F0; border-radius: 8px; background-color: #FFFFFF;">
@@ -229,7 +229,7 @@ class EmailService {
       throw new Error('La URL de verificación es obligatoria para enviar el correo');
     }
 
-    const subject = 'KinesioGestión — Verificá tu correo electrónico para activar tu cuenta';
+    const subject = 'KinesioGestión — Verificación de correo electrónico';
     const text = `Hola ${name},\n\nGracias por registrarte en KinesioGestión.\n\nPara activar tu cuenta y acceder al portal, por favor verificá tu dirección de correo electrónico ingresando al siguiente enlace:\n\n${verificationUrl}\n\nEste enlace de verificación es de un solo uso y vencerá en 30 minutos.\n\nSi no solicitaste crear una cuenta en KinesioGestión, podés ignorar este correo de forma segura. La cuenta no será activada.\n\nEquipo KinesioGestión.`;
 
     const html = `
