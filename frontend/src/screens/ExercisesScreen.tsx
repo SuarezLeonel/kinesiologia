@@ -24,6 +24,7 @@ import { useDataSync } from '../context/DataSyncContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { spacing, radii, typography } from '../theme/tokens';
+import { useResponsive } from '../theme/useResponsive';
 import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper, BadgeVariant } from '../components/ui';
 import { LoadingState, ErrorState, EmptyState } from '../components/FeedbackStates';
 
@@ -89,6 +90,7 @@ const PAGE_SIZE = 10;
 
 export const ExercisesScreen = () => {
   const { theme } = useAppTheme();
+  const { isPhone, isSmallPhone, isDesktop, contentMaxWidth } = useResponsive();
   const { isAdmin, isReceptionist } = useAuth();
   const { scopeVersions } = useDataSync();
 
@@ -499,7 +501,18 @@ export const ExercisesScreen = () => {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: theme.background,
+          maxWidth: contentMaxWidth,
+          width: '100%',
+          alignSelf: 'center',
+          paddingHorizontal: isSmallPhone ? spacing.sm : isPhone ? spacing.md : spacing.xl
+        }
+      ]}
+    >
       {/* Encabezado */}
       <ScreenHeader
         title="Ejercicios"
@@ -648,7 +661,7 @@ export const ExercisesScreen = () => {
           </ScrollView>
 
           {/* Dificultad y Equipamiento */}
-          <View style={styles.twoColRow}>
+          <View style={[styles.twoColRow, isPhone && styles.twoColRowPhone]}>
             {/* Dificultad */}
             <View style={{ flex: 1, marginRight: spacing.sm }}>
               <Text style={[styles.filterGroupLabel, { color: theme.textSecondary }]}>Dificultad:</Text>
@@ -1163,7 +1176,7 @@ export const ExercisesScreen = () => {
           />
 
           {/* Categoría y Zona Corporal */}
-          <View style={styles.twoColRow}>
+          <View style={[styles.twoColRow, isPhone && styles.twoColRowPhone]}>
             <View style={{ flex: 1, marginRight: spacing.sm }}>
               <Controller
                 control={control}
@@ -1212,7 +1225,7 @@ export const ExercisesScreen = () => {
           </View>
 
           {/* Grupo Muscular y Objetivo Terapéutico */}
-          <View style={styles.twoColRow}>
+          <View style={[styles.twoColRow, isPhone && styles.twoColRowPhone]}>
             <View style={{ flex: 1, marginRight: spacing.sm }}>
               <Controller
                 control={control}
@@ -1246,7 +1259,7 @@ export const ExercisesScreen = () => {
           </View>
 
           {/* Nivel de Dificultad y Equipamiento */}
-          <View style={styles.twoColRow}>
+          <View style={[styles.twoColRow, isPhone && styles.twoColRowPhone]}>
             <View style={{ flex: 1, marginRight: spacing.sm }}>
               <Text style={[styles.inputLabel, { color: theme.text }]}>
                 Nivel de dificultad <Text style={{ color: theme.error }}>*</Text>
@@ -1291,7 +1304,7 @@ export const ExercisesScreen = () => {
           </View>
 
           {/* Series y Repeticiones por defecto */}
-          <View style={styles.twoColRow}>
+          <View style={[styles.twoColRow, isPhone && styles.twoColRowPhone]}>
             <View style={{ flex: 1, marginRight: spacing.sm }}>
               <Controller
                 control={control}
@@ -1460,8 +1473,7 @@ export const ExercisesScreen = () => {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    padding: Platform.OS === 'web' ? spacing.xl : spacing.md
+    flex: 1
   },
   successBanner: {
     flexDirection: 'row',
@@ -1781,7 +1793,12 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.medium
   },
   twoColRow: {
-    flexDirection: 'row'
+    flexDirection: 'row',
+    gap: spacing.sm
+  },
+  twoColRowPhone: {
+    flexDirection: 'column',
+    gap: 0
   },
   suggestChipsRow: {
     flexDirection: 'row',

@@ -55,8 +55,9 @@ export class OAuthProviderService {
         idToken = tokens.id_token;
         accessToken = tokens.access_token || accessToken;
       } catch (err) {
-        console.error('Google authorization code exchange error:', err?.message || err);
-        throw new UnauthorizedError('Error al canjear el código de autorización con Google');
+        console.error('Google authorization code exchange error:', err?.response?.data || err?.message || err);
+        const detail = err?.response?.data?.error_description || err?.response?.data?.error || err?.message || '';
+        throw new UnauthorizedError(`Error al canjear el código de autorización con Google${detail ? `: ${detail}` : ''}`);
       }
     }
 

@@ -560,6 +560,7 @@ export class AuthService {
 
     // Validación estricta contra Open Redirect: solo esquemas de la app móvil o desarrollo local
     const isSafeScheme = /^(exp|exps|kinesiologia):\/\//i.test(returnUrl) ||
+      /^https:\/\/auth\.expo\.io(\/.*)?$/i.test(returnUrl) ||
       /^https?:\/\/(localhost|127\.0.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?(\/.*)?$/i.test(returnUrl);
 
     if (!isSafeScheme) {

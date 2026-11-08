@@ -8,21 +8,37 @@ import { query, executeTransaction } from '../../config/database.js';
 import { ConflictError } from '../../utils/errors.js';
 
 export class AppointmentsRepository {
-  async search({ kinesiologistId, patientId, startDate, endDate, status, unpaidOnly, page = 1, limit = 50 }) {
+  async search({ kinesiologistId, patientId, startDate, endDate, status, unpaidOnly, search, page = 1, limit = 50 }) {
     const offset = (page - 1) * limit;
     const conditions = [];
     const params = [];
 
-    if (kinesiologistId) { conditions.push('a.kinesiologist_id = ?'); params.push(kinesiologistId); }
+    if (kinesiologistId === 'unassigned' || kinesiologistId === 'none') {
+      conditions.push('a.kinesiologist_id IS NULL');
+    } else if (kinesiologistId && kinesiologistId !== 'all') {
+      conditions.push('a.kinesiologist_id = ?');
+      params.push(kinesiologistId);
+    }
+
     if (patientId) { conditions.push('a.patient_id = ?'); params.push(patientId); }
     if (status) { conditions.push('a.status = ?'); params.push(status); }
     if (startDate) { conditions.push('a.start_time >= ?'); params.push(startDate); }
     if (endDate) { conditions.push('a.end_time <= ?'); params.push(endDate); }
     if (unpaidOnly) { conditions.push('pay.id IS NULL'); }
 
+    if (search && typeof search === 'string' && search.trim()) {
+      const term = `%${search.trim()}%`;
+      conditions.push(`(
+        p.first_name LIKE ? OR p.last_name LIKE ? OR p.dni LIKE ? OR
+        u.name LIKE ? OR u.last_name LIKE ? OR
+        s.name LIKE ? OR a.notes LIKE ?
+      )`);
+      params.push(term, term, term, term, term, term, term);
+    }
+
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const sql = `
-      SELECT a.id, a.patient_id, p.first_name as patient_first_name, p.last_name as patient_last_name,
+      SELECT a.id, a.patient_id, p.first_name as patient_first_name, p.last_name as patient_last_name, p.dni as patient_dni, p.phone as patient_phone,
              a.kinesiologist_id, u.name as kinesiologist_name, u.last_name as kinesiologist_last_name,
              a.service_id, s.name as service_name, s.default_price as service_default_price,
              a.start_time, a.end_time, a.status, a.notes,
@@ -31,7 +47,7 @@ export class AppointmentsRepository {
              CASE WHEN pay.id IS NOT NULL THEN 1 ELSE 0 END as is_paid
       FROM appointments a
       JOIN patients p ON a.patient_id = p.id
-      JOIN users u ON a.kinesiologist_id = u.id
+      LEFT JOIN users u ON a.kinesiologist_id = u.id
       JOIN services s ON a.service_id = s.id
       LEFT JOIN payments pay ON pay.appointment_id = a.id
       ${whereClause}
@@ -44,14 +60,14 @@ export class AppointmentsRepository {
 
   async findById(id) {
     const rows = await query(`
-      SELECT a.*, p.first_name as patient_first_name, p.last_name as patient_last_name,
+      SELECT a.*, p.first_name as patient_first_name, p.last_name as patient_last_name, p.dni as patient_dni, p.phone as patient_phone,
              u.name as kinesiologist_name, u.last_name as kinesiologist_last_name,
              s.name as service_name, s.default_price as service_default_price,
              pay.id as payment_id,
              CASE WHEN pay.id IS NOT NULL THEN 1 ELSE 0 END as is_paid
       FROM appointments a
       JOIN patients p ON a.patient_id = p.id
-      JOIN users u ON a.kinesiologist_id = u.id
+      LEFT JOIN users u ON a.kinesiologist_id = u.id
       JOIN services s ON a.service_id = s.id
       LEFT JOIN payments pay ON pay.appointment_id = a.id
       WHERE a.id = ?
@@ -82,17 +98,19 @@ export class AppointmentsRepository {
 
   async create(data) {
     return await executeTransaction(async (conn) => {
-      // Bloqueo y verificación atómica de superposición
-      const [overlaps] = await conn.execute(`
-        SELECT id FROM appointments
-        WHERE kinesiologist_id = ?
-          AND status NOT IN ('cancelled')
-          AND ((start_time < ? AND end_time > ?) OR (start_time >= ? AND start_time < ?))
-        FOR UPDATE
-      `, [data.kinesiologistId, data.endTime, data.startTime, data.startTime, data.endTime]);
+      // Bloqueo y verificación atómica de superposición (solo si hay profesional asignado)
+      if (data.kinesiologistId) {
+        const [overlaps] = await conn.execute(`
+          SELECT id FROM appointments
+          WHERE kinesiologist_id = ?
+            AND status NOT IN ('cancelled')
+            AND ((start_time < ? AND end_time > ?) OR (start_time >= ? AND start_time < ?))
+          FOR UPDATE
+        `, [data.kinesiologistId, data.endTime, data.startTime, data.startTime, data.endTime]);
 
-      if (overlaps.length > 0) {
-        throw new ConflictError('El profesional ya tiene un turno agendado en ese horario');
+        if (overlaps.length > 0) {
+          throw new ConflictError('El profesional ya tiene un turno agendado en ese horario');
+        }
       }
 
       const [result] = await conn.execute(`
@@ -100,7 +118,7 @@ export class AppointmentsRepository {
         VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
       `, [
         data.patientId,
-        data.kinesiologistId,
+        data.kinesiologistId || null,
         data.serviceId,
         data.startTime,
         data.endTime,
@@ -133,9 +151,10 @@ export class AppointmentsRepository {
 
       const targetStart = fields.startTime || app.start_time;
       const targetEnd = fields.endTime || app.end_time;
+      const targetKineId = fields.kinesiologistId !== undefined ? fields.kinesiologistId : app.kinesiologist_id;
 
-      // Si se altera horario o estado activo, verificar superposición de forma atómica
-      if (fields.startTime || fields.endTime) {
+      // Si se altera horario o profesional asignado, verificar superposición de forma atómica si hay kinesiólogo asignado
+      if (targetKineId && (fields.startTime || fields.endTime || fields.kinesiologistId !== undefined)) {
         const [overlaps] = await conn.execute(`
           SELECT id FROM appointments
           WHERE kinesiologist_id = ?
@@ -143,7 +162,7 @@ export class AppointmentsRepository {
             AND status NOT IN ('cancelled')
             AND ((start_time < ? AND end_time > ?) OR (start_time >= ? AND start_time < ?))
           FOR UPDATE
-        `, [app.kinesiologist_id, id, targetEnd, targetStart, targetStart, targetEnd]);
+        `, [targetKineId, id, targetEnd, targetStart, targetStart, targetEnd]);
 
         if (overlaps.length > 0) {
           throw new ConflictError('El nuevo horario genera una superposición con otro turno del profesional');
@@ -153,6 +172,7 @@ export class AppointmentsRepository {
       const updates = [];
       const params = [];
       if (fields.status) { updates.push('status = ?'); params.push(fields.status); }
+      if (fields.kinesiologistId !== undefined) { updates.push('kinesiologist_id = ?'); params.push(fields.kinesiologistId); }
       if (fields.startTime) { updates.push('start_time = ?'); params.push(fields.startTime); }
       if (fields.endTime) { updates.push('end_time = ?'); params.push(fields.endTime); }
       if (fields.notes !== undefined) { updates.push('notes = ?'); params.push(fields.notes); }
@@ -229,7 +249,7 @@ export class AppointmentsRepository {
       FROM appointment_reschedule_requests r
       JOIN appointments a ON r.appointment_id = a.id
       JOIN patients p ON r.patient_id = p.id
-      JOIN users u ON a.kinesiologist_id = u.id
+      LEFT JOIN users u ON a.kinesiologist_id = u.id
       JOIN services s ON a.service_id = s.id
       ${where}
       ORDER BY r.created_at DESC

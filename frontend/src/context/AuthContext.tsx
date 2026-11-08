@@ -274,16 +274,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return {
       google: {
-        configured: Boolean(process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID),
-        clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || null
+        configured: Boolean(process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || '653636979580-eof0rq8g7jp9u2jifs5nqmc498v1ka04.apps.googleusercontent.com'),
+        clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || '653636979580-eof0rq8g7jp9u2jifs5nqmc498v1ka04.apps.googleusercontent.com'
       },
       github: {
-        configured: Boolean(process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID),
-        clientId: process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID || null
+        configured: Boolean(process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID || 'Ov23lidJ8hmMaK5scQk8'),
+        clientId: process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID || 'Ov23lidJ8hmMaK5scQk8'
       },
       facebook: {
-        configured: Boolean(process.env.EXPO_PUBLIC_FACEBOOK_APP_ID),
-        appId: process.env.EXPO_PUBLIC_FACEBOOK_APP_ID || null
+        configured: Boolean(process.env.EXPO_PUBLIC_FACEBOOK_APP_ID || '2108740169848909'),
+        appId: process.env.EXPO_PUBLIC_FACEBOOK_APP_ID || '2108740169848909'
       }
     };
   };

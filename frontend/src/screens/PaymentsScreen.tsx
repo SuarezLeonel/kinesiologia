@@ -26,6 +26,7 @@ import { useDataSync } from '../context/DataSyncContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { spacing, radii, typography } from '../theme/tokens';
+import { useResponsive } from '../theme/useResponsive';
 import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper } from '../components/ui';
 import { LoadingState, ErrorState, EmptyState, AccessDeniedState } from '../components/FeedbackStates';
 
@@ -56,6 +57,7 @@ interface CajaSummary {
 
 export const PaymentsScreen = () => {
   const { theme } = useAppTheme();
+  const { isPhone, isSmallPhone, isDesktop, contentMaxWidth } = useResponsive();
   const { isKinesiologist } = useAuth();
   const { scopeVersions } = useDataSync();
   const [payments, setPayments] = useState<any[]>([]);
@@ -401,7 +403,18 @@ export const PaymentsScreen = () => {
     : 0;
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: theme.background,
+          maxWidth: contentMaxWidth,
+          width: '100%',
+          alignSelf: 'center',
+          paddingHorizontal: isSmallPhone ? spacing.sm : isPhone ? spacing.md : spacing.xl
+        }
+      ]}
+    >
       <ScreenHeader
         title="Cobros y Caja"
         action={
@@ -486,7 +499,7 @@ export const PaymentsScreen = () => {
               </Text>
 
               <View style={styles.methodsGrid}>
-                <View style={[styles.methodStatCard, { backgroundColor: theme.surfaceSubtle }]}>
+                <View style={[styles.methodStatCard, { backgroundColor: theme.surfaceSubtle, minWidth: isSmallPhone ? '100%' : isDesktop ? '23%' : '47%', flexBasis: isSmallPhone ? '100%' : isDesktop ? '23%' : '47%' }]}>
                   <View style={styles.methodStatHeader}>
                     <MaterialIcons name="payments" size={16} color="#16A34A" />
                     <Text style={[styles.methodStatLabel, { color: theme.textSecondary }]}>Efectivo</Text>
@@ -496,7 +509,7 @@ export const PaymentsScreen = () => {
                   </Text>
                 </View>
 
-                <View style={[styles.methodStatCard, { backgroundColor: theme.surfaceSubtle }]}>
+                <View style={[styles.methodStatCard, { backgroundColor: theme.surfaceSubtle, minWidth: isSmallPhone ? '100%' : isDesktop ? '23%' : '47%', flexBasis: isSmallPhone ? '100%' : isDesktop ? '23%' : '47%' }]}>
                   <View style={styles.methodStatHeader}>
                     <MaterialIcons name="qr-code-scanner" size={16} color="#0284C7" />
                     <Text style={[styles.methodStatLabel, { color: theme.textSecondary }]}>Transferencia / MP</Text>
@@ -506,7 +519,7 @@ export const PaymentsScreen = () => {
                   </Text>
                 </View>
 
-                <View style={[styles.methodStatCard, { backgroundColor: theme.surfaceSubtle }]}>
+                <View style={[styles.methodStatCard, { backgroundColor: theme.surfaceSubtle, minWidth: isSmallPhone ? '100%' : isDesktop ? '23%' : '47%', flexBasis: isSmallPhone ? '100%' : isDesktop ? '23%' : '47%' }]}>
                   <View style={styles.methodStatHeader}>
                     <MaterialIcons name="credit-card" size={16} color="#9333EA" />
                     <Text style={[styles.methodStatLabel, { color: theme.textSecondary }]}>Tarjetas Déb/Créd</Text>
@@ -516,7 +529,7 @@ export const PaymentsScreen = () => {
                   </Text>
                 </View>
 
-                <View style={[styles.methodStatCard, { backgroundColor: theme.surfaceSubtle }]}>
+                <View style={[styles.methodStatCard, { backgroundColor: theme.surfaceSubtle, minWidth: isSmallPhone ? '100%' : isDesktop ? '23%' : '47%', flexBasis: isSmallPhone ? '100%' : isDesktop ? '23%' : '47%' }]}>
                   <View style={styles.methodStatHeader}>
                     <MaterialIcons name="health-and-safety" size={16} color="#D97706" />
                     <Text style={[styles.methodStatLabel, { color: theme.textSecondary }]}>Obra Social</Text>
@@ -879,7 +892,7 @@ export const PaymentsScreen = () => {
                           {selectedAppointmentObj.service_name}
                         </Text>
                         <Text style={[styles.pickerSelectedSub, { color: theme.textSecondary }]}>
-                          {formatAppointmentDate(selectedAppointmentObj.start_time)} • Prof: {selectedAppointmentObj.kinesiologist_last_name || selectedAppointmentObj.kinesiologist_name}
+                          {formatAppointmentDate(selectedAppointmentObj.start_time)} • Prof: {selectedAppointmentObj.kinesiologist_last_name ? `Lic. ${selectedAppointmentObj.kinesiologist_last_name}` : 'Sin asignar'}
                         </Text>
                       </View>
                     ) : (
@@ -938,7 +951,7 @@ export const PaymentsScreen = () => {
                               {formatAppointmentDate(app.start_time)}
                             </Text>
                             <Text style={[styles.appRowProf, { color: theme.textMuted }]}>
-                              Atendido por: {app.kinesiologist_last_name}, {app.kinesiologist_name}
+                              Atendido por: {app.kinesiologist_last_name ? `Lic. ${app.kinesiologist_last_name}${app.kinesiologist_name ? `, ${app.kinesiologist_name}` : ''}` : 'Sin asignar'}
                             </Text>
                           </View>
                           {isSelected && (

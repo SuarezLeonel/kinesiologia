@@ -8,20 +8,23 @@ import { z } from 'zod';
 
 export const appointmentSearchSchema = z.object({
   body: z.object({
-    kinesiologistId: z.number().int().positive().optional(),
-    kinesiologist_id: z.number().int().positive().optional(),
+    kinesiologistId: z.union([z.number().int().positive(), z.literal('unassigned'), z.literal('all')]).nullable().optional(),
+    kinesiologist_id: z.union([z.number().int().positive(), z.literal('unassigned'), z.literal('all')]).nullable().optional(),
     patientId: z.number().int().positive().optional(),
     patient_id: z.number().int().positive().optional(),
     startDate: z.string().optional(),
     endDate: z.string().optional(),
     status: z.enum(['pending', 'confirmed', 'attended', 'cancelled', 'absent']).optional(),
     unpaidOnly: z.boolean().optional(),
+    search: z.string().optional(),
+    query: z.string().optional(),
     page: z.number().int().positive().default(1),
-    limit: z.number().int().positive().max(100).default(50)
+    limit: z.number().int().positive().max(500).default(100)
   }).transform((val) => ({
     ...val,
-    kinesiologistId: val.kinesiologistId || val.kinesiologist_id,
-    patientId: val.patientId || val.patient_id
+    kinesiologistId: val.kinesiologistId !== undefined ? val.kinesiologistId : val.kinesiologist_id,
+    patientId: val.patientId || val.patient_id,
+    search: val.search || val.query
   }))
 });
 
@@ -35,8 +38,8 @@ export const appointmentCreateSchema = z.object({
   body: z.object({
     patientId: z.number().int().positive().optional(),
     patient_id: z.number().int().positive().optional(),
-    kinesiologistId: z.number().int().positive().optional(),
-    kinesiologist_id: z.number().int().positive().optional(),
+    kinesiologistId: z.union([z.number().int().positive(), z.null()]).optional(),
+    kinesiologist_id: z.union([z.number().int().positive(), z.null()]).optional(),
     serviceId: z.number().int().positive().optional(),
     service_id: z.number().int().positive().optional(),
     startTime: z.string().optional(),
@@ -50,7 +53,7 @@ export const appointmentCreateSchema = z.object({
     reason: z.string().optional()
   }).transform((val) => {
     const patientId = val.patientId || val.patient_id;
-    const kinesiologistId = val.kinesiologistId || val.kinesiologist_id;
+    const kinesiologistId = val.kinesiologistId !== undefined ? val.kinesiologistId : (val.kinesiologist_id !== undefined ? val.kinesiologist_id : null);
     const serviceId = val.serviceId || val.service_id || 1;
     let startTime = val.startTime || val.start_time || val.scheduled_at;
     let endTime = val.endTime || val.end_time;
@@ -71,15 +74,15 @@ export const appointmentCreateSchema = z.object({
 
     return {
       patientId,
-      kinesiologistId,
+      kinesiologistId: kinesiologistId || null,
       serviceId,
       startTime,
       endTime: endTime || startTime,
       notes: val.notes || val.reason,
       agreedPrice: val.agreedPrice || val.agreed_price
     };
-  }).refine((val) => Boolean(val.patientId && val.kinesiologistId && val.serviceId && val.startTime), {
-    message: 'Paciente, profesional, prestación y horario son obligatorios'
+  }).refine((val) => Boolean(val.patientId && val.serviceId && val.startTime), {
+    message: 'Paciente, prestación y horario son obligatorios'
   })
 });
 
@@ -89,6 +92,8 @@ export const appointmentUpdateSchema = z.object({
   }),
   body: z.object({
     status: z.enum(['pending', 'confirmed', 'attended', 'cancelled', 'absent']).optional(),
+    kinesiologistId: z.union([z.number().int().positive(), z.null()]).optional(),
+    kinesiologist_id: z.union([z.number().int().positive(), z.null()]).optional(),
     startTime: z.string().optional(),
     start_time: z.string().optional(),
     scheduled_at: z.string().optional(),
@@ -98,6 +103,7 @@ export const appointmentUpdateSchema = z.object({
     reason: z.string().optional()
   }).transform((val) => ({
     ...val,
+    kinesiologistId: val.kinesiologistId !== undefined ? val.kinesiologistId : val.kinesiologist_id,
     startTime: val.startTime || val.start_time || val.scheduled_at,
     endTime: val.endTime || val.end_time
   }))

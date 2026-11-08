@@ -381,9 +381,9 @@ export class HolidayService {
   /**
    * Evalúa si una fecha ('YYYY-MM-DD') está habilitada para atención y reserva de turnos.
    * @param {string|Date} dateInput
-   * @param {{ referenceDate?: string, enforceWindow?: boolean }} [options]
+   * @param {{ referenceDate?: string, enforceWindow?: boolean, kinesiologistId?: number|string }} [options]
    */
-  async evaluateDate(dateInput, { referenceDate, enforceWindow = true } = {}) {
+  async evaluateDate(dateInput, { referenceDate, enforceWindow = true, kinesiologistId } = {}) {
     const dateStr = extractDateISO(dateInput);
     if (!dateStr) {
       return {
@@ -490,6 +490,20 @@ export class HolidayService {
 
       // Es un día no laborable opcional configurado como laborable (is_closed = 0)
       const optionalOpen = holidaysOnDate[0];
+      if (kinesiologistId) {
+        const onVacation = await this.isKinesiologistOnVacation(kinesiologistId, dateStr);
+        if (onVacation) {
+          return {
+            date: dateStr,
+            available: false,
+            reasonCode: 'KINESIOLOGIST_VACATION',
+            reason: 'El profesional seleccionado se encuentra de vacaciones en la fecha seleccionada.',
+            dayOfWeek,
+            holiday: null
+          };
+        }
+      }
+
       return {
         date: dateStr,
         available: true,
@@ -498,6 +512,20 @@ export class HolidayService {
         dayOfWeek,
         holiday: optionalOpen
       };
+    }
+
+    if (kinesiologistId) {
+      const onVacation = await this.isKinesiologistOnVacation(kinesiologistId, dateStr);
+      if (onVacation) {
+        return {
+          date: dateStr,
+          available: false,
+          reasonCode: 'KINESIOLOGIST_VACATION',
+          reason: 'El profesional seleccionado se encuentra de vacaciones en la fecha seleccionada.',
+          dayOfWeek,
+          holiday: null
+        };
+      }
     }
 
     return {
@@ -511,14 +539,35 @@ export class HolidayService {
   }
 
   /**
+   * Determina si un kinesiólogo está de vacaciones en una fecha dada (YYYY-MM-DD).
+   * @param {number|string} kinesiologistId
+   * @param {string} dateStr
+   * @returns {Promise<boolean>}
+   */
+  async isKinesiologistOnVacation(kinesiologistId, dateStr) {
+    if (!kinesiologistId || !dateStr) return false;
+    const cleanDate = dateStr.slice(0, 10);
+    const rows = await query(
+      `SELECT id FROM kinesiologist_vacations
+       WHERE kinesiologist_id = ?
+         AND status IN ('scheduled', 'active')
+         AND ? >= start_date AND ? <= end_date
+       LIMIT 1`,
+      [kinesiologistId, cleanDate, cleanDate]
+    );
+    return rows.length > 0;
+  }
+
+  /**
    * Valida una fecha/hora de turno y lanza BadRequestError (400) si la fecha no es válida o no es laborable.
    * Se utiliza al crear, modificar o reprogramar turnos.
    * @param {string|Date} dateTimeInput
-   * @param {{ referenceDate?: string }} [options]
+   * @param {{ referenceDate?: string, kinesiologistId?: number|string }} [options]
    */
   async validateAppointmentDate(dateTimeInput, options = {}) {
     const evaluation = await this.evaluateDate(dateTimeInput, {
       referenceDate: options.referenceDate,
+      kinesiologistId: options.kinesiologistId,
       enforceWindow: true
     });
 

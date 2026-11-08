@@ -11,7 +11,10 @@
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://kinesiologia-backend.onrender.com/api/v1"
+        "EXPO_PUBLIC_API_URL": "https://kinesiologia-backend.onrender.com/api/v1",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID": "653636979580-eof0rq8g7jp9u2jifs5nqmc498v1ka04.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GITHUB_CLIENT_ID": "Ov23lidJ8hmMaK5scQk8",
+        "EXPO_PUBLIC_FACEBOOK_APP_ID": "2108740169848909"
       },
       "android": {
         "buildType": "apk"
@@ -20,7 +23,10 @@
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://kinesiologia-backend.onrender.com/api/v1"
+        "EXPO_PUBLIC_API_URL": "https://kinesiologia-backend.onrender.com/api/v1",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID": "653636979580-eof0rq8g7jp9u2jifs5nqmc498v1ka04.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GITHUB_CLIENT_ID": "Ov23lidJ8hmMaK5scQk8",
+        "EXPO_PUBLIC_FACEBOOK_APP_ID": "2108740169848909"
       },
       "android": {
         "buildType": "apk"

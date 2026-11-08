@@ -24,6 +24,7 @@ import { useDataSync } from '../context/DataSyncContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { spacing, radii, typography } from '../theme/tokens';
+import { useResponsive } from '../theme/useResponsive';
 import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper } from '../components/ui';
 import { LoadingState, ErrorState, EmptyState, AccessDeniedState } from '../components/FeedbackStates';
 import { PatientRoutinesModal } from '../components/treatments/PatientRoutinesModal';
@@ -45,6 +46,7 @@ type ClinicalRecordFormData = z.infer<typeof clinicalRecordSchema>;
 export const ClinicalRecordsScreen = () => {
   const { isReceptionist } = useAuth();
   const { theme } = useAppTheme();
+  const { isPhone, isSmallPhone, isDesktop, contentMaxWidth } = useResponsive();
   const { scopeVersions } = useDataSync();
   const [searchTerm, setSearchTerm] = useState('');
   const [records, setRecords] = useState<any[]>([]);
@@ -299,7 +301,18 @@ export const ClinicalRecordsScreen = () => {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: theme.background,
+          maxWidth: contentMaxWidth,
+          width: '100%',
+          alignSelf: 'center',
+          paddingHorizontal: isSmallPhone ? spacing.sm : isPhone ? spacing.md : spacing.xl
+        }
+      ]}
+    >
       <ScreenHeader
         title="Historias Clínicas"
         action={
@@ -761,8 +774,7 @@ export const ClinicalRecordsScreen = () => {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    padding: Platform.OS === 'web' ? spacing.xl : spacing.md
+    flex: 1
   },
   searchRow: {
     flexDirection: 'row',

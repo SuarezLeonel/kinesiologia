@@ -10,7 +10,7 @@ import { sendSuccess } from '../../utils/response.js';
 export class AppointmentsController {
   async search(req, res, next) {
     try {
-      const appointments = await appointmentsService.search(req.body);
+      const appointments = await appointmentsService.search(req.body, req.user);
       return sendSuccess(res, appointments);
     } catch (error) {
       next(error);

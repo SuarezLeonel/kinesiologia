@@ -1,71 +1,43 @@
 /**
  * @file SettingsScreen.tsx
- * @description Pantalla de ajustes: selector de tema visual (claro/oscuro), información de cuenta y logout.
+ * @description Pantalla de ajustes: selector de tema visual (claro/oscuro/automático), información de cuenta y logout.
  */
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { useAppTheme } from '../theme/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { spacing, radii, typography } from '../theme/tokens';
-import { Card, Badge, Button, ScreenHeader } from '../components/ui';
+import { useResponsive } from '../theme/useResponsive';
+import { Card, Badge, Button, ScreenHeader, AppearanceSelector } from '../components/ui';
 
 export const SettingsScreen = () => {
-  const { theme, mode, setMode } = useAppTheme();
+  const { theme } = useAppTheme();
+  const { isPhone, isSmallPhone, contentMaxWidth } = useResponsive();
   const { user, logout } = useAuth();
-
-  const themeOptions: { key: 'system' | 'light' | 'dark'; label: string; desc: string }[] = [
-    { key: 'system', label: 'Sistema', desc: 'Automático según el dispositivo' },
-    { key: 'light', label: 'Claro', desc: 'Tema claro' },
-    { key: 'dark', label: 'Oscuro', desc: 'Tema oscuro' }
-  ];
 
   const roleName = user?.role || user?.role_name || 'usuario';
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: theme.background,
+          maxWidth: contentMaxWidth,
+          width: '100%',
+          alignSelf: 'center',
+          paddingHorizontal: isSmallPhone ? spacing.sm : isPhone ? spacing.md : spacing.xl
+        }
+      ]}
+    >
       <ScreenHeader
         title="Ajustes"
       />
 
-      {/* Selector de Apariencia */}
-      <Card elevated style={styles.card} padding="lg">
-        <Text style={[styles.cardTitle, { color: theme.text, marginBottom: spacing.md }]}>Apariencia</Text>
-
-        <View style={styles.segmentContainer}>
-          {themeOptions.map((opt) => {
-            const isSelected = mode === opt.key;
-            return (
-              <TouchableOpacity
-                key={opt.key}
-                activeOpacity={0.8}
-                onPress={() => setMode(opt.key)}
-                style={[
-                  styles.segmentButton,
-                  {
-                    backgroundColor: isSelected ? theme.primaryLight : theme.surfaceSubtle,
-                    borderColor: isSelected ? theme.primary : theme.border
-                  }
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.segmentTitle,
-                    {
-                      color: isSelected ? theme.primary : theme.text,
-                      fontWeight: isSelected ? typography.fontWeight.bold : typography.fontWeight.medium
-                    }
-                  ]}
-                >
-                  {opt.label}
-                </Text>
-                <Text style={[styles.segmentDesc, { color: theme.textSecondary }]}>
-                  {opt.desc}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      </Card>
+      {/* Selector de Apariencia Unificado */}
+      <View style={styles.sectionMargin}>
+        <AppearanceSelector wrapInCard />
+      </View>
 
       {/* Sesión Actual */}
       <Card elevated style={styles.card} padding="lg">
@@ -110,8 +82,10 @@ export const SettingsScreen = () => {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    padding: Platform.OS === 'web' ? spacing.xl : spacing.md
+    flex: 1
+  },
+  sectionMargin: {
+    marginBottom: spacing.lg
   },
   card: {
     marginBottom: spacing.lg
@@ -121,67 +95,37 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.bold,
     letterSpacing: -0.2
   },
-  cardSubtitle: {
-    fontSize: typography.fontSize.xs,
-    marginTop: 2,
-    marginBottom: spacing.md
-  },
-  segmentContainer: {
-    gap: spacing.sm
-  },
-  segmentButton: {
-    padding: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: 1
-  },
-  segmentTitle: {
-    fontSize: typography.fontSize.sm,
-    marginBottom: 2
-  },
-  segmentDesc: {
-    fontSize: typography.fontSize.xs
-  },
   profileRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: spacing.xs
+    marginVertical: spacing.md
   },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: radii.md,
+    width: 48,
+    height: 48,
+    borderRadius: radii.full,
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: spacing.md
   },
   avatarText: {
-    fontSize: typography.fontSize.lg,
+    fontSize: typography.fontSize.md,
     fontWeight: typography.fontWeight.bold
   },
   profileInfo: {
     flex: 1
   },
   profileName: {
-    fontSize: typography.fontSize.md,
-    fontWeight: typography.fontWeight.semibold
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold
   },
   profileEmail: {
     fontSize: typography.fontSize.xs,
-    marginTop: 1
+    marginTop: 2
   },
   divider: {
     height: 1,
     marginVertical: spacing.md
-  },
-  infoTitle: {
-    fontSize: typography.fontSize.tiny,
-    fontWeight: typography.fontWeight.bold,
-    letterSpacing: 0.8,
-    marginBottom: 2
-  },
-  infoText: {
-    fontSize: typography.fontSize.xs,
-    lineHeight: 16
   }
 });

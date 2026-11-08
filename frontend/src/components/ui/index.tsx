@@ -11,3 +11,4 @@ export * from './ModalWrapper';
 export * from './DateInput';
 export * from './InsuranceSelector';
 export * from './SocialAuthButtons';
+export * from './AppearanceSelector';

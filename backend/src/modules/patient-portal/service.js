@@ -60,7 +60,7 @@ export class PatientPortalService {
              u.name as kinesiologist_name, u.last_name as kinesiologist_last_name
       FROM appointments a
       JOIN services s ON a.service_id = s.id
-      JOIN users u ON a.kinesiologist_id = u.id
+      LEFT JOIN users u ON a.kinesiologist_id = u.id
       WHERE a.patient_id = ?
         AND a.start_time >= NOW()
         AND a.status IN ('pending', 'confirmed')
@@ -123,7 +123,7 @@ export class PatientPortalService {
              u.name as kinesiologist_name, u.last_name as kinesiologist_last_name
       FROM appointments a
       JOIN services s ON a.service_id = s.id
-      JOIN users u ON a.kinesiologist_id = u.id
+      LEFT JOIN users u ON a.kinesiologist_id = u.id
       WHERE ${conditions.join(' AND ')}
       ORDER BY a.start_time DESC
       LIMIT 50
@@ -178,8 +178,8 @@ export class PatientPortalService {
       ? date
       : this._formatLocalDateTime(new Date(Date.now() + 86400000)).slice(0, 10);
 
-    // No ofrecer horarios en fechas pasadas, posteriores a 14 días, fines de semana ni feriados cerrados
-    const dateEvaluation = await holidayService.evaluateDate(targetDate, { enforceWindow: true });
+    // No ofrecer horarios en fechas pasadas, posteriores a 14 días, fines de semana ni feriados cerrados ni vacaciones del profesional
+    const dateEvaluation = await holidayService.evaluateDate(targetDate, { enforceWindow: true, kinesiologistId });
     if (!dateEvaluation.available) {
       return [];
     }
@@ -248,6 +248,13 @@ export class PatientPortalService {
 
     // Validar fecha hábil, feriados y límite de 14 días corridos
     await holidayService.validateAppointmentDate(startTime);
+
+    if (kinesiologistId) {
+      const onVacation = await holidayService.isKinesiologistOnVacation(kinesiologistId, startTime.slice(0, 10));
+      if (onVacation) {
+        throw new ConflictError('El profesional seleccionado se encuentra de vacaciones en la fecha seleccionada');
+      }
+    }
 
     const duration = service.duration_minutes || 45;
     const startD = new Date(startTime.replace(' ', 'T'));

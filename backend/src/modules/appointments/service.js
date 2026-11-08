@@ -9,11 +9,25 @@ import { servicesRepository } from '../services/repository.js';
 import { patientsRepository } from '../patients/repository.js';
 import { notificationsService } from '../notifications/service.js';
 import { holidayService } from '../../services/holidayService.js';
-import { NotFoundError } from '../../utils/errors.js';
+import { vacationsService } from '../vacations/service.js';
+import { NotFoundError, ConflictError } from '../../utils/errors.js';
 import { logAudit } from '../../utils/auditLogger.js';
 
 export class AppointmentsService {
-  async search(filters) {
+  async search(filters, currentUser) {
+    const role = currentUser?.role || currentUser?.role_name;
+
+    // RBAC: Si el usuario es Kinesiólogo, forzar que solo consulte sus propios turnos asignados
+    if (role === 'kinesiologist' || role === 'kinesiologo') {
+      filters.kinesiologistId = currentUser.id;
+    } else if (role === 'admin' || role === 'receptionist' || role === 'recepcionista') {
+      // El Administrador y Recepcionista pueden consultar turnos de todos los profesionales
+      // Si se envía 'all', se remueve la condición para devolver todos los turnos
+      if (filters.kinesiologistId === 'all') {
+        delete filters.kinesiologistId;
+      }
+    }
+
     return await appointmentsRepository.search(filters);
   }
 
@@ -26,6 +40,15 @@ export class AppointmentsService {
   }
 
   async create(data, currentUser) {
+    // Validar si el kinesiólogo seleccionado está de vacaciones en esa fecha
+    if (data.kinesiologistId) {
+      const dateStr = String(data.startTime).slice(0, 10);
+      const isAvailable = await vacationsService.isKinesiologistAvailableOnDate(data.kinesiologistId, dateStr);
+      if (!isAvailable) {
+        throw new ConflictError('El profesional seleccionado se encuentra de vacaciones en la fecha indicada');
+      }
+    }
+
     // Validar fecha hábil, feriados y límite de 14 días corridos
     await holidayService.validateAppointmentDate(data.startTime);
 
@@ -72,11 +95,22 @@ export class AppointmentsService {
   }
 
   async update(id, fields, currentUser) {
-    await this.getDetail(id);
+    const currentApp = await this.getDetail(id);
 
     // Si se modifica o reprograma la fecha/hora del turno, validar días no laborables y ventana de 14 días
     if (fields.startTime || fields.endTime) {
       await holidayService.validateAppointmentDate(fields.startTime || fields.endTime);
+    }
+
+    // Validar si el kinesiólogo asignado está de vacaciones en el horario nuevo
+    const targetKineId = fields.kinesiologistId !== undefined ? fields.kinesiologistId : currentApp.kinesiologist_id;
+    const targetTime = fields.startTime || currentApp.start_time;
+    if (targetKineId && targetTime) {
+      const dateStr = String(targetTime).slice(0, 10);
+      const isAvailable = await vacationsService.isKinesiologistAvailableOnDate(targetKineId, dateStr);
+      if (!isAvailable) {
+        throw new ConflictError('El profesional seleccionado se encuentra de vacaciones en la fecha indicada');
+      }
     }
 
     await appointmentsRepository.updateWithHistory(id, fields, currentUser.id);
@@ -190,6 +224,14 @@ export class AppointmentsService {
     const service = await servicesRepository.findById(serviceId);
     const durationMinutes = service ? (service.duration_minutes || 45) : 45;
     const targetDate = date || new Date().toISOString().slice(0, 10);
+
+    // Si el profesional está de vacaciones en esta fecha, no ofrecer disponibilidad
+    if (kinesiologistId) {
+      const isAvailable = await vacationsService.isKinesiologistAvailableOnDate(kinesiologistId, targetDate);
+      if (!isAvailable) {
+        return [];
+      }
+    }
 
     // No ofrecer horarios en fechas pasadas, posteriores a 14 días, fines de semana ni feriados cerrados
     const dateEvaluation = await holidayService.evaluateDate(targetDate, { enforceWindow: true });

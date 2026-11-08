@@ -23,6 +23,7 @@ import { useAuth } from '../context/AuthContext';
 import { useDataSync } from '../context/DataSyncContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { spacing, radii, typography } from '../theme/tokens';
+import { useResponsive } from '../theme/useResponsive';
 import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper, DateInput, InsuranceSelector } from '../components/ui';
 import { LoadingState, ErrorState, EmptyState } from '../components/FeedbackStates';
 import { PatientRoutinesModal } from '../components/treatments/PatientRoutinesModal';
@@ -77,6 +78,7 @@ const SPECIALTY_SUGGESTIONS = [
 
 export const PatientsScreen = () => {
   const { theme } = useAppTheme();
+  const { isPhone, isSmallPhone, isDesktop, contentMaxWidth } = useResponsive();
   const { isAdmin, isReceptionist } = useAuth();
   const { scopeVersions } = useDataSync();
   const [patients, setPatients] = useState<any[]>([]);
@@ -538,7 +540,18 @@ export const PatientsScreen = () => {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: theme.background,
+          paddingHorizontal: isSmallPhone ? spacing.sm : isPhone ? spacing.md : spacing.xl,
+          maxWidth: contentMaxWidth,
+          width: '100%',
+          alignSelf: 'center'
+        }
+      ]}
+    >
       <ScreenHeader
         title={isAdmin ? 'Personas' : 'Pacientes'}
         action={
@@ -755,7 +768,6 @@ export const PatientsScreen = () => {
                     variant="primary"
                     size="sm"
                     onPress={() => handleOpenRoutinesModal(item)}
-                    style={{ marginRight: spacing.sm }}
                   />
                 )}
                 <Button
@@ -913,7 +925,7 @@ export const PatientsScreen = () => {
           /* FORMULARIO 1: PACIENTE                     */
           /* ========================================== */
           <>
-            <View style={styles.formRow}>
+            <View style={[styles.formRow, isPhone && styles.formRowPhone]}>
               <View style={styles.formCol}>
                 <Controller
                   control={patientControl}
@@ -950,7 +962,7 @@ export const PatientsScreen = () => {
               </View>
             </View>
 
-            <View style={styles.formRow}>
+            <View style={[styles.formRow, isPhone && styles.formRowPhone]}>
               <View style={styles.formCol}>
                 <Controller
                   control={patientControl}
@@ -987,7 +999,7 @@ export const PatientsScreen = () => {
               </View>
             </View>
 
-            <View style={styles.formRow}>
+            <View style={[styles.formRow, isPhone && styles.formRowPhone]}>
               <View style={styles.formCol}>
                 <Controller
                   control={patientControl}
@@ -1083,7 +1095,7 @@ export const PatientsScreen = () => {
           /* FORMULARIO 2: KINESIÓLOGO                  */
           /* ========================================== */
           <>
-            <View style={styles.formRow}>
+            <View style={[styles.formRow, isPhone && styles.formRowPhone]}>
               <View style={styles.formCol}>
                 <Controller
                   control={kineControl}
@@ -1120,7 +1132,7 @@ export const PatientsScreen = () => {
               </View>
             </View>
 
-            <View style={styles.formRow}>
+            <View style={[styles.formRow, isPhone && styles.formRowPhone]}>
               <View style={styles.formCol}>
                 <Controller
                   control={kineControl}
@@ -1196,7 +1208,7 @@ export const PatientsScreen = () => {
               })}
             </ScrollView>
 
-            <View style={styles.formRow}>
+            <View style={[styles.formRow, isPhone && styles.formRowPhone]}>
               <View style={styles.formCol}>
                 <Controller
                   control={kineControl}
@@ -1236,7 +1248,7 @@ export const PatientsScreen = () => {
               </View>
             </View>
 
-            <View style={styles.formRow}>
+            <View style={[styles.formRow, isPhone && styles.formRowPhone]}>
               <View style={styles.formCol}>
                 <Controller
                   control={kineControl}
@@ -1542,6 +1554,8 @@ const styles = StyleSheet.create({
   },
   cardActionRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
     justifyContent: 'flex-end',
     paddingTop: spacing.sm,
     marginTop: spacing.sm,
@@ -1572,6 +1586,10 @@ const styles = StyleSheet.create({
   formRow: {
     flexDirection: 'row',
     gap: spacing.md
+  },
+  formRowPhone: {
+    flexDirection: 'column',
+    gap: 0
   },
   formCol: {
     flex: 1

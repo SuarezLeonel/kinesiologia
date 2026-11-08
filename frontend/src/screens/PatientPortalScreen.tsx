@@ -21,7 +21,8 @@ import { useAuth } from '../context/AuthContext';
 import { useDataSync } from '../context/DataSyncContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { spacing, radii, typography } from '../theme/tokens';
-import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper, DateInput } from '../components/ui';
+import { useResponsive } from '../theme/useResponsive';
+import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper, DateInput, AppearanceSelector } from '../components/ui';
 import { LoadingState, ErrorState, EmptyState } from '../components/FeedbackStates';
 import {
   fetchBookingCalendarAvailability,
@@ -84,6 +85,7 @@ const buildFallbackSlots = (dateStr: string, durationMinutes = 45) => {
 export const PatientPortalScreen: React.FC = () => {
   const { user, logout } = useAuth();
   const { theme } = useAppTheme();
+  const { isPhone, isSmallPhone, isDesktop, contentMaxWidth } = useResponsive();
   const { scopeVersions } = useDataSync();
   const insets = useSafeAreaInsets();
 
@@ -653,7 +655,7 @@ export const PatientPortalScreen: React.FC = () => {
 
       {/* Contenido principal según pestaña */}
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, isSmallPhone && { paddingHorizontal: spacing.sm }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} tintColor={theme.primary} />}
       >
         {/* ========================================== */}
@@ -775,7 +777,9 @@ export const PatientPortalScreen: React.FC = () => {
                     <View style={styles.detailItem}>
                       <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Profesional</Text>
                       <Text style={[styles.detailValue, { color: theme.text }]}>
-                        Lic. {nextAppt.kinesiologist_last_name}, {nextAppt.kinesiologist_name}
+                        {nextAppt.kinesiologist_last_name
+                          ? `Lic. ${nextAppt.kinesiologist_last_name}${nextAppt.kinesiologist_name ? `, ${nextAppt.kinesiologist_name}` : ''}`
+                          : 'Sin asignar'}
                       </Text>
                     </View>
                     <View style={styles.detailItem}>
@@ -1365,7 +1369,9 @@ export const PatientPortalScreen: React.FC = () => {
                           <View style={{ flex: 1 }}>
                             <Text style={[styles.apptService, { color: theme.text }]}>{appt.service_name}</Text>
                             <Text style={[styles.apptKine, { color: theme.textSecondary }]}>
-                              Profesional: Lic. {appt.kinesiologist_last_name}, {appt.kinesiologist_name}
+                              Profesional: {appt.kinesiologist_last_name
+                                ? `Lic. ${appt.kinesiologist_last_name}${appt.kinesiologist_name ? `, ${appt.kinesiologist_name}` : ''}`
+                                : 'Sin asignar'}
                             </Text>
                           </View>
                           <Badge
@@ -1428,7 +1434,9 @@ export const PatientPortalScreen: React.FC = () => {
                           <View style={{ flex: 1 }}>
                             <Text style={[styles.apptService, { color: theme.text }]}>{appt.service_name}</Text>
                             <Text style={[styles.apptKine, { color: theme.textSecondary }]}>
-                              Profesional: Lic. {appt.kinesiologist_last_name}, {appt.kinesiologist_name}
+                              Profesional: {appt.kinesiologist_last_name
+                                ? `Lic. ${appt.kinesiologist_last_name}${appt.kinesiologist_name ? `, ${appt.kinesiologist_name}` : ''}`
+                                : 'Sin asignar'}
                             </Text>
                           </View>
                           <Badge
@@ -1595,6 +1603,11 @@ export const PatientPortalScreen: React.FC = () => {
                 style={{ marginTop: spacing.sm }}
               />
             </Card>
+
+            {/* Selector de Apariencia para el Paciente */}
+            <View style={{ marginTop: spacing.lg }}>
+              <AppearanceSelector wrapInCard />
+            </View>
 
             <Card elevated style={[styles.profileCard, { marginTop: spacing.lg }]} padding="lg">
               <Text style={[styles.cardTitle, { color: theme.text, marginBottom: spacing.sm }]}>Tu cuenta</Text>
@@ -2274,21 +2287,21 @@ const styles = StyleSheet.create({
   },
   tabItem: {
     flex: 1,
-    minWidth: 96,
-    minHeight: 56,
-    paddingVertical: spacing.sm + 2,
-    paddingHorizontal: spacing.xs,
+    minWidth: 58,
+    minHeight: 52,
+    paddingVertical: spacing.xs + 2,
+    paddingHorizontal: 2,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4
+    gap: 2
   },
   tabLabel: {
-    fontSize: typography.fontSize.sm,
+    fontSize: 12,
     fontWeight: typography.fontWeight.bold
   },
   scrollContent: {
-    padding: spacing.lg,
-    maxWidth: 820,
+    padding: spacing.md,
+    maxWidth: 960,
     alignSelf: 'center',
     width: '100%'
   },

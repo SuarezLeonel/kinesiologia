@@ -11,10 +11,13 @@ import {
   StyleSheet,
   ScrollView,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  useWindowDimensions
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppTheme } from '../../theme/ThemeContext';
 import { spacing, radii, typography, shadows } from '../../theme/tokens';
+import { useResponsive } from '../../theme/useResponsive';
 
 interface ModalWrapperProps {
   visible: boolean;
@@ -25,6 +28,7 @@ interface ModalWrapperProps {
   footer?: React.ReactNode;
   maxWidth?: number;
   subHeader?: React.ReactNode;
+  fullScreenOnMobile?: boolean;
 }
 
 export const ModalWrapper: React.FC<ModalWrapperProps> = ({
@@ -34,52 +38,106 @@ export const ModalWrapper: React.FC<ModalWrapperProps> = ({
   subtitle,
   children,
   footer,
-  maxWidth = 520,
-  subHeader
+  maxWidth = 540,
+  subHeader,
+  fullScreenOnMobile = true
 }) => {
   const { theme } = useAppTheme();
+  const { isPhone, isSmallPhone, width, height } = useResponsive();
+  const insets = useSafeAreaInsets();
+
+  const isFullScreen = isPhone && fullScreenOnMobile;
 
   return (
     <Modal
       visible={visible}
-      animationType="fade"
-      transparent
+      animationType={isFullScreen ? 'slide' : 'fade'}
+      transparent={!isFullScreen}
       onRequestClose={onClose}
     >
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.backdrop}
+        style={[
+          styles.backdrop,
+          isFullScreen && {
+            padding: 0,
+            backgroundColor: theme.background,
+            justifyContent: 'flex-start'
+          }
+        ]}
       >
-        <TouchableOpacity
-          style={StyleSheet.absoluteFill}
-          activeOpacity={1}
-          onPress={onClose}
-        />
+        {!isFullScreen && (
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={onClose}
+          />
+        )}
 
         <View
           style={[
             styles.container,
             {
               backgroundColor: theme.surfaceElevated,
-              borderColor: theme.border,
-              maxWidth
+              borderColor: theme.border
             },
-            shadows.modal
+            isFullScreen
+              ? {
+                  width: '100%',
+                  height: '100%',
+                  maxHeight: '100%',
+                  borderRadius: 0,
+                  borderWidth: 0,
+                  paddingTop: Math.max(insets.top, 16),
+                  paddingBottom: Math.max(insets.bottom, 12)
+                }
+              : {
+                  maxWidth: Math.min(maxWidth, width - 32),
+                  borderRadius: radii.xl,
+                  borderWidth: 1
+                },
+            !isFullScreen && shadows.modal
           ]}
         >
-          {/* Header */}
-          <View style={[styles.header, { borderBottomColor: theme.border }]}>
+          {/* Header Responsivo */}
+          <View
+            style={[
+              styles.header,
+              { borderBottomColor: theme.border },
+              isSmallPhone && { paddingHorizontal: spacing.sm, paddingVertical: spacing.sm }
+            ]}
+          >
             <View style={styles.headerTitles}>
-              <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
+              <Text
+                style={[
+                  styles.title,
+                  { color: theme.text },
+                  isSmallPhone && { fontSize: typography.fontSize.lg }
+                ]}
+                numberOfLines={2}
+              >
+                {title}
+              </Text>
               {subtitle && (
-                <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+                <Text
+                  style={[
+                    styles.subtitle,
+                    { color: theme.textSecondary },
+                    isSmallPhone && { fontSize: typography.fontSize.xs, marginTop: 2 }
+                  ]}
+                  numberOfLines={2}
+                >
                   {subtitle}
                 </Text>
               )}
             </View>
             <TouchableOpacity
               onPress={onClose}
-              style={[styles.closeBtn, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
+              style={[
+                styles.closeBtn,
+                { backgroundColor: theme.surfaceSubtle, borderColor: theme.border },
+                isSmallPhone && { minHeight: 40, paddingHorizontal: spacing.sm }
+              ]}
               accessibilityRole="button"
               accessibilityLabel="Cerrar ventana"
             >
@@ -97,16 +155,25 @@ export const ModalWrapper: React.FC<ModalWrapperProps> = ({
           {/* Body */}
           <ScrollView
             style={styles.body}
-            contentContainerStyle={styles.bodyContent}
+            contentContainerStyle={[
+              styles.bodyContent,
+              isSmallPhone && { paddingHorizontal: spacing.sm, paddingVertical: spacing.sm }
+            ]}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
             {children}
           </ScrollView>
 
-          {/* Footer */}
+          {/* Footer Responsivo */}
           {footer && (
-            <View style={[styles.footer, { borderTopColor: theme.borderSubtle }]}>
+            <View
+              style={[
+                styles.footer,
+                { borderTopColor: theme.borderSubtle },
+                isSmallPhone && { paddingHorizontal: spacing.sm, paddingVertical: spacing.sm, gap: spacing.xs }
+              ]}
+            >
               {footer}
             </View>
           )}

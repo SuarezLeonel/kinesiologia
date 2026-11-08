@@ -18,11 +18,19 @@ import * as AuthSession from 'expo-auth-session';
 import { useAuth, SocialProvider, OAuthConfig } from '../../context/AuthContext';
 import { useAppTheme } from '../../theme/ThemeContext';
 import { spacing, radii, typography } from '../../theme/tokens';
+import { API_BASE_URL } from '../../api/config';
 import { ModalWrapper } from './ModalWrapper';
 import { Input } from './Input';
 import { Button } from './Button';
 import { DateInput } from './DateInput';
 import { InsuranceSelector } from './InsuranceSelector';
+
+// Credenciales públicas predeterminadas para los proveedores OAuth 2.0
+const DEFAULT_CLIENT_IDS = {
+  google: '653636979580-eof0rq8g7jp9u2jifs5nqmc498v1ka04.apps.googleusercontent.com',
+  github: 'Ov23lidJ8hmMaK5scQk8',
+  facebook: '2108740169848909'
+};
 
 // Inicializar el manejador de retorno para WebBrowser en popup sin interferir con la ventana principal
 if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -113,7 +121,7 @@ const markAuthCodeAsProcessed = (code: string) => {
   }
 };
 
-const CLOUD_OAUTH_BRIDGE = 'https://kinesiologia-backend.onrender.com/api/v1/auth/oauth/callback';
+const CLOUD_OAUTH_BRIDGE = `${API_BASE_URL}/auth/oauth/callback`;
 
 const encodeOAuthState = (returnUrl: string, clientState: string, provider: SocialProvider): string => {
   const payload = JSON.stringify({ returnUrl, appState: clientState, provider });
@@ -311,9 +319,9 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
 
     // Verificar si el proveedor tiene credenciales configuradas
     const isConfigured = Boolean(
-      (provider === 'google' && (oauthConfig?.google?.configured || process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID)) ||
-      (provider === 'github' && (oauthConfig?.github?.configured || process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID)) ||
-      (provider === 'facebook' && (oauthConfig?.facebook?.configured || process.env.EXPO_PUBLIC_FACEBOOK_APP_ID))
+      (provider === 'google' && (oauthConfig?.google?.configured || process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || DEFAULT_CLIENT_IDS.google)) ||
+      (provider === 'github' && (oauthConfig?.github?.configured || process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID || DEFAULT_CLIENT_IDS.github)) ||
+      (provider === 'facebook' && (oauthConfig?.facebook?.configured || process.env.EXPO_PUBLIC_FACEBOOK_APP_ID || DEFAULT_CLIENT_IDS.facebook))
     );
 
     if (!isConfigured) {
@@ -326,16 +334,14 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
 
     try {
       if (provider === 'google') {
-        const clientId = oauthConfig?.google?.clientId || process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || '';
+        const clientId = oauthConfig?.google?.clientId || process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || DEFAULT_CLIENT_IDS.google;
         const discovery = {
           authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
           tokenEndpoint: 'https://oauth2.googleapis.com/token'
         };
 
         const clientState = Math.random().toString(36).substring(2, 15);
-        const statePayload = !isWeb
-          ? encodeOAuthState(appReturnUrl, clientState, provider)
-          : clientState;
+        const statePayload = encodeOAuthState(appReturnUrl, clientState, provider);
 
         const authRequest = new AuthSession.AuthRequest({
           clientId,
@@ -370,16 +376,14 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
           });
         }
       } else if (provider === 'github') {
-        const clientId = oauthConfig?.github?.clientId || process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID || '';
+        const clientId = oauthConfig?.github?.clientId || process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID || DEFAULT_CLIENT_IDS.github;
         const discovery = {
           authorizationEndpoint: 'https://github.com/login/oauth/authorize',
           tokenEndpoint: 'https://github.com/login/oauth/access_token'
         };
 
         const clientState = Math.random().toString(36).substring(2, 15);
-        const statePayload = !isWeb
-          ? encodeOAuthState(appReturnUrl, clientState, provider)
-          : clientState;
+        const statePayload = encodeOAuthState(appReturnUrl, clientState, provider);
 
         const authRequest = new AuthSession.AuthRequest({
           clientId,
@@ -413,16 +417,14 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
           }
         }
       } else if (provider === 'facebook') {
-        const appId = oauthConfig?.facebook?.appId || process.env.EXPO_PUBLIC_FACEBOOK_APP_ID || '';
+        const appId = oauthConfig?.facebook?.appId || process.env.EXPO_PUBLIC_FACEBOOK_APP_ID || DEFAULT_CLIENT_IDS.facebook;
         const discovery = {
           authorizationEndpoint: 'https://www.facebook.com/v19.0/dialog/oauth',
           tokenEndpoint: 'https://graph.facebook.com/v19.0/oauth/access_token'
         };
 
         const clientState = Math.random().toString(36).substring(2, 15);
-        const statePayload = !isWeb
-          ? encodeOAuthState(appReturnUrl, clientState, provider)
-          : clientState;
+        const statePayload = encodeOAuthState(appReturnUrl, clientState, provider);
 
         const authRequest = new AuthSession.AuthRequest({
           clientId: appId,
@@ -1068,7 +1070,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 10,
-    paddingHorizontal: 48,
+    paddingLeft: 44,
+    paddingRight: 16,
     position: 'relative',
     marginBottom: 12
   },
