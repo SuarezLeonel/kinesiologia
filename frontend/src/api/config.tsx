@@ -1,5 +1,5 @@
 /**
- * @file config.ts
+ * @file config.tsx
  * @description Configuración de URLs y rutas de la API para el frontend móvil y web.
  */
 import Constants from 'expo-constants';

@@ -10,13 +10,13 @@ import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 
 export const LoadingState: React.FC<{ message?: string; style?: StyleProp<ViewStyle> }> = ({
-  message = 'Cargando información...',
+  message = 'Cargando...',
   style
 }) => {
   const { theme } = useAppTheme();
   return (
     <View style={[styles.center, { backgroundColor: theme.background }, style]}>
-      <ActivityIndicator size="small" color={theme.primary} />
+      <ActivityIndicator size="large" color={theme.primary} />
       <Text style={[styles.loadingText, { color: theme.textSecondary }]}>{message}</Text>
     </View>
   );
@@ -35,19 +35,18 @@ export const ErrorState: React.FC<{
           styles.errorBox,
           {
             backgroundColor: theme.errorBg,
-            borderColor: theme.error + '30'
+            borderColor: theme.error
           }
         ]}
       >
-        <Badge label="Error del sistema" variant="error" size="sm" />
-        <Text style={[styles.errorTitle, { color: theme.error }]}>No se pudo completar la operación</Text>
+        <Text style={[styles.errorTitle, { color: theme.error }]}>No se pudo completar la acción</Text>
         <Text style={[styles.errorDescription, { color: theme.text }]}>{message}</Text>
         {onRetry && (
           <Button
-            title="Reintentar operación"
+            title="Reintentar"
             onPress={onRetry}
             variant="outline"
-            size="sm"
+            size="md"
             style={{ marginTop: spacing.md, alignSelf: 'flex-start' }}
           />
         )}
@@ -64,7 +63,7 @@ export const EmptyState: React.FC<{
 }> = ({ title, subtitle, action, style }) => {
   const { theme } = useAppTheme();
   return (
-    <View style={[styles.emptyContainer, { borderColor: theme.borderSubtle }, style]}>
+    <View style={[styles.emptyContainer, { borderColor: theme.border, backgroundColor: theme.surface }, style]}>
       <Text style={[styles.emptyTitle, { color: theme.text }]}>{title}</Text>
       {subtitle && (
         <Text style={[styles.emptySubtitle, { color: theme.textSecondary }]}>{subtitle}</Text>
@@ -73,9 +72,9 @@ export const EmptyState: React.FC<{
         <Button
           title={action.label}
           onPress={action.onPress}
-          variant="secondary"
-          size="sm"
-          style={{ marginTop: spacing.md }}
+          variant="primary"
+          size="md"
+          style={{ marginTop: spacing.lg }}
         />
       )}
     </View>
@@ -95,12 +94,12 @@ export const AccessDeniedState: React.FC<{ style?: StyleProp<ViewStyle> }> = ({ 
           }
         ]}
       >
-        <Badge label="Acceso Restringido" variant="warning" size="sm" />
+        <Badge label="Acceso restringido" variant="warning" size="md" />
         <Text style={[styles.deniedTitle, { color: theme.text }]}>
-          Sección no disponible para tu rol
+          Sin permisos
         </Text>
         <Text style={[styles.deniedDescription, { color: theme.textSecondary }]}>
-          Los permisos asignados a tu cuenta no permiten consultar ni modificar esta sección médica o administrativa.
+          No tenés permisos para acceder a esta sección.
         </Text>
       </View>
     </View>
@@ -115,54 +114,56 @@ const styles = StyleSheet.create({
     padding: spacing.xl
   },
   loadingText: {
-    fontSize: typography.fontSize.sm,
+    fontSize: typography.fontSize.md,
     marginTop: spacing.md,
     fontWeight: typography.fontWeight.medium
   },
   errorBox: {
     width: '100%',
-    maxWidth: 480,
+    maxWidth: 520,
     padding: spacing.xl,
     borderRadius: radii.lg,
-    borderWidth: 1
+    borderWidth: 1.5
   },
   errorTitle: {
-    fontSize: typography.fontSize.md,
+    fontSize: typography.fontSize.lg,
     fontWeight: typography.fontWeight.bold,
-    marginTop: spacing.sm,
+    marginTop: spacing.xs,
     marginBottom: spacing.xs
   },
   errorDescription: {
-    fontSize: typography.fontSize.sm,
-    lineHeight: typography.fontSize.sm * typography.lineHeight.relaxed
+    fontSize: typography.fontSize.md,
+    lineHeight: typography.fontSize.md * typography.lineHeight.relaxed
   },
   emptyContainer: {
     paddingVertical: spacing.huge,
     paddingHorizontal: spacing.xl,
     borderRadius: radii.lg,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
     marginVertical: spacing.md
   },
   emptyTitle: {
-    fontSize: typography.fontSize.md,
-    fontWeight: typography.fontWeight.semibold
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
+    textAlign: 'center'
   },
   emptySubtitle: {
-    fontSize: typography.fontSize.sm,
+    fontSize: typography.fontSize.md,
+    lineHeight: typography.fontSize.md * typography.lineHeight.normal,
     marginTop: spacing.xs,
     textAlign: 'center'
   },
   deniedTitle: {
-    fontSize: typography.fontSize.md,
+    fontSize: typography.fontSize.lg,
     fontWeight: typography.fontWeight.bold,
     marginTop: spacing.sm,
     marginBottom: spacing.xs
   },
   deniedDescription: {
-    fontSize: typography.fontSize.sm,
-    lineHeight: typography.fontSize.sm * typography.lineHeight.relaxed
+    fontSize: typography.fontSize.md,
+    lineHeight: typography.fontSize.md * typography.lineHeight.relaxed
   }
 });

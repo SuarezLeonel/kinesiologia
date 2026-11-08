@@ -26,8 +26,8 @@ import { spacing, radii } from '../theme/tokens';
 import { SocialAuthButtons } from '../components/ui';
 
 const loginSchema = z.object({
-  email: z.string().email('Ingrese un correo electrónico válido'),
-  password: z.string().min(1, 'La contraseña es requerida')
+  email: z.string().email('Ingresá un correo válido'),
+  password: z.string().min(1, 'Completá este campo.')
 });
 
 type LoginFormData = z.infer<typeof loginSchema>;
@@ -98,16 +98,13 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             Kinesio<Text style={styles.brandTitleAccent}>Gestión</Text>
           </Text>
           <Text style={styles.brandSubtitle}>
-            Sistema Integral para Consultorio y Fisioterapia
+            Consultorio de Kinesiología
           </Text>
         </View>
 
         {/* Tarjeta de Autenticación Principal */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Iniciar sesión</Text>
-          <Text style={styles.cardSubtitle}>
-            Ingrese sus credenciales profesionales para acceder
-          </Text>
+          <Text style={[styles.cardTitle, { marginBottom: 16 }]}>Iniciar sesión</Text>
 
           {serverError && (
             <View style={[styles.errorBanner, Boolean(unverifiedEmail) && styles.unverifiedBanner]}>
@@ -139,8 +136,8 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             >
               <MaterialIcons
                 name="mail-outline"
-                size={18}
-                color={emailFocused ? '#58B988' : '#60796C'}
+                size={22}
+                color={emailFocused ? '#6CE0A6' : '#94ADA0'}
                 style={styles.inputLeftIcon}
               />
               <Controller
@@ -149,8 +146,8 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                 render={({ field: { onChange, onBlur, value } }) => (
                   <TextInput
                     style={styles.textInputField}
-                    placeholder="tu@correo.com"
-                    placeholderTextColor="#4D6357"
+                    placeholder="ejemplo@correo.com"
+                    placeholderTextColor="#8FA89B"
                     value={value}
                     onChangeText={onChange}
                     onFocus={() => setEmailFocused(true)}
@@ -161,6 +158,7 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                     autoCapitalize="none"
                     keyboardType="email-address"
                     autoComplete="email"
+                    accessibilityLabel="Correo electrónico"
                   />
                 )}
               />
@@ -184,8 +182,8 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             >
               <MaterialIcons
                 name="lock-outline"
-                size={18}
-                color={passFocused ? '#58B988' : '#60796C'}
+                size={22}
+                color={passFocused ? '#6CE0A6' : '#94ADA0'}
                 style={styles.inputLeftIcon}
               />
               <Controller
@@ -194,8 +192,8 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                 render={({ field: { onChange, onBlur, value } }) => (
                   <TextInput
                     style={styles.textInputField}
-                    placeholder="Tu contraseña"
-                    placeholderTextColor="#4D6357"
+                    placeholder="Escribí tu contraseña"
+                    placeholderTextColor="#8FA89B"
                     value={value}
                     onChangeText={onChange}
                     onFocus={() => setPassFocused(true)}
@@ -205,6 +203,7 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                     }}
                     secureTextEntry={!showPassword}
                     autoCapitalize="none"
+                    accessibilityLabel="Contraseña"
                   />
                 )}
               />
@@ -212,12 +211,12 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                 onPress={() => setShowPassword(!showPassword)}
                 style={styles.eyeIconButton}
                 accessibilityRole="button"
-                accessibilityLabel={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+                accessibilityLabel={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
               >
                 <Ionicons
                   name={showPassword ? 'eye-outline' : 'eye-off-outline'}
-                  size={19}
-                  color="#6B8678"
+                  size={22}
+                  color="#A3BDB0"
                 />
               </TouchableOpacity>
             </View>
@@ -230,14 +229,15 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           <View style={styles.forgotPasswordContainer}>
             <TouchableOpacity
               onPress={() => navigation?.navigate('ForgotPassword')}
+              style={styles.forgotPasswordTouch}
               accessibilityRole="button"
               accessibilityLabel="Recuperar contraseña"
             >
-              <Text style={styles.forgotPasswordLink}>¿Olvidó su contraseña?</Text>
+              <Text style={styles.forgotPasswordLink}>¿Olvidaste tu contraseña?</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Botón Principal: Ingresar al sistema */}
+          {/* Botón Principal: Ingresar */}
           <TouchableOpacity
             activeOpacity={0.85}
             onPress={() => handleSubmit(onSubmit)()}
@@ -247,11 +247,11 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             accessibilityLabel="Ingresar al sistema"
           >
             {isSubmitting ? (
-              <ActivityIndicator size="small" color="#0E241A" />
+              <ActivityIndicator size="small" color="#0A1B12" />
             ) : (
               <>
-                <Text style={styles.submitButtonText}>Ingresar al sistema</Text>
-                <MaterialIcons name="arrow-forward" size={18} color="#0E241A" style={{ marginLeft: 6 }} />
+                <Text style={styles.submitButtonText}>Ingresar</Text>
+                <MaterialIcons name="arrow-forward" size={22} color="#0A1B12" style={{ marginLeft: 8 }} />
               </>
             )}
           </TouchableOpacity>
@@ -259,7 +259,7 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           {/* Separador 1: Cuentas Externas */}
           <View style={styles.dividerRow}>
             <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>O ingrese con una cuenta externa</Text>
+            <Text style={styles.dividerText}>o ingresá con</Text>
             <View style={styles.dividerLine} />
           </View>
 
@@ -269,7 +269,7 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           {/* Separador 2: Portal de Pacientes */}
           <View style={styles.dividerRow}>
             <View style={styles.dividerLine} />
-            <Text style={styles.patientPortalDividerText}>PORTAL DE PACIENTES</Text>
+            <Text style={styles.patientPortalDividerText}>¿SOS NUEVO PACIENTE?</Text>
             <View style={styles.dividerLine} />
           </View>
 
@@ -277,20 +277,13 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           <TouchableOpacity
             activeOpacity={0.85}
             onPress={() => navigation?.navigate('Register')}
-            style={styles.patientPortalButton}
+            style={[styles.patientPortalButton, { marginBottom: 0 }]}
             accessibilityRole="button"
-            accessibilityLabel="Crear cuenta de Paciente"
+            accessibilityLabel="Crear cuenta de paciente"
           >
-            <Ionicons name="person-outline" size={18} color="#58B988" style={{ marginRight: 8 }} />
-            <Text style={styles.patientPortalButtonText}>Crear cuenta de Paciente</Text>
+            <Ionicons name="person-add-outline" size={20} color="#6CE0A6" style={{ marginRight: 8 }} />
+            <Text style={styles.patientPortalButtonText}>Crear cuenta de paciente</Text>
           </TouchableOpacity>
-
-          {/* Pie de Pantalla */}
-          <View style={styles.footerContainer}>
-            <Text style={styles.footerNoteText}>
-              Acceso seguro con token cifrado y control de sesiones por rol.
-            </Text>
-          </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -353,15 +346,15 @@ const styles = StyleSheet.create({
   },
   brandContainer: {
     alignItems: 'center',
-    marginBottom: 16
+    marginBottom: 18
   },
   logoCard: {
-    width: 86,
-    height: 86,
+    width: 88,
+    height: 88,
     borderRadius: 22,
     backgroundColor: '#13281E',
     borderWidth: 1.5,
-    borderColor: '#224C39',
+    borderColor: '#2E5B45',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 14,
@@ -376,30 +369,30 @@ const styles = StyleSheet.create({
     height: 72
   },
   brandTitle: {
-    fontSize: 26,
+    fontSize: 30,
     fontWeight: '700',
     color: '#FFFFFF',
     letterSpacing: -0.3,
     textAlign: 'center'
   },
   brandTitleAccent: {
-    color: '#56B988'
+    color: '#6CE0A6'
   },
   brandSubtitle: {
-    fontSize: 13,
-    color: '#7E978A',
+    fontSize: 18,
+    color: '#B2C9BC',
     marginTop: 4,
     textAlign: 'center'
   },
   card: {
     width: '100%',
-    maxWidth: 420,
+    maxWidth: 460,
     backgroundColor: '#102019',
-    borderWidth: 1,
-    borderColor: '#1B3528',
+    borderWidth: 1.5,
+    borderColor: '#244535',
     borderRadius: 20,
-    paddingHorizontal: 22,
-    paddingVertical: 24,
+    paddingHorizontal: 24,
+    paddingVertical: 26,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.3,
@@ -407,80 +400,84 @@ const styles = StyleSheet.create({
     elevation: 6
   },
   cardTitle: {
-    fontSize: 22,
+    fontSize: 26,
     fontWeight: '700',
     color: '#FFFFFF',
-    marginBottom: 4
+    marginBottom: 6
   },
   cardSubtitle: {
-    fontSize: 13,
-    color: '#7E978A',
+    fontSize: 18,
+    color: '#B2C9BC',
     marginBottom: 20
   },
   errorBanner: {
     padding: spacing.md,
     borderRadius: radii.md,
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.4)',
+    backgroundColor: 'rgba(239, 68, 68, 0.18)',
+    borderWidth: 1.5,
+    borderColor: '#F87171',
     marginBottom: 16
   },
   errorBannerText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#EF4444'
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FCA5A5',
+    lineHeight: 22
   },
   unverifiedBanner: {
-    backgroundColor: 'rgba(217, 119, 6, 0.15)',
-    borderColor: 'rgba(217, 119, 6, 0.4)'
+    backgroundColor: 'rgba(217, 119, 6, 0.18)',
+    borderColor: '#FBBF24'
   },
   unverifiedBannerText: {
-    color: '#F59E0B'
+    color: '#FDE68A'
   },
   verifyAccountButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    minHeight: 46,
     backgroundColor: '#E6FFFA',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    marginTop: 10,
-    borderWidth: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    marginTop: 12,
+    borderWidth: 1.5,
     borderColor: '#99F6E4'
   },
   verifyAccountButtonText: {
-    color: '#0D9488',
-    fontSize: 12,
+    color: '#0F766E',
+    fontSize: 16,
     fontWeight: '700'
   },
   fieldGroup: {
-    marginBottom: 14
+    marginBottom: 16
   },
   fieldLabel: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#D0DED5',
-    marginBottom: 6
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#E6F0EA',
+    marginBottom: 8
   },
   requiredAsterisk: {
-    color: '#E05252'
+    color: '#F87171'
   },
   inputBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 48,
-    backgroundColor: '#15261F',
-    borderWidth: 1,
-    borderColor: '#1F382B',
-    borderRadius: 10,
-    paddingHorizontal: 12
+    minHeight: 52,
+    backgroundColor: '#152820',
+    borderWidth: 1.5,
+    borderColor: '#2E5240',
+    borderRadius: 12,
+    paddingHorizontal: 14
   },
   inputBoxFocused: {
-    borderColor: '#58B988'
+    borderColor: '#6CE0A6',
+    borderWidth: 2
   },
   inputBoxError: {
-    borderColor: '#EF4444'
+    borderColor: '#F87171',
+    borderWidth: 2
   },
   inputLeftIcon: {
     marginRight: 10
@@ -488,38 +485,46 @@ const styles = StyleSheet.create({
   textInputField: {
     flex: 1,
     color: '#FFFFFF',
-    fontSize: 14,
-    height: 48,
-    paddingVertical: 0
+    fontSize: 18,
+    minHeight: 52,
+    paddingVertical: 8
   },
   eyeIconButton: {
-    padding: 6,
+    minWidth: 44,
+    minHeight: 48,
     justifyContent: 'center',
     alignItems: 'center'
   },
   fieldErrorText: {
-    fontSize: 11,
-    color: '#EF4444',
-    marginTop: 4,
-    fontWeight: '500'
+    fontSize: 15,
+    color: '#FCA5A5',
+    marginTop: 6,
+    fontWeight: '600'
   },
   forgotPasswordContainer: {
     alignItems: 'flex-end',
     marginTop: 2,
-    marginBottom: 18
+    marginBottom: 16
+  },
+  forgotPasswordTouch: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 4
   },
   forgotPasswordLink: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#56B988'
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#6CE0A6'
   },
   submitButton: {
-    height: 50,
-    backgroundColor: '#72BA97',
-    borderRadius: 10,
+    minHeight: 54,
+    backgroundColor: '#6CE0A6',
+    borderRadius: 12,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
@@ -527,8 +532,8 @@ const styles = StyleSheet.create({
     elevation: 3
   },
   submitButtonText: {
-    color: '#0E241A',
-    fontSize: 15,
+    color: '#0A1B12',
+    fontSize: 18,
     fontWeight: '700'
   },
   dividerRow: {
@@ -539,44 +544,46 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#1B3326'
+    backgroundColor: '#244535'
   },
   dividerText: {
-    marginHorizontal: 10,
-    fontSize: 12,
-    color: '#657D70'
+    marginHorizontal: 12,
+    fontSize: 15,
+    color: '#9CB5A7'
   },
   patientPortalDividerText: {
-    marginHorizontal: 10,
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 0.8,
-    color: '#657D70'
+    marginHorizontal: 12,
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    color: '#9CB5A7'
   },
   patientPortalButton: {
-    height: 46,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#2B5742',
-    backgroundColor: 'transparent',
+    minHeight: 52,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#3A6B52',
+    backgroundColor: '#152A20',
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     marginBottom: 20
   },
   patientPortalButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#58B988'
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#6CE0A6'
   },
   footerContainer: {
     alignItems: 'center',
     paddingTop: 8
   },
   footerNoteText: {
-    fontSize: 11,
-    color: '#587063',
+    fontSize: 14,
+    color: '#8FA89B',
     textAlign: 'center',
-    lineHeight: 16
+    lineHeight: 20
   }
 });

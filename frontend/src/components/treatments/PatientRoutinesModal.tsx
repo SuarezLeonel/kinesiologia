@@ -14,9 +14,10 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { apiClient } from '../../api/client';
+import { useDataSync } from '../../context/DataSyncContext';
 import { useAppTheme } from '../../theme/ThemeContext';
 import { spacing, radii, typography } from '../../theme/tokens';
-import { Card, Badge, Button, Input, ModalWrapper, BadgeVariant } from '../ui';
+import { Card, Badge, Button, Input, DateInput, ModalWrapper, BadgeVariant } from '../ui';
 import { LoadingState, EmptyState } from '../FeedbackStates';
 
 export interface RoutineExerciseItem {
@@ -60,6 +61,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
   onSuccess
 }) => {
   const { theme } = useAppTheme();
+  const { scopeVersions } = useDataSync();
 
   // Estados de navegación interna
   const [viewMode, setViewMode] = useState<ViewMode>('view_plan');
@@ -113,6 +115,48 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
   const [sessionObservations, setSessionObservations] = useState('');
   const [sessionExercises, setSessionExercises] = useState<any[]>([]);
   const [savingSession, setSavingSession] = useState(false);
+
+  // Estados para Gestión Individual de Ejercicios dentro de una Rutina Existente
+  const [editingRoutineExercise, setEditingRoutineExercise] = useState<{
+    routineId: number;
+    routineExerciseId: number;
+    exerciseId: number;
+    name: string;
+    sets: string;
+    repetitions: string;
+    durationSeconds: string;
+    restSeconds: string;
+    weeklyFrequency: string;
+    bodySide: 'Bilateral' | 'Izquierdo' | 'Derecho' | 'No aplica';
+    resistanceLoad: string;
+    customInstructions: string;
+    executionOrder: string;
+  } | null>(null);
+  const [savingIndividualExercise, setSavingIndividualExercise] = useState(false);
+
+  const [confirmDeleteRoutineExercise, setConfirmDeleteRoutineExercise] = useState<{
+    routineId: number;
+    routineExerciseId: number;
+    name: string;
+  } | null>(null);
+  const [deletingExerciseId, setDeletingExerciseId] = useState<number | null>(null);
+
+  const [addingExerciseToRoutineId, setAddingExerciseToRoutineId] = useState<number | null>(null);
+  const [newRoutineExerciseDraft, setNewRoutineExerciseDraft] = useState<{
+    exerciseId: number | null;
+    name: string;
+    sets: string;
+    repetitions: string;
+    durationSeconds: string;
+    restSeconds: string;
+    weeklyFrequency: string;
+    bodySide: 'Bilateral' | 'Izquierdo' | 'Derecho' | 'No aplica';
+    resistanceLoad: string;
+    customInstructions: string;
+    executionOrder: string;
+  } | null>(null);
+  const [addingIndividualExercise, setAddingIndividualExercise] = useState(false);
+  const [reorderingExerciseId, setReorderingExerciseId] = useState<number | null>(null);
 
   // Cargar tratamientos del paciente
   const fetchPatientTreatments = useCallback(async () => {
@@ -215,19 +259,19 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
   }, [visible, patient?.id, fetchPatientTreatments]);
 
   useEffect(() => {
-    if (viewMode === 'edit_routine') {
+    if (viewMode === 'edit_routine' || addingExerciseToRoutineId !== null) {
       fetchCatalog();
     }
-  }, [viewMode, fetchCatalog]);
+  }, [viewMode, addingExerciseToRoutineId, fetchCatalog, scopeVersions.exercises]);
 
   // Debounce catálogo
   useEffect(() => {
-    if (viewMode !== 'edit_routine') return;
+    if (viewMode !== 'edit_routine' && addingExerciseToRoutineId === null) return;
     const t = setTimeout(() => {
       fetchCatalog();
     }, 200);
     return () => clearTimeout(t);
-  }, [catalogSearch, catalogZone, viewMode, fetchCatalog]);
+  }, [catalogSearch, catalogZone, viewMode, addingExerciseToRoutineId, fetchCatalog]);
 
   // Iniciar creación de nuevo plan
   const handleStartCreatePlan = () => {
@@ -257,7 +301,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
         startDate: new Date().toISOString().slice(0, 10)
       });
       if (res.data?.success) {
-        setSuccessMsg('Plan de tratamiento creado exitosamente.');
+        setSuccessMsg('Plan creado.');
         await fetchPatientTreatments();
         setViewMode('view_plan');
         if (onSuccess) onSuccess();
@@ -397,6 +441,8 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
     try {
       const payloadExercises = routineItems.map((item, idx) => ({
         exerciseId: item.exerciseId,
+        name: item.name?.trim() || undefined,
+        customName: item.name?.trim() || undefined,
         sets: Number(item.sets) || 3,
         repetitions: Number(item.repetitions) || 10,
         durationSeconds: item.durationSeconds ? Number(item.durationSeconds) : null,
@@ -421,7 +467,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
         });
 
         if (res.data?.success) {
-          setSuccessMsg('Rutina actualizada exitosamente con registro histórico auditable.');
+          setSuccessMsg('Cambios guardados.');
           await fetchTreatmentDetail(selectedTreatment.id);
           setViewMode('view_plan');
           if (onSuccess) onSuccess();
@@ -438,7 +484,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
         });
 
         if (res.data?.success) {
-          setSuccessMsg('Rutina terapéutica prescrita exitosamente.');
+          setSuccessMsg('Rutina guardada.');
           await fetchTreatmentDetail(selectedTreatment.id);
           setViewMode('view_plan');
           if (onSuccess) onSuccess();
@@ -545,7 +591,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
 
       const res = await apiClient.post('/treatments/sessions', payload);
       if (res.data?.success) {
-        setSuccessMsg(`Sesión #${sessionNumber} registrada exitosamente.`);
+        setSuccessMsg('Sesión registrada.');
         await fetchTreatmentDetail(selectedTreatment.id);
         await fetchTrackingData();
         setViewMode('tracking_evolution');
@@ -575,16 +621,309 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
   // Alternar estado de la rutina (ej. activar o finalizar)
   const handleToggleRoutineStatus = async (routine: any, targetStatus: 'active' | 'completed' | 'draft') => {
     try {
+      setRoutines((prev) =>
+        prev.map((r) => (r.id === routine.id ? { ...r, status: targetStatus } : r))
+      );
+      if (selectedRoutine && selectedRoutine.id === routine.id) {
+        setSelectedRoutine({ ...selectedRoutine, status: targetStatus });
+      }
       const res = await apiClient.post('/treatments/routines/status', {
         id: routine.id,
         status: targetStatus
       });
       if (res.data?.success) {
-        setSuccessMsg(`Rutina marcada como "${targetStatus}".`);
+        setSuccessMsg('Cambios guardados.');
         await fetchTreatmentDetail(selectedTreatment.id);
+        if (onSuccess) onSuccess();
       }
     } catch (err: any) {
       setErrorMsg(err.response?.data?.error?.message || 'Error al cambiar estado de la rutina');
+    }
+  };
+
+  // Sincronizar en memoria la rutina actualizada sin recargar la página
+  const syncRoutineInState = (updatedRoutine: any) => {
+    if (!updatedRoutine?.id) return;
+    setSelectedRoutine(updatedRoutine);
+    const exCount = Array.isArray(updatedRoutine.exercises) ? updatedRoutine.exercises.length : 0;
+    setRoutines((prev) =>
+      prev.map((r) =>
+        r.id === updatedRoutine.id
+          ? {
+              ...r,
+              ...updatedRoutine,
+              exercises_count: exCount
+            }
+          : r
+      )
+    );
+  };
+
+  // 1. Iniciar edición individual de un ejercicio dentro de una rutina existente
+  const handleStartEditIndividualExercise = (routineId: number, ex: any) => {
+    setErrorMsg(null);
+    setConfirmDeleteRoutineExercise(null);
+    setAddingExerciseToRoutineId(null);
+    setEditingRoutineExercise({
+      routineId,
+      routineExerciseId: ex.id,
+      exerciseId: ex.exercise_id || ex.exerciseId,
+      name: ex.exercise_name || ex.name || '',
+      sets: String(ex.sets ?? 3),
+      repetitions: String(ex.repetitions ?? 10),
+      durationSeconds: ex.duration_seconds !== null && ex.duration_seconds !== undefined ? String(ex.duration_seconds) : '',
+      restSeconds: String(ex.rest_seconds ?? 60),
+      weeklyFrequency: ex.weekly_frequency || '3 veces por semana',
+      bodySide: ex.body_side || 'Bilateral',
+      resistanceLoad: ex.resistance_load || '',
+      customInstructions: ex.custom_instructions || '',
+      executionOrder: String(ex.execution_order ?? 1)
+    });
+  };
+
+  const handleSaveIndividualExercise = async () => {
+    if (!editingRoutineExercise) return;
+    const { routineId, routineExerciseId } = editingRoutineExercise;
+
+    const trimmedName = editingRoutineExercise.name.trim();
+    if (trimmedName.length < 2) {
+      setErrorMsg('El nombre del ejercicio debe tener al menos 2 caracteres.');
+      return;
+    }
+    const setsNum = Number(editingRoutineExercise.sets);
+    if (!Number.isInteger(setsNum) || setsNum <= 0) {
+      setErrorMsg('Las series deben ser un número mayor a 0.');
+      return;
+    }
+    const repsNum = Number(editingRoutineExercise.repetitions);
+    if (!Number.isInteger(repsNum) || repsNum <= 0) {
+      setErrorMsg('Las repeticiones deben ser un número mayor a 0.');
+      return;
+    }
+    const restNum = Number(editingRoutineExercise.restSeconds || 0);
+    if (!Number.isInteger(restNum) || restNum < 0) {
+      setErrorMsg('El descanso debe ser 0 o mayor.');
+      return;
+    }
+    const durStr = editingRoutineExercise.durationSeconds.trim();
+    const durNum = durStr ? Number(durStr) : null;
+    if (durNum !== null && (!Number.isInteger(durNum) || durNum <= 0)) {
+      setErrorMsg('El tiempo de ejecución debe ser mayor a 0 segundos.');
+      return;
+    }
+    const orderNum = Number(editingRoutineExercise.executionOrder || 1);
+
+    setSavingIndividualExercise(true);
+    setErrorMsg(null);
+    try {
+      const res = await apiClient.patch(
+        `/treatments/routines/${routineId}/exercises/${routineExerciseId}`,
+        {
+          routineId,
+          routineExerciseId,
+          name: trimmedName,
+          customName: trimmedName,
+          sets: setsNum,
+          repetitions: repsNum,
+          durationSeconds: durNum,
+          restSeconds: restNum,
+          weeklyFrequency: editingRoutineExercise.weeklyFrequency.trim() || '3 veces por semana',
+          bodySide: editingRoutineExercise.bodySide,
+          resistanceLoad: editingRoutineExercise.resistanceLoad.trim() || null,
+          customInstructions: editingRoutineExercise.customInstructions.trim() || null,
+          executionOrder: Number.isInteger(orderNum) && orderNum > 0 ? orderNum : undefined
+        }
+      );
+
+      if (res.data?.success && res.data?.data) {
+        syncRoutineInState(res.data.data);
+        setEditingRoutineExercise(null);
+        setSuccessMsg('Cambios guardados.');
+        if (onSuccess) onSuccess();
+      }
+    } catch (err: any) {
+      setErrorMsg(err.response?.data?.error?.message || 'Error al actualizar el ejercicio');
+    } finally {
+      setSavingIndividualExercise(false);
+    }
+  };
+
+  // 2. Eliminar un ejercicio individual con confirmación previa
+  const handleConfirmDeleteIndividualExercise = async () => {
+    if (!confirmDeleteRoutineExercise) return;
+    const { routineId, routineExerciseId } = confirmDeleteRoutineExercise;
+
+    setDeletingExerciseId(routineExerciseId);
+    setErrorMsg(null);
+    try {
+      const res = await apiClient.delete(
+        `/treatments/routines/${routineId}/exercises/${routineExerciseId}`,
+        {
+          data: { routineId, routineExerciseId }
+        }
+      );
+
+      if (res.data?.success && res.data?.data) {
+        syncRoutineInState(res.data.data);
+        setConfirmDeleteRoutineExercise(null);
+        if (editingRoutineExercise?.routineExerciseId === routineExerciseId) {
+          setEditingRoutineExercise(null);
+        }
+        setSuccessMsg('Ejercicio eliminado.');
+        if (onSuccess) onSuccess();
+      }
+    } catch (err: any) {
+      setErrorMsg(err.response?.data?.error?.message || 'Error al eliminar el ejercicio');
+    } finally {
+      setDeletingExerciseId(null);
+    }
+  };
+
+  // 3. Agregar un nuevo ejercicio a una rutina existente
+  const handleOpenAddExerciseToRoutine = (routine: any) => {
+    setErrorMsg(null);
+    setEditingRoutineExercise(null);
+    setConfirmDeleteRoutineExercise(null);
+    if (addingExerciseToRoutineId === routine.id) {
+      setAddingExerciseToRoutineId(null);
+      setNewRoutineExerciseDraft(null);
+      return;
+    }
+    setAddingExerciseToRoutineId(routine.id);
+    const nextOrder =
+      selectedRoutine?.id === routine.id && Array.isArray(selectedRoutine.exercises)
+        ? selectedRoutine.exercises.length + 1
+        : Number(routine.exercises_count || 0) + 1;
+    setNewRoutineExerciseDraft({
+      exerciseId: null,
+      name: '',
+      sets: '3',
+      repetitions: '10',
+      durationSeconds: '',
+      restSeconds: '60',
+      weeklyFrequency: '3 veces por semana',
+      bodySide: 'Bilateral',
+      resistanceLoad: 'Peso corporal',
+      customInstructions: '',
+      executionOrder: String(nextOrder)
+    });
+    if (selectedRoutine?.id !== routine.id) {
+      fetchRoutineDetail(routine.id);
+    }
+  };
+
+  const handleSelectCatalogForExistingRoutine = (ex: any, currentExercisesCount: number) => {
+    setNewRoutineExerciseDraft({
+      exerciseId: ex.id,
+      name: ex.name || '',
+      sets: String(ex.default_sets ?? ex.defaultSets ?? 3),
+      repetitions: String(ex.default_repetitions ?? ex.defaultRepetitions ?? 10),
+      durationSeconds: '',
+      restSeconds: '60',
+      weeklyFrequency: '3 veces por semana',
+      bodySide: 'Bilateral',
+      resistanceLoad: ex.equipment_needed ? `Con ${ex.equipment_needed}` : 'Peso corporal',
+      customInstructions: '',
+      executionOrder: String(currentExercisesCount + 1)
+    });
+  };
+
+  const handleSaveNewExerciseInRoutine = async (routineId: number) => {
+    if (!newRoutineExerciseDraft || !newRoutineExerciseDraft.exerciseId) {
+      setErrorMsg('Seleccioná un ejercicio del catálogo.');
+      return;
+    }
+    const trimmedName = newRoutineExerciseDraft.name.trim();
+    if (trimmedName.length < 2) {
+      setErrorMsg('El nombre del ejercicio debe tener al menos 2 caracteres.');
+      return;
+    }
+    const setsNum = Number(newRoutineExerciseDraft.sets);
+    if (!Number.isInteger(setsNum) || setsNum <= 0) {
+      setErrorMsg('Las series deben ser mayores a 0.');
+      return;
+    }
+    const repsNum = Number(newRoutineExerciseDraft.repetitions);
+    if (!Number.isInteger(repsNum) || repsNum <= 0) {
+      setErrorMsg('Las repeticiones deben ser mayores a 0.');
+      return;
+    }
+    const restNum = Number(newRoutineExerciseDraft.restSeconds || 0);
+    if (!Number.isInteger(restNum) || restNum < 0) {
+      setErrorMsg('El descanso debe ser 0 o mayor.');
+      return;
+    }
+    const durStr = newRoutineExerciseDraft.durationSeconds.trim();
+    const durNum = durStr ? Number(durStr) : null;
+    if (durNum !== null && (!Number.isInteger(durNum) || durNum <= 0)) {
+      setErrorMsg('El tiempo de ejecución debe ser mayor a 0 segundos.');
+      return;
+    }
+    const orderNum = Number(newRoutineExerciseDraft.executionOrder || 1);
+
+    setAddingIndividualExercise(true);
+    setErrorMsg(null);
+    try {
+      const res = await apiClient.post(`/treatments/routines/${routineId}/exercises`, {
+        routineId,
+        exerciseId: newRoutineExerciseDraft.exerciseId,
+        name: trimmedName,
+        customName: trimmedName,
+        sets: setsNum,
+        repetitions: repsNum,
+        durationSeconds: durNum,
+        restSeconds: restNum,
+        weeklyFrequency: newRoutineExerciseDraft.weeklyFrequency.trim() || '3 veces por semana',
+        bodySide: newRoutineExerciseDraft.bodySide,
+        resistanceLoad: newRoutineExerciseDraft.resistanceLoad.trim() || null,
+        customInstructions: newRoutineExerciseDraft.customInstructions.trim() || null,
+        executionOrder: Number.isInteger(orderNum) && orderNum > 0 ? orderNum : undefined
+      });
+
+      if (res.data?.success && res.data?.data) {
+        syncRoutineInState(res.data.data);
+        setAddingExerciseToRoutineId(null);
+        setNewRoutineExerciseDraft(null);
+        setSuccessMsg('Ejercicio agregado.');
+        if (onSuccess) onSuccess();
+      }
+    } catch (err: any) {
+      setErrorMsg(err.response?.data?.error?.message || 'Error al agregar el ejercicio a la rutina');
+    } finally {
+      setAddingIndividualExercise(false);
+    }
+  };
+
+  // 4. Reordenar un ejercicio individual dentro de una rutina existente
+  const handleMoveExistingRoutineExercise = async (
+    routineId: number,
+    ex: any,
+    direction: 'up' | 'down',
+    totalCount: number
+  ) => {
+    const currentOrder = Number(ex.execution_order || 1);
+    const targetOrder = direction === 'up' ? currentOrder - 1 : currentOrder + 1;
+    if (targetOrder < 1 || targetOrder > totalCount) return;
+
+    setReorderingExerciseId(ex.id);
+    setErrorMsg(null);
+    try {
+      const res = await apiClient.patch(
+        `/treatments/routines/${routineId}/exercises/${ex.id}`,
+        {
+          routineId,
+          routineExerciseId: ex.id,
+          executionOrder: targetOrder
+        }
+      );
+      if (res.data?.success && res.data?.data) {
+        syncRoutineInState(res.data.data);
+        if (onSuccess) onSuccess();
+      }
+    } catch (err: any) {
+      setErrorMsg(err.response?.data?.error?.message || 'Error al reordenar el ejercicio');
+    } finally {
+      setReorderingExerciseId(null);
     }
   };
 
@@ -662,8 +1001,8 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
   return (
     <ModalWrapper
       visible={visible}
-      title="Plan Terapéutico y Prescripción de Rutinas"
-      subtitle={`Ficha clínica de ${patientFullName} (DNI ${patient?.dni || 'S/D'})`}
+      title="Plan y Rutinas"
+      subtitle={`${patientFullName} (DNI ${patient?.dni || 'S/D'})`}
       onClose={onClose}
       maxWidth={780}
       subHeader={subNavNode}
@@ -700,7 +1039,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
                 onPress={() => setViewMode('view_plan')}
               />
               <Button
-                title="Guardar Sesión Clínica"
+                title="Guardar Sesión"
                 size="md"
                 loading={savingSession}
                 onPress={handleSaveSession}
@@ -709,13 +1048,13 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
           ) : viewMode === 'edit_routine' ? (
             <>
               <Button
-                title="Volver al Plan"
+                title="Volver"
                 variant="secondary"
                 size="md"
                 onPress={() => setViewMode('view_plan')}
               />
               <Button
-                title={routineIdToEdit ? 'Guardar Versión Clínica' : 'Guardar Rutina'}
+                title="Guardar Rutina"
                 size="md"
                 loading={savingRoutine}
                 onPress={handleSaveRoutine}
@@ -730,7 +1069,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
                 onPress={() => setViewMode('view_plan')}
               />
               <Button
-                title="Crear Plan Terapéutico"
+                title="Crear Plan"
                 size="md"
                 loading={submittingPlan}
                 onPress={handleSavePlan}
@@ -738,7 +1077,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
             </>
           ) : (
             <Button
-              title="Volver a la Rutina Vigente"
+              title="Volver"
               variant="secondary"
               size="md"
               onPress={() => setViewMode('view_plan')}
@@ -769,16 +1108,13 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
       )}
 
       {loading ? (
-        <LoadingState message="Cargando historial terapéutico del paciente..." />
+        <LoadingState message="Cargando..." />
       ) : viewMode === 'create_plan' ? (
         /* ======================================================== */
         /* VISTA 1: CREAR NUEVO PLAN DE TRATAMIENTO                 */
         /* ======================================================== */
         <View style={styles.viewContentContainer}>
-          <Text style={[styles.sectionHeading, { color: theme.text }]}>Nuevo Plan de Tratamiento</Text>
-          <Text style={[styles.sectionSubtitle, { color: theme.textSecondary }]}>
-            Defina el marco clínico y los objetivos antes de estructurar las rutinas de ejercicios.
-          </Text>
+          <Text style={[styles.sectionHeading, { color: theme.text, marginBottom: spacing.sm }]}>Nuevo Plan de Tratamiento</Text>
 
           <Input
             label="Título o diagnóstico principal"
@@ -891,19 +1227,16 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
             <Text style={[styles.subHeading, { color: theme.text }]}>
               Ejercicios Prescritos ({routineItems.length})
             </Text>
-            <Text style={[styles.hintText, { color: theme.textMuted }]}>
-              Arrastre o use las flechas para reordenar la secuencia
-            </Text>
           </View>
 
           {routineItems.length === 0 ? (
             <View style={[styles.emptyItemsBox, { borderColor: theme.border, backgroundColor: theme.surface }]}>
               <MaterialIcons name="playlist-add" size={32} color={theme.textMuted} style={{ marginBottom: 4 }} />
               <Text style={[styles.emptyItemsTitle, { color: theme.textSecondary }]}>
-                Aún no ha agregado ejercicios a esta rutina
+                Sin ejercicios en la rutina
               </Text>
               <Text style={[styles.emptyItemsDesc, { color: theme.textMuted }]}>
-                Busque en el catálogo inferior y presione "+ Agregar" para configurar los parámetros de cada técnica.
+                Agregá ejercicios desde el catálogo inferior.
               </Text>
             </View>
           ) : (
@@ -949,16 +1282,30 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
 
                   <TouchableOpacity
                     onPress={() => handleRemoveExerciseFromRoutine(index)}
-                    style={styles.removeItemBtn}
+                    style={[styles.removeItemBtn, { borderColor: theme.error + '50', backgroundColor: theme.errorBg }]}
                     accessibilityLabel="Quitar ejercicio"
                   >
-                    <MaterialIcons name="delete-outline" size={20} color={theme.error} />
+                    <MaterialIcons name="delete-outline" size={18} color={theme.error} />
+                    <Text style={{ fontSize: typography.fontSize.xs, color: theme.error, fontWeight: '700', marginLeft: 4 }}>
+                      Quitar
+                    </Text>
                   </TouchableOpacity>
                 </View>
 
                 {/* Parámetros configurables del ejercicio */}
                 <View style={[styles.paramGrid, { borderTopColor: theme.border }]}>
-                  {/* Fila 1: Series, Reps, Descanso */}
+                  {/* Nombre del ejercicio editable */}
+                  <View style={{ marginBottom: spacing.xs }}>
+                    <Text style={[styles.paramLabel, { color: theme.textSecondary }]}>Nombre del ejercicio:</Text>
+                    <Input
+                      value={item.name}
+                      onChangeText={(v) => handleUpdateItemField(index, 'name', v)}
+                      placeholder="Nombre del ejercicio"
+                      containerStyle={{ marginBottom: 0 }}
+                    />
+                  </View>
+
+                  {/* Fila 1: Series, Reps, Tiempo, Descanso */}
                   <View style={styles.paramRow}>
                     <View style={styles.paramCol}>
                       <Text style={[styles.paramLabel, { color: theme.textSecondary }]}>Series:</Text>
@@ -975,6 +1322,16 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
                         value={String(item.repetitions)}
                         onChangeText={(v) => handleUpdateItemField(index, 'repetitions', Number(v) || 0)}
                         keyboardType="numeric"
+                        containerStyle={{ marginBottom: 0 }}
+                      />
+                    </View>
+                    <View style={styles.paramCol}>
+                      <Text style={[styles.paramLabel, { color: theme.textSecondary }]}>Tiempo (seg):</Text>
+                      <Input
+                        value={item.durationSeconds ? String(item.durationSeconds) : ''}
+                        onChangeText={(v) => handleUpdateItemField(index, 'durationSeconds', v ? Number(v) : null)}
+                        keyboardType="numeric"
+                        placeholder="Opc."
                         containerStyle={{ marginBottom: 0 }}
                       />
                     </View>
@@ -1006,15 +1363,15 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
                             ]}
                             onPress={() => handleUpdateItemField(index, 'bodySide', side)}
                           >
-                            <Text style={{ fontSize: 9, color: item.bodySide === side ? '#FFF' : theme.text, fontWeight: '600' }}>
-                              {side.slice(0, 3)}
+                            <Text style={{ fontSize: typography.fontSize.xs, color: item.bodySide === side ? '#FFF' : theme.text, fontWeight: '600' }}>
+                              {side}
                             </Text>
                           </TouchableOpacity>
                         ))}
                       </View>
                     </View>
                     <View style={[styles.paramCol, { flex: 1.2 }]}>
-                      <Text style={[styles.paramLabel, { color: theme.textSecondary }]}>Carga / Resistencia:</Text>
+                      <Text style={[styles.paramLabel, { color: theme.textSecondary }]}>Peso / Carga:</Text>
                       <Input
                         value={item.resistanceLoad || ''}
                         onChangeText={(v) => handleUpdateItemField(index, 'resistanceLoad', v)}
@@ -1026,7 +1383,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
 
                   {/* Fila 3: Indicaciones personalizadas */}
                   <View style={{ marginTop: spacing.xs }}>
-                    <Text style={[styles.paramLabel, { color: theme.textSecondary }]}>Indicaciones individuales para el paciente:</Text>
+                    <Text style={[styles.paramLabel, { color: theme.textSecondary }]}>Observaciones / Indicaciones:</Text>
                     <Input
                       value={item.customInstructions || ''}
                       onChangeText={(v) => handleUpdateItemField(index, 'customInstructions', v)}
@@ -1126,7 +1483,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
         /* ======================================================== */
         <View style={styles.viewContentContainer}>
           <View style={styles.historyHeaderRow}>
-            <Text style={[styles.sectionHeading, { color: theme.text }]}>Historial de Versiones Clínicas</Text>
+            <Text style={[styles.sectionHeading, { color: theme.text }]}>Historial de versiones</Text>
             <TouchableOpacity onPress={() => setViewMode('view_plan')} style={styles.backLink}>
               <MaterialIcons name="arrow-back" size={16} color={theme.primary} />
               <Text style={{ color: theme.primary, fontSize: 13, fontWeight: '600', marginLeft: 4 }}>
@@ -1134,9 +1491,6 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
               </Text>
             </TouchableOpacity>
           </View>
-          <Text style={[styles.sectionSubtitle, { color: theme.textSecondary }]}>
-            Registro cronológico y cambios de prescripción según la evolución del paciente:
-          </Text>
 
           {routineHistory.map((ver) => (
             <Card key={ver.id} elevated style={styles.versionCard} padding="md">
@@ -1179,9 +1533,9 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
         /* VISTA: REGISTRAR SESIÓN CLÍNICA CON EJERCICIOS          */
         /* ======================================================== */
         <View style={styles.viewContentContainer}>
-          <Text style={[styles.sectionHeading, { color: theme.text }]}>Registrar Sesión Clínica</Text>
+          <Text style={[styles.sectionHeading, { color: theme.text }]}>Registrar Sesión</Text>
           <Text style={[styles.sectionSubtitle, { color: theme.textSecondary }]}>
-            Plan: <Text style={{ color: theme.text, fontWeight: '700' }}>{selectedTreatment?.title}</Text> • Registro profesional de procedimientos y ejercicios
+            Plan: <Text style={{ color: theme.text, fontWeight: '700' }}>{selectedTreatment?.title}</Text>
           </Text>
 
           <View style={{ flexDirection: 'row', gap: spacing.md }}>
@@ -1195,11 +1549,10 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
               />
             </View>
             <View style={{ flex: 1 }}>
-              <Input
+              <DateInput
                 label="Fecha de la sesión"
                 value={sessionDate}
-                onChangeText={setSessionDate}
-                placeholder="AAAA-MM-DD"
+                onChangeDate={setSessionDate}
                 required
               />
             </View>
@@ -1263,10 +1616,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
           <View style={styles.routineItemsHeaderRow}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.subHeading, { color: theme.text }]}>
-                Ejercicios Supervisados en Sesión ({sessionExercises.length})
-              </Text>
-              <Text style={[styles.hintText, { color: theme.textMuted }]}>
-                Registre las series, carga, tolerancia clínica y modificaciones futuras
+                Ejercicios en Sesión ({sessionExercises.length})
               </Text>
             </View>
             {selectedRoutine?.exercises?.length > 0 && (
@@ -1427,11 +1777,8 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
             <View style={{ flex: 1, paddingRight: spacing.sm }}>
               <View style={styles.titleWithIconRow}>
                 <MaterialIcons name="insights" size={20} color={theme.primary} style={{ marginRight: 6 }} />
-                <Text style={[styles.sectionHeading, { color: theme.text }]}>Seguimiento y Evolución Clínica</Text>
+                <Text style={[styles.sectionHeading, { color: theme.text }]}>Seguimiento y Evolución</Text>
               </View>
-              <Text style={[styles.sectionSubtitle, { color: theme.textSecondary }]}>
-                Dossier clínico integrado: rutinas prescritas, cumplimiento autónomo y sesiones supervisadas
-              </Text>
             </View>
             <TouchableOpacity
               onPress={fetchTrackingData}
@@ -1443,11 +1790,10 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
           </View>
 
           {loadingTracking ? (
-            <LoadingState message="Recuperando expediente de seguimiento y evolución..." />
+            <LoadingState message="Cargando..." />
           ) : !trackingData ? (
             <EmptyState
               title="Sin registros de evolución"
-              subtitle="No se encontraron eventos clínicos o prescripciones para este paciente."
             />
           ) : (
             <>
@@ -1919,9 +2265,9 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
         <View style={styles.viewContentContainer}>
           {treatments.length === 0 ? (
             <EmptyState
-              title="Sin plan de tratamiento activo"
-              subtitle="Este paciente aún no cuenta con un plan de rehabilitación registrado. Cree un nuevo plan para prescribir rutinas de ejercicios."
-              action={{ label: '+ Crear Plan de Tratamiento', onPress: handleStartCreatePlan }}
+              title="Sin plan activo"
+              subtitle="Creá un plan para asignar rutinas."
+              action={{ label: '+ Crear Plan', onPress: handleStartCreatePlan }}
             />
           ) : (
             <>
@@ -1984,10 +2330,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
               {/* Sección de Rutinas del Plan */}
               <View style={styles.routinesSectionHeader}>
                 <View>
-                  <Text style={[styles.sectionHeading, { color: theme.text }]}>Rutinas de Rehabilitación</Text>
-                  <Text style={[styles.sectionSubtitle, { color: theme.textSecondary }]}>
-                    Prescripciones estructuradas y evolución de cargas
-                  </Text>
+                  <Text style={[styles.sectionHeading, { color: theme.text }]}>Rutinas</Text>
                 </View>
                 <Button
                   title="+ Nueva Rutina"
@@ -2001,11 +2344,8 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
                 <View style={[styles.emptyRoutinesCard, { borderColor: theme.border, backgroundColor: theme.surface }]}>
                   <MaterialIcons name="fitness-center" size={32} color={theme.textMuted} style={{ marginBottom: 6 }} />
                   <Text style={[styles.emptyItemsTitle, { color: theme.text }]}>Sin rutinas prescritas</Text>
-                  <Text style={[styles.emptyItemsDesc, { color: theme.textSecondary }]}>
-                    Este plan de tratamiento aún no posee una rutina con ejercicios activos.
-                  </Text>
                   <Button
-                    title="Prescribir Primera Rutina"
+                    title="Prescribir Rutina"
                     size="sm"
                     onPress={handleStartCreateRoutine}
                     style={{ marginTop: spacing.md }}
@@ -2040,18 +2380,34 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
 
                         <View style={styles.routineHeaderActions}>
                           <TouchableOpacity
-                            style={[styles.smallActionBtn, { borderColor: theme.border }]}
+                            style={[styles.smallActionBtn, { borderColor: theme.primary, backgroundColor: theme.primary + '12' }]}
+                            onPress={() => handleOpenAddExerciseToRoutine(routine)}
+                            accessibilityLabel="Agregar ejercicio a esta rutina"
+                          >
+                            <MaterialIcons name="add" size={18} color={theme.primary} />
+                            <Text style={{ fontSize: typography.fontSize.xs, color: theme.primary, fontWeight: '700', marginLeft: 4 }}>
+                              Ejercicio
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.smallActionBtn, { borderColor: theme.border, backgroundColor: theme.surface }]}
                             onPress={() => handleStartEditRoutine(routine)}
                             accessibilityLabel="Editar rutina"
                           >
                             <MaterialIcons name="edit" size={16} color={theme.text} />
+                            <Text style={{ fontSize: typography.fontSize.xs, color: theme.text, fontWeight: '600', marginLeft: 4 }}>
+                              Editar
+                            </Text>
                           </TouchableOpacity>
                           <TouchableOpacity
-                            style={[styles.smallActionBtn, { borderColor: theme.border }]}
+                            style={[styles.smallActionBtn, { borderColor: theme.border, backgroundColor: theme.surface }]}
                             onPress={() => handleOpenVersionHistory(routine)}
                             accessibilityLabel="Ver historial de versiones"
                           >
                             <MaterialIcons name="history" size={16} color={theme.text} />
+                            <Text style={{ fontSize: typography.fontSize.xs, color: theme.text, fontWeight: '600', marginLeft: 4 }}>
+                              Historial
+                            </Text>
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -2062,32 +2418,576 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
                         </Text>
                       ) : null}
 
-                      {/* Ejercicios de la rutina */}
-                      {selectedRoutine?.id === routine.id && selectedRoutine?.exercises?.length > 0 ? (
+                      {/* Ejercicios de la rutina con edición, eliminación, orden y alta individual */}
+                      {selectedRoutine?.id === routine.id ? (
                         <View style={styles.routineExercisesList}>
-                          <Text style={[styles.routineExListTitle, { color: theme.textMuted }]}>Secuencia de ejercicios:</Text>
-                          {selectedRoutine.exercises.map((ex: any) => (
+                          <View style={styles.routineExHeaderRow}>
+                            <Text style={[styles.routineExListTitle, { color: theme.textMuted, marginBottom: 0 }]}>
+                              Ejercicios ({selectedRoutine.exercises?.length || 0})
+                            </Text>
+                            <Button
+                              title={addingExerciseToRoutineId === routine.id ? 'Cerrar catálogo' : '+ Agregar ejercicio'}
+                              size="sm"
+                              variant={addingExerciseToRoutineId === routine.id ? 'secondary' : 'outline'}
+                              onPress={() => handleOpenAddExerciseToRoutine(routine)}
+                            />
+                          </View>
+
+                          {/* Panel para agregar un nuevo ejercicio a esta rutina existente */}
+                          {addingExerciseToRoutineId === routine.id && newRoutineExerciseDraft && (
                             <View
-                              key={ex.id}
-                              style={[styles.routineExRow, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                              style={[
+                                styles.inlineEditorCard,
+                                { backgroundColor: theme.surfaceSubtle, borderColor: theme.primary }
+                              ]}
                             >
-                              <View style={[styles.miniOrderCircle, { backgroundColor: theme.primary }]}>
-                                <Text style={styles.miniOrderText}>{ex.execution_order}</Text>
-                              </View>
-                              <View style={{ flex: 1, marginLeft: spacing.sm }}>
-                                <Text style={[styles.routineExName, { color: theme.text }]}>{ex.exercise_name}</Text>
-                                <Text style={[styles.routineExParams, { color: theme.textSecondary }]}>
-                                  {ex.sets} series × {ex.repetitions} reps • Descanso: {ex.rest_seconds}s • Lado: {ex.body_side}
-                                  {ex.resistance_load ? ` • Carga: ${ex.resistance_load}` : ''}
-                                </Text>
-                                {ex.custom_instructions ? (
-                                  <Text style={[styles.routineExNotes, { color: theme.primary }]}>
-                                    Nota: {ex.custom_instructions}
+                              <Text style={[styles.inlineEditorTitle, { color: theme.primary }]}>
+                                Agregar ejercicio a «{routine.name}»
+                              </Text>
+
+                              <Input
+                                placeholder="Buscar ejercicio en biblioteca clínica..."
+                                value={catalogSearch}
+                                onChangeText={setCatalogSearch}
+                                containerStyle={{ marginBottom: spacing.xs }}
+                              />
+
+                              <ScrollView
+                                style={{ maxHeight: 150, marginBottom: spacing.sm }}
+                                nestedScrollEnabled
+                              >
+                                {catalogLoading ? (
+                                  <ActivityIndicator color={theme.primary} style={{ marginVertical: spacing.sm }} />
+                                ) : catalogExercises.length === 0 ? (
+                                  <Text style={[styles.catalogEmptyText, { color: theme.textMuted }]}>
+                                    Sin ejercicios para mostrar.
                                   </Text>
-                                ) : null}
-                              </View>
+                                ) : (
+                                  catalogExercises.map((catEx) => {
+                                    const isChosen = newRoutineExerciseDraft.exerciseId === catEx.id;
+                                    return (
+                                      <TouchableOpacity
+                                        key={catEx.id}
+                                        style={[
+                                          styles.catalogExerciseRow,
+                                          {
+                                            borderBottomColor: theme.border,
+                                            paddingHorizontal: spacing.xs,
+                                            backgroundColor: isChosen ? theme.primary + '15' : 'transparent'
+                                          }
+                                        ]}
+                                        onPress={() =>
+                                          handleSelectCatalogForExistingRoutine(
+                                            catEx,
+                                            selectedRoutine.exercises?.length || 0
+                                          )
+                                        }
+                                      >
+                                        <View style={{ flex: 1 }}>
+                                          <Text style={[styles.catalogExName, { color: theme.text }]}>
+                                            {catEx.name}
+                                          </Text>
+                                          <Text style={{ fontSize: 11, color: theme.textSecondary }}>
+                                            {catEx.category} {catEx.body_zone ? `• ${catEx.body_zone}` : ''}
+                                          </Text>
+                                        </View>
+                                        <MaterialIcons
+                                          name={isChosen ? 'check-circle' : 'add-circle-outline'}
+                                          size={20}
+                                          color={isChosen ? theme.primary : theme.textMuted}
+                                        />
+                                      </TouchableOpacity>
+                                    );
+                                  })
+                                )}
+                              </ScrollView>
+
+                              {newRoutineExerciseDraft.exerciseId ? (
+                                <View style={{ marginTop: spacing.xs }}>
+                                  <Input
+                                    label="Nombre del ejercicio"
+                                    value={newRoutineExerciseDraft.name}
+                                    onChangeText={(v) =>
+                                      setNewRoutineExerciseDraft({ ...newRoutineExerciseDraft, name: v })
+                                    }
+                                    placeholder="Nombre del ejercicio"
+                                  />
+
+                                  <View style={styles.paramRow}>
+                                    <View style={styles.paramCol}>
+                                      <Input
+                                        label="Series"
+                                        value={newRoutineExerciseDraft.sets}
+                                        onChangeText={(v) =>
+                                          setNewRoutineExerciseDraft({ ...newRoutineExerciseDraft, sets: v })
+                                        }
+                                        keyboardType="numeric"
+                                        containerStyle={{ marginBottom: 0 }}
+                                      />
+                                    </View>
+                                    <View style={styles.paramCol}>
+                                      <Input
+                                        label="Repeticiones"
+                                        value={newRoutineExerciseDraft.repetitions}
+                                        onChangeText={(v) =>
+                                          setNewRoutineExerciseDraft({ ...newRoutineExerciseDraft, repetitions: v })
+                                        }
+                                        keyboardType="numeric"
+                                        containerStyle={{ marginBottom: 0 }}
+                                      />
+                                    </View>
+                                    <View style={styles.paramCol}>
+                                      <Input
+                                        label="Tiempo (seg)"
+                                        value={newRoutineExerciseDraft.durationSeconds}
+                                        onChangeText={(v) =>
+                                          setNewRoutineExerciseDraft({ ...newRoutineExerciseDraft, durationSeconds: v })
+                                        }
+                                        keyboardType="numeric"
+                                        placeholder="Opc."
+                                        containerStyle={{ marginBottom: 0 }}
+                                      />
+                                    </View>
+                                    <View style={styles.paramCol}>
+                                      <Input
+                                        label="Descanso (seg)"
+                                        value={newRoutineExerciseDraft.restSeconds}
+                                        onChangeText={(v) =>
+                                          setNewRoutineExerciseDraft({ ...newRoutineExerciseDraft, restSeconds: v })
+                                        }
+                                        keyboardType="numeric"
+                                        containerStyle={{ marginBottom: 0 }}
+                                      />
+                                    </View>
+                                  </View>
+
+                                  <View style={[styles.paramRow, { marginTop: spacing.xs }]}>
+                                    <View style={styles.paramCol}>
+                                      <Input
+                                        label="Peso / Carga"
+                                        value={newRoutineExerciseDraft.resistanceLoad}
+                                        onChangeText={(v) =>
+                                          setNewRoutineExerciseDraft({ ...newRoutineExerciseDraft, resistanceLoad: v })
+                                        }
+                                        placeholder="Ej: 4kg / Banda"
+                                        containerStyle={{ marginBottom: 0 }}
+                                      />
+                                    </View>
+                                    <View style={{ width: 90 }}>
+                                      <Input
+                                        label="Orden"
+                                        value={newRoutineExerciseDraft.executionOrder}
+                                        onChangeText={(v) =>
+                                          setNewRoutineExerciseDraft({ ...newRoutineExerciseDraft, executionOrder: v })
+                                        }
+                                        keyboardType="numeric"
+                                        containerStyle={{ marginBottom: 0 }}
+                                      />
+                                    </View>
+                                  </View>
+
+                                  <View style={{ marginTop: spacing.xs }}>
+                                    <Text style={[styles.paramLabel, { color: theme.textSecondary }]}>Lado:</Text>
+                                    <View style={styles.sideButtonsRow}>
+                                      {(['Bilateral', 'Izquierdo', 'Derecho', 'No aplica'] as const).map((side) => (
+                                        <TouchableOpacity
+                                          key={side}
+                                          style={[
+                                            styles.sideBtn,
+                                            {
+                                              backgroundColor:
+                                                newRoutineExerciseDraft.bodySide === side ? theme.primary : theme.surface,
+                                              borderColor:
+                                                newRoutineExerciseDraft.bodySide === side ? theme.primary : theme.border
+                                            }
+                                          ]}
+                                          onPress={() =>
+                                            setNewRoutineExerciseDraft({ ...newRoutineExerciseDraft, bodySide: side })
+                                          }
+                                        >
+                                          <Text
+                                            style={{
+                                              fontSize: typography.fontSize.xs,
+                                              color: newRoutineExerciseDraft.bodySide === side ? '#FFF' : theme.text,
+                                              fontWeight: '600'
+                                            }}
+                                          >
+                                            {side}
+                                          </Text>
+                                        </TouchableOpacity>
+                                      ))}
+                                    </View>
+                                  </View>
+
+                                  <Input
+                                    label="Observaciones / Indicaciones"
+                                    value={newRoutineExerciseDraft.customInstructions}
+                                    onChangeText={(v) =>
+                                      setNewRoutineExerciseDraft({ ...newRoutineExerciseDraft, customInstructions: v })
+                                    }
+                                    placeholder="Indicaciones para este ejercicio"
+                                    containerStyle={{ marginTop: spacing.xs, marginBottom: spacing.sm }}
+                                  />
+
+                                  <View style={styles.inlineEditorActions}>
+                                    <Button
+                                      title="Cancelar"
+                                      variant="secondary"
+                                      size="sm"
+                                      onPress={() => {
+                                        setAddingExerciseToRoutineId(null);
+                                        setNewRoutineExerciseDraft(null);
+                                      }}
+                                    />
+                                    <Button
+                                      title="Agregar a la rutina"
+                                      size="sm"
+                                      loading={addingIndividualExercise}
+                                      onPress={() => handleSaveNewExerciseInRoutine(routine.id)}
+                                    />
+                                  </View>
+                                </View>
+                              ) : (
+                                <Text style={{ fontSize: 12, color: theme.textSecondary, marginTop: 4 }}>
+                                  Tocá un ejercicio de la lista superior para configurar sus parámetros.
+                                </Text>
+                              )}
                             </View>
-                          ))}
+                          )}
+
+                          {(!selectedRoutine.exercises || selectedRoutine.exercises.length === 0) ? (
+                            <Text style={{ fontSize: 12, color: theme.textMuted, paddingVertical: spacing.sm }}>
+                              Esta rutina no tiene ejercicios asignados. Usá «+ Agregar ejercicio» para incorporar uno.
+                            </Text>
+                          ) : (
+                            selectedRoutine.exercises.map((ex: any, exIdx: number) => {
+                              const totalExCount = selectedRoutine.exercises.length;
+                              const isEditingThis =
+                                editingRoutineExercise?.routineId === routine.id &&
+                                editingRoutineExercise?.routineExerciseId === ex.id;
+                              const isConfirmingDeleteThis =
+                                confirmDeleteRoutineExercise?.routineId === routine.id &&
+                                confirmDeleteRoutineExercise?.routineExerciseId === ex.id;
+
+                              return (
+                                <View
+                                  key={ex.id}
+                                  style={[
+                                    styles.routineExContainer,
+                                    {
+                                      backgroundColor: theme.surface,
+                                      borderColor: isEditingThis
+                                        ? theme.primary
+                                        : isConfirmingDeleteThis
+                                        ? theme.error
+                                        : theme.border
+                                    }
+                                  ]}
+                                >
+                                  <View style={styles.routineExRowTop}>
+                                    {/* Orden y flechas de reordenamiento */}
+                                    <View style={styles.orderBadgeCol}>
+                                      <View style={[styles.miniOrderCircle, { backgroundColor: theme.primary }]}>
+                                        <Text style={styles.miniOrderText}>{ex.execution_order}</Text>
+                                      </View>
+                                      {totalExCount > 1 && (
+                                        <View style={styles.reorderArrows}>
+                                          <TouchableOpacity
+                                            disabled={exIdx === 0 || reorderingExerciseId === ex.id}
+                                            onPress={() =>
+                                              handleMoveExistingRoutineExercise(routine.id, ex, 'up', totalExCount)
+                                            }
+                                            style={{ opacity: exIdx === 0 ? 0.3 : 1 }}
+                                            accessibilityLabel="Subir orden del ejercicio"
+                                          >
+                                            <MaterialIcons name="arrow-upward" size={14} color={theme.text} />
+                                          </TouchableOpacity>
+                                          <TouchableOpacity
+                                            disabled={exIdx === totalExCount - 1 || reorderingExerciseId === ex.id}
+                                            onPress={() =>
+                                              handleMoveExistingRoutineExercise(routine.id, ex, 'down', totalExCount)
+                                            }
+                                            style={{ opacity: exIdx === totalExCount - 1 ? 0.3 : 1 }}
+                                            accessibilityLabel="Bajar orden del ejercicio"
+                                          >
+                                            <MaterialIcons name="arrow-downward" size={14} color={theme.text} />
+                                          </TouchableOpacity>
+                                        </View>
+                                      )}
+                                    </View>
+
+                                    {/* Datos del ejercicio */}
+                                    <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                                      <Text style={[styles.routineExName, { color: theme.text }]}>
+                                        {ex.exercise_name || ex.name}
+                                      </Text>
+                                      <Text style={[styles.routineExParams, { color: theme.textSecondary }]}>
+                                        {ex.sets} series × {ex.repetitions} reps
+                                        {ex.duration_seconds ? ` • Tiempo: ${ex.duration_seconds}s` : ''}
+                                        {` • Descanso: ${ex.rest_seconds}s • Lado: ${ex.body_side}`}
+                                        {ex.resistance_load ? ` • Carga: ${ex.resistance_load}` : ''}
+                                      </Text>
+                                      {ex.custom_instructions ? (
+                                        <Text style={[styles.routineExNotes, { color: theme.primary }]}>
+                                          Nota: {ex.custom_instructions}
+                                        </Text>
+                                      ) : null}
+                                    </View>
+
+                                    {/* Acciones individuales: Editar y Eliminar */}
+                                    <View style={styles.routineExActions}>
+                                      <TouchableOpacity
+                                        style={[styles.iconBtn, { borderColor: theme.border, backgroundColor: theme.surface }]}
+                                        onPress={() =>
+                                          isEditingThis
+                                            ? setEditingRoutineExercise(null)
+                                            : handleStartEditIndividualExercise(routine.id, ex)
+                                        }
+                                        accessibilityLabel="Editar ejercicio"
+                                      >
+                                        <MaterialIcons
+                                          name={isEditingThis ? 'close' : 'edit'}
+                                          size={16}
+                                          color={theme.primary}
+                                        />
+                                        <Text style={{ fontSize: typography.fontSize.xs, color: theme.primary, fontWeight: '600', marginLeft: 4 }}>
+                                          {isEditingThis ? 'Cerrar' : 'Editar'}
+                                        </Text>
+                                      </TouchableOpacity>
+                                      <TouchableOpacity
+                                        style={[styles.iconBtn, { borderColor: theme.error + '50', backgroundColor: theme.errorBg }]}
+                                        onPress={() => {
+                                          setEditingRoutineExercise(null);
+                                          setConfirmDeleteRoutineExercise(
+                                            isConfirmingDeleteThis
+                                              ? null
+                                              : {
+                                                  routineId: routine.id,
+                                                  routineExerciseId: ex.id,
+                                                  name: ex.exercise_name || ex.name || 'Ejercicio'
+                                                }
+                                          );
+                                        }}
+                                        accessibilityLabel="Eliminar ejercicio"
+                                      >
+                                        <MaterialIcons name="delete-outline" size={16} color={theme.error} />
+                                        <Text style={{ fontSize: typography.fontSize.xs, color: theme.error, fontWeight: '600', marginLeft: 4 }}>
+                                          Eliminar
+                                        </Text>
+                                      </TouchableOpacity>
+                                    </View>
+                                  </View>
+
+                                  {/* Confirmación antes de eliminar este ejercicio individual */}
+                                  {isConfirmingDeleteThis && confirmDeleteRoutineExercise && (
+                                    <View
+                                      style={[
+                                        styles.confirmDeleteBox,
+                                        { backgroundColor: theme.errorBg, borderColor: theme.error + '50' }
+                                      ]}
+                                    >
+                                      <Text style={[styles.confirmDeleteText, { color: theme.text }]}>
+                                        ¿Querés eliminar «{confirmDeleteRoutineExercise.name}» de esta rutina?
+                                      </Text>
+                                      <View style={styles.inlineEditorActions}>
+                                        <Button
+                                          title="Cancelar"
+                                          variant="secondary"
+                                          size="sm"
+                                          onPress={() => setConfirmDeleteRoutineExercise(null)}
+                                        />
+                                        <Button
+                                          title="Eliminar"
+                                          variant="danger"
+                                          size="sm"
+                                          loading={deletingExerciseId === ex.id}
+                                          onPress={handleConfirmDeleteIndividualExercise}
+                                        />
+                                      </View>
+                                    </View>
+                                  )}
+
+                                  {/* Formulario de edición individual en línea */}
+                                  {isEditingThis && editingRoutineExercise && (
+                                    <View
+                                      style={[
+                                        styles.inlineEditorForm,
+                                        { borderTopColor: theme.border, backgroundColor: theme.surfaceSubtle }
+                                      ]}
+                                    >
+                                      <Input
+                                        label="Nombre del ejercicio"
+                                        value={editingRoutineExercise.name}
+                                        onChangeText={(v) =>
+                                          setEditingRoutineExercise({ ...editingRoutineExercise, name: v })
+                                        }
+                                        placeholder="Nombre del ejercicio"
+                                      />
+
+                                      <View style={styles.paramRow}>
+                                        <View style={styles.paramCol}>
+                                          <Input
+                                            label="Series"
+                                            value={editingRoutineExercise.sets}
+                                            onChangeText={(v) =>
+                                              setEditingRoutineExercise({ ...editingRoutineExercise, sets: v })
+                                            }
+                                            keyboardType="numeric"
+                                            containerStyle={{ marginBottom: 0 }}
+                                          />
+                                        </View>
+                                        <View style={styles.paramCol}>
+                                          <Input
+                                            label="Repeticiones"
+                                            value={editingRoutineExercise.repetitions}
+                                            onChangeText={(v) =>
+                                              setEditingRoutineExercise({
+                                                ...editingRoutineExercise,
+                                                repetitions: v
+                                              })
+                                            }
+                                            keyboardType="numeric"
+                                            containerStyle={{ marginBottom: 0 }}
+                                          />
+                                        </View>
+                                        <View style={styles.paramCol}>
+                                          <Input
+                                            label="Tiempo (seg)"
+                                            value={editingRoutineExercise.durationSeconds}
+                                            onChangeText={(v) =>
+                                              setEditingRoutineExercise({
+                                                ...editingRoutineExercise,
+                                                durationSeconds: v
+                                              })
+                                            }
+                                            keyboardType="numeric"
+                                            placeholder="Opc."
+                                            containerStyle={{ marginBottom: 0 }}
+                                          />
+                                        </View>
+                                        <View style={styles.paramCol}>
+                                          <Input
+                                            label="Descanso (seg)"
+                                            value={editingRoutineExercise.restSeconds}
+                                            onChangeText={(v) =>
+                                              setEditingRoutineExercise({
+                                                ...editingRoutineExercise,
+                                                restSeconds: v
+                                              })
+                                            }
+                                            keyboardType="numeric"
+                                            containerStyle={{ marginBottom: 0 }}
+                                          />
+                                        </View>
+                                      </View>
+
+                                      <View style={[styles.paramRow, { marginTop: spacing.xs }]}>
+                                        <View style={styles.paramCol}>
+                                          <Input
+                                            label="Peso / Carga"
+                                            value={editingRoutineExercise.resistanceLoad}
+                                            onChangeText={(v) =>
+                                              setEditingRoutineExercise({
+                                                ...editingRoutineExercise,
+                                                resistanceLoad: v
+                                              })
+                                            }
+                                            placeholder="Ej: 4kg / Banda"
+                                            containerStyle={{ marginBottom: 0 }}
+                                          />
+                                        </View>
+                                        <View style={{ width: 90 }}>
+                                          <Input
+                                            label="Orden"
+                                            value={editingRoutineExercise.executionOrder}
+                                            onChangeText={(v) =>
+                                              setEditingRoutineExercise({
+                                                ...editingRoutineExercise,
+                                                executionOrder: v
+                                              })
+                                            }
+                                            keyboardType="numeric"
+                                            containerStyle={{ marginBottom: 0 }}
+                                          />
+                                        </View>
+                                      </View>
+
+                                      <View style={{ marginTop: spacing.xs }}>
+                                        <Text style={[styles.paramLabel, { color: theme.textSecondary }]}>
+                                          Lado:
+                                        </Text>
+                                        <View style={styles.sideButtonsRow}>
+                                          {(['Bilateral', 'Izquierdo', 'Derecho', 'No aplica'] as const).map((side) => (
+                                            <TouchableOpacity
+                                              key={side}
+                                              style={[
+                                                styles.sideBtn,
+                                                {
+                                                  backgroundColor:
+                                                    editingRoutineExercise.bodySide === side
+                                                      ? theme.primary
+                                                      : theme.surface,
+                                                  borderColor:
+                                                    editingRoutineExercise.bodySide === side
+                                                      ? theme.primary
+                                                      : theme.border
+                                                }
+                                              ]}
+                                              onPress={() =>
+                                                setEditingRoutineExercise({
+                                                  ...editingRoutineExercise,
+                                                  bodySide: side
+                                                })
+                                              }
+                                            >
+                                              <Text
+                                                style={{
+                                                  fontSize: typography.fontSize.xs,
+                                                  color:
+                                                    editingRoutineExercise.bodySide === side ? '#FFF' : theme.text,
+                                                  fontWeight: '600'
+                                                }}
+                                              >
+                                                {side}
+                                              </Text>
+                                            </TouchableOpacity>
+                                          ))}
+                                        </View>
+                                      </View>
+
+                                      <Input
+                                        label="Observaciones / Indicaciones"
+                                        value={editingRoutineExercise.customInstructions}
+                                        onChangeText={(v) =>
+                                          setEditingRoutineExercise({
+                                            ...editingRoutineExercise,
+                                            customInstructions: v
+                                          })
+                                        }
+                                        placeholder="Indicaciones para el paciente"
+                                        containerStyle={{ marginTop: spacing.xs, marginBottom: spacing.sm }}
+                                      />
+
+                                      <View style={styles.inlineEditorActions}>
+                                        <Button
+                                          title="Cancelar"
+                                          variant="secondary"
+                                          size="sm"
+                                          onPress={() => setEditingRoutineExercise(null)}
+                                        />
+                                        <Button
+                                          title="Guardar cambios"
+                                          size="sm"
+                                          loading={savingIndividualExercise}
+                                          onPress={handleSaveIndividualExercise}
+                                        />
+                                      </View>
+                                    </View>
+                                  )}
+                                </View>
+                              );
+                            })
+                          )}
                         </View>
                       ) : (
                         <TouchableOpacity
@@ -2095,7 +2995,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
                           onPress={() => fetchRoutineDetail(routine.id)}
                         >
                           <Text style={{ color: theme.primary, fontSize: 12, fontWeight: '600' }}>
-                            Ver prescripción completa de ejercicios ({routine.exercises_count})
+                            Ver ejercicios ({routine.exercises_count})
                           </Text>
                           <MaterialIcons name="expand-more" size={18} color={theme.primary} />
                         </TouchableOpacity>
@@ -2268,19 +3168,22 @@ const styles = StyleSheet.create({
   },
   routineHeaderActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.xs
   },
   smallActionBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: radii.sm,
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    borderRadius: radii.md,
     borderWidth: 1,
+    flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center'
   },
   routineDescText: {
     fontSize: typography.fontSize.sm,
-    lineHeight: 19,
+    lineHeight: 22,
     marginTop: spacing.xs,
     marginBottom: spacing.sm
   },
@@ -2288,11 +3191,74 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     marginBottom: spacing.sm
   },
+  routineExHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm
+  },
   routineExListTitle: {
-    fontSize: typography.fontSize.tiny,
-    fontWeight: typography.fontWeight.semibold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold,
+    marginBottom: spacing.xs
+  },
+  routineExContainer: {
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    marginBottom: spacing.xs,
+    overflow: 'hidden'
+  },
+  routineExRowTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    padding: spacing.sm
+  },
+  routineExActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginLeft: spacing.xs
+  },
+  iconBtn: {
+    minHeight: 42,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  inlineEditorCard: {
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    marginBottom: spacing.sm
+  },
+  inlineEditorTitle: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold,
+    marginBottom: spacing.sm
+  },
+  inlineEditorForm: {
+    padding: spacing.md,
+    borderTopWidth: 1
+  },
+  inlineEditorActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.xs,
+    marginTop: spacing.xs
+  },
+  confirmDeleteBox: {
+    padding: spacing.sm,
+    borderTopWidth: 1
+  },
+  confirmDeleteText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium,
     marginBottom: spacing.xs
   },
   routineExRow: {
@@ -2410,7 +3376,13 @@ const styles = StyleSheet.create({
     marginTop: 2
   },
   removeItemBtn: {
-    padding: 6
+    minHeight: 42,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center'
   },
   paramGrid: {
     borderTopWidth: 1,
@@ -2419,24 +3391,28 @@ const styles = StyleSheet.create({
   },
   paramRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
     marginBottom: spacing.xs
   },
   paramCol: {
-    flex: 1
+    flex: 1,
+    minWidth: 100
   },
   paramLabel: {
-    fontSize: typography.fontSize.tiny,
+    fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.medium,
-    marginBottom: 2
+    marginBottom: 4
   },
   sideButtonsRow: {
     flexDirection: 'row',
-    gap: 2
+    flexWrap: 'wrap',
+    gap: 6
   },
   sideBtn: {
-    flex: 1,
-    height: 38,
+    minHeight: 42,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
     borderRadius: radii.sm,
     borderWidth: 1,
     justifyContent: 'center',
@@ -2462,11 +3438,13 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm
   },
   catalogFilterChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    minHeight: 42,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
     borderRadius: radii.full,
     borderWidth: 1,
-    marginRight: 6
+    justifyContent: 'center',
+    marginRight: 8
   },
   catalogEmptyText: {
     fontSize: typography.fontSize.xs,
@@ -2550,6 +3528,7 @@ const styles = StyleSheet.create({
     gap: 4
   },
   modalSubNavItem: {
+    minHeight: 46,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.md,
@@ -2561,13 +3540,13 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.semibold
   },
   scoreChip: {
-    width: 28,
-    height: 32,
-    borderRadius: radii.sm,
-    borderWidth: 1,
+    minWidth: 44,
+    minHeight: 44,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 4
+    marginRight: 6
   },
   sessionExCard: {
     marginBottom: spacing.sm
@@ -2579,10 +3558,12 @@ const styles = StyleSheet.create({
     marginBottom: 4
   },
   toleranceChip: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    minHeight: 42,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
     borderRadius: radii.sm,
-    borderWidth: 1
+    borderWidth: 1,
+    justifyContent: 'center'
   },
   trackingHeaderRow: {
     flexDirection: 'row',
@@ -2595,8 +3576,8 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   refreshTrackingBtn: {
-    width: 36,
-    height: 36,
+    minWidth: 44,
+    minHeight: 44,
     borderRadius: radii.md,
     borderWidth: 1,
     justifyContent: 'center',

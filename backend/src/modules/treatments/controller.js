@@ -150,6 +150,39 @@ export class TreatmentsController {
     }
   }
 
+  // --- Gestión individual de ejercicios dentro de una rutina existente ---
+  async addRoutineExercise(req, res, next) {
+    try {
+      const routineId = req.params?.routineId || req.body?.routineId;
+      const updatedRoutine = await treatmentsService.addRoutineExercise(routineId, req.body, req.user);
+      return sendSuccess(res, updatedRoutine, 'Ejercicio agregado a la rutina', 201);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateRoutineExercise(req, res, next) {
+    try {
+      const routineId = req.params?.routineId || req.body?.routineId;
+      const routineExerciseId = req.params?.routineExerciseId || req.body?.routineExerciseId || req.body?.id;
+      const updatedRoutine = await treatmentsService.updateRoutineExercise(routineId, routineExerciseId, req.body, req.user);
+      return sendSuccess(res, updatedRoutine, 'Ejercicio actualizado');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async deleteRoutineExercise(req, res, next) {
+    try {
+      const routineId = req.params?.routineId || req.body?.routineId;
+      const routineExerciseId = req.params?.routineExerciseId || req.body?.routineExerciseId || req.body?.id;
+      const updatedRoutine = await treatmentsService.deleteRoutineExercise(routineId, routineExerciseId, req.user);
+      return sendSuccess(res, updatedRoutine, 'Ejercicio eliminado de la rutina');
+    } catch (error) {
+      next(error);
+    }
+  }
+
   // --- Seguimiento y Evolución Clínica Integral del Paciente ---
   async patientTracking(req, res, next) {
     try {

@@ -15,7 +15,9 @@ import {
   appointmentCreateSchema,
   appointmentUpdateSchema,
   rescheduleRequestsSearchSchema,
-  rescheduleRespondSchema
+  rescheduleRespondSchema,
+  holidayConfigureSchema,
+  holidayToggleOptionalSchema
 } from './schema.js';
 
 export const appointmentsRouter = Router();
@@ -28,6 +30,10 @@ appointmentsRouter.use(authorizePermission('appointments:manage'));
 // Regla HTTP: Solo POST para consultas
 appointmentsRouter.post('/professionals', asyncHandler((req, res, next) => appointmentsController.getProfessionals(req, res, next)));
 appointmentsRouter.post('/available-slots', asyncHandler((req, res, next) => appointmentsController.getAvailableSlots(req, res, next)));
+appointmentsRouter.post('/calendar-availability', asyncHandler((req, res, next) => appointmentsController.getCalendarAvailability(req, res, next)));
+appointmentsRouter.post('/holidays/search', asyncHandler((req, res, next) => appointmentsController.listHolidays(req, res, next)));
+appointmentsRouter.post('/holidays/configure', validate(holidayConfigureSchema), asyncHandler((req, res, next) => appointmentsController.configureHoliday(req, res, next)));
+appointmentsRouter.post('/holidays/toggle-optional', validate(holidayToggleOptionalSchema), asyncHandler((req, res, next) => appointmentsController.toggleOptionalHoliday(req, res, next)));
 appointmentsRouter.post('/search', validate(appointmentSearchSchema), asyncHandler((req, res, next) => appointmentsController.search(req, res, next)));
 appointmentsRouter.post('/detail', validate(appointmentDetailSchema), asyncHandler((req, res, next) => appointmentsController.detail(req, res, next)));
 appointmentsRouter.post('/reschedule-requests', validate(rescheduleRequestsSearchSchema), asyncHandler((req, res, next) => appointmentsController.getRescheduleRequests(req, res, next)));

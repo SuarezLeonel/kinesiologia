@@ -2,7 +2,7 @@
  * @file Button.tsx
  * @description Botón táctil accesible con estados primario, secundario, peligro y loading.
  */
-import React from 'react';
+import React, { useState } from 'react';
 import {
   TouchableOpacity,
   Text,
@@ -23,11 +23,13 @@ interface ButtonProps {
   onPress: () => void;
   variant?: ButtonVariant;
   size?: ButtonSize;
+  fullWidth?: boolean;
   loading?: boolean;
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
   textStyle?: StyleProp<TextStyle>;
   icon?: React.ReactNode;
+  accessibilityLabel?: string;
 }
 
 export const Button: React.FC<ButtonProps> = ({
@@ -35,33 +37,39 @@ export const Button: React.FC<ButtonProps> = ({
   onPress,
   variant = 'primary',
   size = 'md',
+  fullWidth = false,
   loading = false,
   disabled = false,
   style,
   textStyle,
-  icon
+  icon,
+  accessibilityLabel
 }) => {
   const { theme } = useAppTheme();
+  const [isFocused, setIsFocused] = useState(false);
 
   const getDimensions = () => {
     switch (size) {
       case 'sm':
         return {
-          height: controlHeights.sm,
-          paddingHorizontal: spacing.md,
+          minHeight: controlHeights.sm,
+          paddingHorizontal: spacing.md + 2,
+          paddingVertical: spacing.xs + 2,
           fontSize: typography.fontSize.sm
         };
       case 'lg':
         return {
-          height: controlHeights.lg,
+          minHeight: controlHeights.lg,
           paddingHorizontal: spacing.xxl,
+          paddingVertical: spacing.sm + 2,
           fontSize: typography.fontSize.md
         };
       case 'md':
       default:
         return {
-          height: controlHeights.md,
-          paddingHorizontal: spacing.lg,
+          minHeight: controlHeights.md,
+          paddingHorizontal: spacing.lg + 2,
+          paddingVertical: spacing.sm,
           fontSize: typography.fontSize.base
         };
     }
@@ -85,7 +93,7 @@ export const Button: React.FC<ButtonProps> = ({
         };
       case 'outline':
         return {
-          bg: 'transparent',
+          bg: theme.surface,
           border: theme.primary,
           text: theme.primary
         };
@@ -98,7 +106,7 @@ export const Button: React.FC<ButtonProps> = ({
       case 'danger':
         return {
           bg: theme.errorBg,
-          border: theme.error + '40',
+          border: theme.error,
           text: theme.error
         };
       case 'primary':
@@ -118,15 +126,24 @@ export const Button: React.FC<ButtonProps> = ({
     <TouchableOpacity
       activeOpacity={0.8}
       onPress={onPress}
+      onFocus={() => setIsFocused(true)}
+      onBlur={() => setIsFocused(false)}
       disabled={disabled || loading}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel || title}
+      accessibilityState={{ disabled: disabled || loading, busy: loading }}
       style={[
         styles.button,
         {
-          height: dims.height,
+          minHeight: dims.minHeight,
+          minWidth: 44,
           paddingHorizontal: dims.paddingHorizontal,
+          paddingVertical: dims.paddingVertical,
           backgroundColor: v.bg,
-          borderColor: v.border
+          borderColor: isFocused ? theme.text : v.border,
+          borderWidth: isFocused ? 2.5 : variant === 'outline' || variant === 'danger' ? 1.5 : 1
         },
+        fullWidth && { width: '100%' },
         style
       ]}
     >
@@ -141,7 +158,7 @@ export const Button: React.FC<ButtonProps> = ({
               {
                 color: v.text,
                 fontSize: dims.fontSize,
-                marginLeft: icon ? spacing.xs : 0
+                marginLeft: icon ? spacing.xs + 2 : 0
               },
               textStyle
             ]}
@@ -157,13 +174,13 @@ export const Button: React.FC<ButtonProps> = ({
 const styles = StyleSheet.create({
   button: {
     borderRadius: radii.md,
-    borderWidth: 1,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center'
   },
   text: {
-    fontWeight: typography.fontWeight.semibold,
-    letterSpacing: 0.1
+    fontWeight: typography.fontWeight.bold,
+    letterSpacing: 0.1,
+    textAlign: 'center'
   }
 });

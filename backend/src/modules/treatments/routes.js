@@ -24,6 +24,9 @@ import {
   routineCreateSchema,
   routineUpdateSchema,
   routineStatusUpdateSchema,
+  routineExerciseAddSchema,
+  routineExerciseUpdateSchema,
+  routineExerciseDeleteSchema,
   patientTrackingSchema
 } from './schema.js';
 
@@ -54,6 +57,15 @@ treatmentsRouter.post('/routines/detail', validate(routineDetailSchema), asyncHa
 treatmentsRouter.post('/routines', validate(routineCreateSchema), asyncHandler((req, res, next) => treatmentsController.createRoutine(req, res, next)));
 treatmentsRouter.post('/routines/update', validate(routineUpdateSchema), asyncHandler((req, res, next) => treatmentsController.updateRoutine(req, res, next)));
 treatmentsRouter.post('/routines/status', validate(routineStatusUpdateSchema), asyncHandler((req, res, next) => treatmentsController.updateRoutineStatus(req, res, next)));
+
+// --- Gestión Individual de Ejercicios dentro de una Rutina Existente ---
+treatmentsRouter.post('/routines/exercises/add', validate(routineExerciseAddSchema), asyncHandler((req, res, next) => treatmentsController.addRoutineExercise(req, res, next)));
+treatmentsRouter.post('/routines/:routineId/exercises', validate(routineExerciseAddSchema), asyncHandler((req, res, next) => treatmentsController.addRoutineExercise(req, res, next)));
+treatmentsRouter.post('/routines/exercises/update', validate(routineExerciseUpdateSchema), asyncHandler((req, res, next) => treatmentsController.updateRoutineExercise(req, res, next)));
+treatmentsRouter.patch('/routines/:routineId/exercises/:routineExerciseId', validate(routineExerciseUpdateSchema), asyncHandler((req, res, next) => treatmentsController.updateRoutineExercise(req, res, next)));
+treatmentsRouter.post('/routines/exercises/delete', validate(routineExerciseDeleteSchema), asyncHandler((req, res, next) => treatmentsController.deleteRoutineExercise(req, res, next)));
+treatmentsRouter.post('/routines/exercises/remove', validate(routineExerciseDeleteSchema), asyncHandler((req, res, next) => treatmentsController.deleteRoutineExercise(req, res, next)));
+treatmentsRouter.delete('/routines/:routineId/exercises/:routineExerciseId', validate(routineExerciseDeleteSchema), asyncHandler((req, res, next) => treatmentsController.deleteRoutineExercise(req, res, next)));
 
 // --- Mediciones de Evolución ---
 treatmentsRouter.post('/measurements/search', validate(measurementSearchSchema), asyncHandler((req, res, next) => treatmentsController.getMeasurements(req, res, next)));

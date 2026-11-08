@@ -209,10 +209,13 @@ export class TreatmentsRepository {
 
     for (const r of routines) {
       r.exercises = await query(`
-        SELECT re.id, re.routine_id, re.exercise_id, re.sets, re.repetitions,
+        SELECT re.id, re.routine_id, re.exercise_id, re.custom_name, re.sets, re.repetitions,
                re.duration_seconds, re.rest_seconds, re.weekly_frequency,
                re.body_side, re.resistance_load, re.custom_instructions, re.execution_order,
-               e.name, e.category, e.body_zone, e.difficulty_level
+               COALESCE(NULLIF(TRIM(re.custom_name), ''), e.name) as name,
+               COALESCE(NULLIF(TRIM(re.custom_name), ''), e.name) as exercise_name,
+               e.name as catalog_exercise_name,
+               e.category, e.body_zone, e.difficulty_level
         FROM routine_exercises re
         JOIN exercises e ON re.exercise_id = e.id
         WHERE re.routine_id = ?
@@ -442,11 +445,15 @@ export class TreatmentsRepository {
 
   async findRoutineExercises(routineId) {
     return await query(`
-      SELECT re.id, re.routine_id, re.exercise_id, re.sets, re.repetitions,
+      SELECT re.id, re.routine_id, re.exercise_id, re.custom_name,
+             re.sets, re.repetitions,
              re.duration_seconds, re.rest_seconds, re.weekly_frequency,
              re.body_side, re.resistance_load, re.custom_instructions,
              re.execution_order, re.created_at,
-             e.name as exercise_name, e.category as exercise_category,
+             COALESCE(NULLIF(TRIM(re.custom_name), ''), e.name) as exercise_name,
+             COALESCE(NULLIF(TRIM(re.custom_name), ''), e.name) as name,
+             e.name as catalog_exercise_name,
+             e.category as exercise_category,
              e.body_zone, e.muscle_group, e.therapeutic_objective,
              e.equipment_needed, e.difficulty_level, e.instructions as exercise_instructions,
              e.contraindications, e.media_url, e.is_active as exercise_is_active
@@ -455,6 +462,26 @@ export class TreatmentsRepository {
       WHERE re.routine_id = ?
       ORDER BY re.execution_order ASC, re.id ASC
     `, [routineId]);
+  }
+
+  async findRoutineExerciseById(routineExerciseId) {
+    const rows = await query(`
+      SELECT re.id, re.routine_id, re.exercise_id, re.custom_name,
+             re.sets, re.repetitions,
+             re.duration_seconds, re.rest_seconds, re.weekly_frequency,
+             re.body_side, re.resistance_load, re.custom_instructions,
+             re.execution_order, re.created_at,
+             COALESCE(NULLIF(TRIM(re.custom_name), ''), e.name) as exercise_name,
+             COALESCE(NULLIF(TRIM(re.custom_name), ''), e.name) as name,
+             e.name as catalog_exercise_name,
+             e.category as exercise_category,
+             e.body_zone, e.difficulty_level
+      FROM routine_exercises re
+      JOIN exercises e ON re.exercise_id = e.id
+      WHERE re.id = ?
+      LIMIT 1
+    `, [routineExerciseId]);
+    return rows[0] || null;
   }
 
   async findRoutineVersionHistory(routineId) {
@@ -513,16 +540,18 @@ export class TreatmentsRepository {
       // 3. Insertar ejercicios asociados con sus parámetros clínicos
       for (let i = 0; i < exercisesList.length; i++) {
         const ex = exercisesList[i];
+        const customNameVal = (ex.customName || ex.name || '').trim() || null;
         await conn.query(`
           INSERT INTO routine_exercises (
-            routine_id, exercise_id, sets, repetitions, duration_seconds,
+            routine_id, exercise_id, custom_name, sets, repetitions, duration_seconds,
             rest_seconds, weekly_frequency, body_side, resistance_load,
             custom_instructions, execution_order
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
           routineId,
           ex.exerciseId,
+          customNameVal,
           ex.sets ?? 3,
           ex.repetitions ?? 10,
           ex.durationSeconds ?? null,
@@ -597,16 +626,18 @@ export class TreatmentsRepository {
         await conn.query('DELETE FROM routine_exercises WHERE routine_id = ?', [routineId]);
         for (let i = 0; i < exercisesList.length; i++) {
           const ex = exercisesList[i];
+          const customNameVal = (ex.customName || ex.name || '').trim() || null;
           await conn.query(`
             INSERT INTO routine_exercises (
-              routine_id, exercise_id, sets, repetitions, duration_seconds,
+              routine_id, exercise_id, custom_name, sets, repetitions, duration_seconds,
               rest_seconds, weekly_frequency, body_side, resistance_load,
               custom_instructions, execution_order
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `, [
             routineId,
             ex.exerciseId,
+            customNameVal,
             ex.sets ?? 3,
             ex.repetitions ?? 10,
             ex.durationSeconds ?? null,
@@ -668,16 +699,18 @@ export class TreatmentsRepository {
       // 3. Insertar ejercicios de la nueva versión
       for (let i = 0; i < exercisesList.length; i++) {
         const ex = exercisesList[i];
+        const customNameVal = (ex.customName || ex.name || '').trim() || null;
         await conn.query(`
           INSERT INTO routine_exercises (
-            routine_id, exercise_id, sets, repetitions, duration_seconds,
+            routine_id, exercise_id, custom_name, sets, repetitions, duration_seconds,
             rest_seconds, weekly_frequency, body_side, resistance_load,
             custom_instructions, execution_order
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
           newRoutineId,
           ex.exerciseId,
+          customNameVal,
           ex.sets ?? 3,
           ex.repetitions ?? 10,
           ex.durationSeconds ?? null,
@@ -727,6 +760,241 @@ export class TreatmentsRepository {
       } else {
         await conn.query('UPDATE treatment_routines SET status = ?, is_current = 0 WHERE id = ?', [status, routineId]);
       }
+    });
+  }
+
+  /**
+   * Incorpora un ejercicio individual a una rutina ya existente sin recrear la rutina ni alterar los demás ejercicios.
+   * Mantiene y normaliza el orden de ejecución (execution_order).
+   */
+  async addExerciseToRoutine(routineId, item) {
+    return await executeTransaction(async (conn) => {
+      const [rRows] = await conn.query('SELECT id, treatment_id FROM treatment_routines WHERE id = ?', [routineId]);
+      if (!rRows.length) throw new Error('Rutina terapéutica no encontrada');
+      const routine = rRows[0];
+
+      const [existingExRows] = await conn.query(
+        'SELECT id, execution_order FROM routine_exercises WHERE routine_id = ? ORDER BY execution_order ASC, id ASC',
+        [routineId]
+      );
+
+      const totalCount = existingExRows.length;
+      const requestedOrder = item.executionOrder ? Number(item.executionOrder) : totalCount + 1;
+      const targetOrder = Math.max(1, Math.min(requestedOrder, totalCount + 1));
+
+      if (targetOrder <= totalCount) {
+        await conn.query(
+          'UPDATE routine_exercises SET execution_order = execution_order + 1 WHERE routine_id = ? AND execution_order >= ?',
+          [routineId, targetOrder]
+        );
+      }
+
+      const customNameVal = (item.customName || item.name || '').trim() || null;
+
+      const [insertRes] = await conn.query(`
+        INSERT INTO routine_exercises (
+          routine_id, exercise_id, custom_name, sets, repetitions, duration_seconds,
+          rest_seconds, weekly_frequency, body_side, resistance_load,
+          custom_instructions, execution_order
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        routineId,
+        item.exerciseId,
+        customNameVal,
+        item.sets ?? 3,
+        item.repetitions ?? 10,
+        item.durationSeconds ?? null,
+        item.restSeconds ?? 60,
+        item.weeklyFrequency ?? '3 veces por semana',
+        item.bodySide ?? 'Bilateral',
+        item.resistanceLoad ?? null,
+        item.customInstructions ?? null,
+        targetOrder
+      ]);
+
+      const newRoutineExerciseId = insertRes.insertId;
+
+      // Normalizar secuencia 1..N para evitar huecos o colisiones
+      const [allRows] = await conn.query(
+        'SELECT id FROM routine_exercises WHERE routine_id = ? ORDER BY execution_order ASC, id ASC',
+        [routineId]
+      );
+      for (let i = 0; i < allRows.length; i++) {
+        await conn.query('UPDATE routine_exercises SET execution_order = ? WHERE id = ?', [i + 1, allRows[i].id]);
+      }
+
+      // Sincronizar hacia treatment_exercises para compatibilidad relacional
+      await conn.query(`
+        INSERT INTO treatment_exercises (
+          treatment_id, exercise_id, custom_sets, custom_repetitions, frequency_instructions, notes
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          custom_sets = VALUES(custom_sets),
+          custom_repetitions = VALUES(custom_repetitions),
+          frequency_instructions = VALUES(frequency_instructions),
+          notes = VALUES(notes)
+      `, [
+        routine.treatment_id,
+        item.exerciseId,
+        item.sets ?? 3,
+        item.repetitions ?? 10,
+        item.weeklyFrequency ?? '3 veces por semana',
+        item.customInstructions ?? null
+      ]);
+
+      return newRoutineExerciseId;
+    });
+  }
+
+  /**
+   * Actualiza un ejercicio individual dentro de una rutina existente verificando pertenencia por ID y routine_id.
+   * No elimina ni recrea la rutina ni altera los otros ejercicios (salvo reordenamiento si cambia executionOrder).
+   */
+  async updateRoutineExercise(routineId, routineExerciseId, fields) {
+    return await executeTransaction(async (conn) => {
+      const [reRows] = await conn.query(
+        'SELECT id, routine_id, exercise_id, execution_order FROM routine_exercises WHERE id = ? AND routine_id = ? LIMIT 1',
+        [routineExerciseId, routineId]
+      );
+      if (!reRows.length) {
+        return null;
+      }
+
+      const updates = [];
+      const params = [];
+
+      if (fields.exerciseId !== undefined) {
+        updates.push('exercise_id = ?');
+        params.push(Number(fields.exerciseId));
+      }
+
+      if (fields.customName !== undefined || fields.name !== undefined) {
+        const rawName = fields.customName !== undefined ? fields.customName : fields.name;
+        const cleanName = rawName !== null && rawName !== undefined ? String(rawName).trim() : null;
+        updates.push('custom_name = ?');
+        params.push(cleanName || null);
+      }
+
+      if (fields.sets !== undefined) {
+        updates.push('sets = ?');
+        params.push(Number(fields.sets));
+      }
+
+      if (fields.repetitions !== undefined) {
+        updates.push('repetitions = ?');
+        params.push(Number(fields.repetitions));
+      }
+
+      if (fields.durationSeconds !== undefined) {
+        updates.push('duration_seconds = ?');
+        params.push(fields.durationSeconds !== null && fields.durationSeconds !== '' ? Number(fields.durationSeconds) : null);
+      }
+
+      if (fields.restSeconds !== undefined) {
+        updates.push('rest_seconds = ?');
+        params.push(Number(fields.restSeconds));
+      }
+
+      if (fields.weeklyFrequency !== undefined) {
+        updates.push('weekly_frequency = ?');
+        params.push(fields.weeklyFrequency ? String(fields.weeklyFrequency).trim() : '3 veces por semana');
+      }
+
+      if (fields.bodySide !== undefined) {
+        updates.push('body_side = ?');
+        params.push(fields.bodySide);
+      }
+
+      if (fields.resistanceLoad !== undefined) {
+        updates.push('resistance_load = ?');
+        params.push(fields.resistanceLoad !== null && String(fields.resistanceLoad).trim() !== '' ? String(fields.resistanceLoad).trim() : null);
+      }
+
+      if (fields.customInstructions !== undefined) {
+        updates.push('custom_instructions = ?');
+        params.push(fields.customInstructions !== null && String(fields.customInstructions).trim() !== '' ? String(fields.customInstructions).trim() : null);
+      }
+
+      if (updates.length > 0) {
+        params.push(routineExerciseId, routineId);
+        await conn.query(
+          `UPDATE routine_exercises SET ${updates.join(', ')} WHERE id = ? AND routine_id = ?`,
+          params
+        );
+      }
+
+      // Si se solicitó cambiar el orden de ejecución (executionOrder), reordenar limpiamente la secuencia
+      if (fields.executionOrder !== undefined && fields.executionOrder !== null) {
+        const [allRows] = await conn.query(
+          'SELECT id FROM routine_exercises WHERE routine_id = ? ORDER BY execution_order ASC, id ASC',
+          [routineId]
+        );
+        const currentIds = allRows.map((r) => Number(r.id));
+        const currentIdx = currentIds.indexOf(Number(routineExerciseId));
+        if (currentIdx !== -1 && currentIds.length > 1) {
+          const [movedId] = currentIds.splice(currentIdx, 1);
+          const targetIdx = Math.max(0, Math.min(Number(fields.executionOrder) - 1, currentIds.length));
+          currentIds.splice(targetIdx, 0, movedId);
+
+          for (let i = 0; i < currentIds.length; i++) {
+            await conn.query(
+              'UPDATE routine_exercises SET execution_order = ? WHERE id = ? AND routine_id = ?',
+              [i + 1, currentIds[i], routineId]
+            );
+          }
+        }
+      }
+
+      return true;
+    });
+  }
+
+  /**
+   * Elimina únicamente el ejercicio seleccionado de la rutina (routine_exercises),
+   * preservando registros históricos (patient_exercise_logs y session_exercise_executions)
+   * y re-normalizando el orden de ejecución de los ejercicios restantes.
+   */
+  async deleteRoutineExercise(routineId, routineExerciseId) {
+    return await executeTransaction(async (conn) => {
+      const [reRows] = await conn.query(
+        'SELECT id, routine_id, exercise_id, execution_order FROM routine_exercises WHERE id = ? AND routine_id = ? LIMIT 1',
+        [routineExerciseId, routineId]
+      );
+      if (!reRows.length) {
+        return false;
+      }
+
+      // Preservar logs históricos de cumplimiento y sesiones desvinculando la referencia al ítem eliminado
+      await conn.query(
+        'UPDATE patient_exercise_logs SET routine_exercise_id = NULL WHERE routine_exercise_id = ?',
+        [routineExerciseId]
+      );
+      await conn.query(
+        'UPDATE session_exercise_executions SET routine_exercise_id = NULL WHERE routine_exercise_id = ?',
+        [routineExerciseId]
+      );
+
+      // Eliminar exclusivamente el ejercicio indicado de la rutina
+      await conn.query(
+        'DELETE FROM routine_exercises WHERE id = ? AND routine_id = ?',
+        [routineExerciseId, routineId]
+      );
+
+      // Re-normalizar execution_order de los ejercicios restantes de esta rutina
+      const [remainingRows] = await conn.query(
+        'SELECT id FROM routine_exercises WHERE routine_id = ? ORDER BY execution_order ASC, id ASC',
+        [routineId]
+      );
+      for (let i = 0; i < remainingRows.length; i++) {
+        await conn.query(
+          'UPDATE routine_exercises SET execution_order = ? WHERE id = ? AND routine_id = ?',
+          [i + 1, remainingRows[i].id, routineId]
+        );
+      }
+
+      return true;
     });
   }
 }

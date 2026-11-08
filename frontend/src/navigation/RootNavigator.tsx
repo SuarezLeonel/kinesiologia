@@ -56,7 +56,7 @@ const MainTabs = () => {
           else if (route.name === 'Payments') iconName = 'payments';
           else if (route.name === 'Settings') iconName = 'tune';
 
-          return <MaterialIcons name={iconName} size={isWeb ? 20 : 22} color={color} />;
+          return <MaterialIcons name={iconName} size={22} color={color} />;
         },
         tabBarStyle: {
           backgroundColor: theme.surface,
@@ -64,18 +64,19 @@ const MainTabs = () => {
           borderTopWidth: isWeb ? 0 : 1,
           borderBottomColor: theme.border,
           borderBottomWidth: isWeb ? 1 : 0,
-          height: isWeb ? 62 : 58 + Math.max(insets.bottom, 6),
+          height: isWeb ? 68 : 64 + Math.max(insets.bottom, 8),
           paddingTop: 6,
-          paddingBottom: isWeb ? 6 : Math.max(insets.bottom, 6)
+          paddingBottom: isWeb ? 8 : Math.max(insets.bottom, 8)
         },
         tabBarItemStyle: {
-          paddingHorizontal: 2
+          paddingHorizontal: 4,
+          minHeight: 48
         },
         tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.textSecondary,
         tabBarLabelStyle: {
-          fontSize: isWeb ? typography.fontSize.tiny : 11,
-          fontWeight: typography.fontWeight.semibold,
+          fontSize: typography.fontSize.xs,
+          fontWeight: typography.fontWeight.bold,
           letterSpacing: 0.1,
           marginTop: isWeb ? 0 : 2
         }

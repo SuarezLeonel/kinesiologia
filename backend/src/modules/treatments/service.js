@@ -353,6 +353,127 @@ export class TreatmentsService {
 
     return await this.getRoutineDetail(id, currentUser);
   }
+
+  /**
+   * Verifica que la rutina exista y el usuario actual tenga permisos clínicos sobre ella.
+   * @private
+   */
+  async _assertRoutineAccess(routineId, currentUser) {
+    if (!currentUser || currentUser.role === 'receptionist' || currentUser.role === 'patient') {
+      throw new ForbiddenError('No tiene permisos para gestionar ejercicios de rutinas terapéuticas');
+    }
+
+    const routine = await treatmentsRepository.findRoutineById(routineId);
+    if (!routine) {
+      throw new NotFoundError('Rutina terapéutica no encontrada');
+    }
+
+    const treatment = await treatmentsRepository.findById(routine.treatment_id);
+    if (!treatment) {
+      throw new NotFoundError('Plan de tratamiento no encontrado');
+    }
+
+    if (currentUser.role === 'kinesiologist') {
+      await this._assertKinesiologistTreatmentAccess(currentUser.id, treatment);
+    }
+
+    return { routine, treatment };
+  }
+
+  async addRoutineExercise(routineId, data, currentUser) {
+    await this._assertRoutineAccess(routineId, currentUser);
+
+    const exercise = await exercisesRepository.findById(data.exerciseId);
+    if (!exercise) {
+      throw new ValidationError(`El ejercicio con ID ${data.exerciseId} no existe en el catálogo.`);
+    }
+
+    const routineExerciseId = await treatmentsRepository.addExerciseToRoutine(Number(routineId), data);
+
+    await logAudit({
+      userId: currentUser.id,
+      action: 'ROUTINE_EXERCISE_ADDED',
+      entityType: 'routine_exercise',
+      entityId: routineExerciseId,
+      details: {
+        routineId: Number(routineId),
+        exerciseId: Number(data.exerciseId),
+        sets: data.sets,
+        repetitions: data.repetitions
+      }
+    });
+
+    const detail = await this.getRoutineDetail(Number(routineId), currentUser);
+    return {
+      ...detail,
+      addedRoutineExerciseId: routineExerciseId
+    };
+  }
+
+  async updateRoutineExercise(routineId, routineExerciseId, data, currentUser) {
+    await this._assertRoutineAccess(routineId, currentUser);
+
+    const existingItem = await treatmentsRepository.findRoutineExerciseById(routineExerciseId);
+    if (!existingItem || Number(existingItem.routine_id) !== Number(routineId)) {
+      throw new NotFoundError('El ejercicio especificado no existe o no pertenece a la rutina indicada');
+    }
+
+    if (data.exerciseId !== undefined) {
+      const exercise = await exercisesRepository.findById(data.exerciseId);
+      if (!exercise) {
+        throw new ValidationError(`El ejercicio con ID ${data.exerciseId} no existe en el catálogo.`);
+      }
+    }
+
+    await treatmentsRepository.updateRoutineExercise(Number(routineId), Number(routineExerciseId), data);
+
+    await logAudit({
+      userId: currentUser.id,
+      action: 'ROUTINE_EXERCISE_UPDATED',
+      entityType: 'routine_exercise',
+      entityId: Number(routineExerciseId),
+      details: {
+        routineId: Number(routineId),
+        routineExerciseId: Number(routineExerciseId),
+        updatedFields: Object.keys(data).filter((k) => !['routineId', 'routineExerciseId', 'id'].includes(k))
+      }
+    });
+
+    const detail = await this.getRoutineDetail(Number(routineId), currentUser);
+    return {
+      ...detail,
+      updatedRoutineExerciseId: Number(routineExerciseId)
+    };
+  }
+
+  async deleteRoutineExercise(routineId, routineExerciseId, currentUser) {
+    await this._assertRoutineAccess(routineId, currentUser);
+
+    const existingItem = await treatmentsRepository.findRoutineExerciseById(routineExerciseId);
+    if (!existingItem || Number(existingItem.routine_id) !== Number(routineId)) {
+      throw new NotFoundError('El ejercicio especificado no existe o no pertenece a la rutina indicada');
+    }
+
+    await treatmentsRepository.deleteRoutineExercise(Number(routineId), Number(routineExerciseId));
+
+    await logAudit({
+      userId: currentUser.id,
+      action: 'ROUTINE_EXERCISE_DELETED',
+      entityType: 'routine_exercise',
+      entityId: Number(routineExerciseId),
+      details: {
+        routineId: Number(routineId),
+        routineExerciseId: Number(routineExerciseId),
+        exerciseId: existingItem.exercise_id
+      }
+    });
+
+    const detail = await this.getRoutineDetail(Number(routineId), currentUser);
+    return {
+      ...detail,
+      deletedRoutineExerciseId: Number(routineExerciseId)
+    };
+  }
 }
 
 export const treatmentsService = new TreatmentsService();

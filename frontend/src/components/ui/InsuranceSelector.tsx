@@ -244,28 +244,29 @@ const styles = StyleSheet.create({
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.sm + 2,
-    height: 40,
+    paddingHorizontal: spacing.md,
+    minHeight: 46,
     borderBottomWidth: 1
   },
   searchInput: {
     flex: 1,
-    fontSize: typography.fontSize.sm,
-    paddingVertical: 4
+    fontSize: typography.fontSize.base,
+    paddingVertical: 6
   },
   optionsScroll: {
-    maxHeight: 195
+    maxHeight: 220
   },
   optionItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.md,
+    minHeight: 46,
     paddingVertical: spacing.sm + 2,
     borderBottomWidth: 1
   },
   optionText: {
-    fontSize: typography.fontSize.sm
+    fontSize: typography.fontSize.base
   },
   customInputWrapper: {
     borderRadius: radii.md,

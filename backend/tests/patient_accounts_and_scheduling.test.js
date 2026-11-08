@@ -5,6 +5,19 @@ import jwt from 'jsonwebtoken';
 import { app } from '../src/app.js';
 import { config } from '../src/config/env.js';
 import { getPool } from '../src/config/database.js';
+import { holidayService } from '../src/services/holidayService.js';
+
+let validBookingDate1 = null;
+let validBookingDate2 = null;
+
+async function ensureValidBookingDates() {
+  if (validBookingDate1 && validBookingDate2) return;
+  const cal = await holidayService.getCalendarAvailability({});
+  // Elegimos días disponibles posteriores a hoy dentro de los 14 días corridos
+  const futureAvailable = cal.days.filter((d) => d.available && d.date > cal.minDate);
+  validBookingDate1 = futureAvailable[0]?.date || cal.firstAvailableDate;
+  validBookingDate2 = futureAvailable[1]?.date || futureAvailable[0]?.date || cal.firstAvailableDate;
+}
 
 test.after(async () => {
   const pool = getPool();
@@ -73,14 +86,18 @@ test('1. Recepcionista crea ficha administrativa sin crear cuenta de usuario ni 
 
 test('2. Recepcionista reserva turno para paciente sin cuenta y registra snapshot de precio acordado', async () => {
   assert.ok(createdPatientId, 'Se requiere patientId previo');
+  await ensureValidBookingDates();
 
-  // Limpiar cualquier turno remanente de ejecuciones interrumpidas
+  // Limpiar cualquier turno remanente de ejecuciones interrumpidas en ese horario de prueba
   const cleanPool = getPool();
-  await cleanPool.execute('DELETE FROM appointments WHERE start_time LIKE ?', ['2027-11-10%']);
+  await cleanPool.execute(
+    'DELETE FROM appointments WHERE kinesiologist_id = 2 AND start_time LIKE ?',
+    [`${validBookingDate1} 17:%`]
+  );
 
   // Usamos el servicio 1 (Evaluación Kine Inicial, default_price = 15000.00)
-  const startTime = '2027-11-10T10:00:00.000Z';
-  const endTime = '2027-11-10T11:00:00.000Z';
+  const startTime = `${validBookingDate1} 17:00:00`;
+  const endTime = `${validBookingDate1} 18:00:00`;
 
   const res = await request(app)
     .post('/api/v1/appointments/create')
@@ -207,9 +224,10 @@ test('6. Paciente autenticado solo puede consultar sus propios turnos en el port
 });
 
 test('7. No se pueden reservar horarios incompatibles de forma simultánea (409 Conflict)', async () => {
+  await ensureValidBookingDates();
   // Intentar crear turno en el mismo rango de createdAppointmentId para el mismo kinesiólogo (ID 2)
-  const startTime = '2027-11-10T10:15:00.000Z';
-  const endTime = '2027-11-10T10:45:00.000Z';
+  const startTime = `${validBookingDate1} 17:15:00`;
+  const endTime = `${validBookingDate1} 17:45:00`;
 
   const res = await request(app)
     .post('/api/v1/appointments/create')
@@ -227,6 +245,7 @@ test('7. No se pueden reservar horarios incompatibles de forma simultánea (409 
 });
 
 test('8. Portal del paciente: Consulta de catálogo y cálculo de slots disponibles', async () => {
+  await ensureValidBookingDates();
   const catalogRes = await request(app)
     .post('/api/v1/patient-portal/catalog')
     .set('Authorization', `Bearer ${patientAuthToken}`)
@@ -244,7 +263,7 @@ test('8. Portal del paciente: Consulta de catálogo y cálculo de slots disponib
     .send({
       kinesiologistId: 2,
       serviceId: 1,
-      date: '2027-11-11'
+      date: validBookingDate2
     });
 
   assert.strictEqual(slotsRes.status, 200);
@@ -300,8 +319,15 @@ test('9. Cancelación de turno por paciente respeta reglas y no permite cancelar
 });
 
 test('10. Solicitud de reprogramación registra estado pending y mantiene intacto el turno original', async () => {
-  const newStart = '2027-11-12T15:00:00.000Z';
-  const newEnd = '2027-11-12T16:00:00.000Z';
+  await ensureValidBookingDates();
+  const cleanPool = getPool();
+  await cleanPool.execute(
+    'DELETE FROM appointments WHERE kinesiologist_id = 2 AND start_time LIKE ? AND id != ?',
+    [`${validBookingDate2} 16:%`, createdAppointmentId]
+  );
+
+  const newStart = `${validBookingDate2} 16:00:00`;
+  const newEnd = `${validBookingDate2} 17:00:00`;
 
   const res = await request(app)
     .post('/api/v1/patient-portal/request-reschedule')
@@ -320,16 +346,14 @@ test('10. Solicitud de reprogramación registra estado pending y mantiene intact
   // Verificar que el turno original mantiene su horario anterior
   const pool = getPool();
   const [rows] = await pool.execute(
-    'SELECT start_time FROM appointments WHERE id = ?',
+    'SELECT DATE_FORMAT(start_time, "%Y-%m-%d") AS date_str FROM appointments WHERE id = ?',
     [createdAppointmentId]
   );
-  const origDate = new Date(rows[0].start_time);
-  assert.strictEqual(origDate.getFullYear(), 2027);
-  assert.strictEqual(origDate.getMonth(), 10);
-  assert.strictEqual(origDate.getDate(), 10);
+  assert.strictEqual(rows[0].date_str, validBookingDate1);
 });
 
 test('11. Personal autorizado (Recepcionista) aprueba reprogramación y actualiza el turno de forma atómica', async () => {
+  await ensureValidBookingDates();
   // Buscar la solicitud pendiente
   const listRes = await request(app)
     .post('/api/v1/appointments/reschedule-requests')
@@ -358,13 +382,10 @@ test('11. Personal autorizado (Recepcionista) aprueba reprogramación y actualiz
   // Verificar que el turno original ahora tiene el nuevo horario
   const pool = getPool();
   const [rows] = await pool.execute(
-    'SELECT start_time FROM appointments WHERE id = ?',
+    'SELECT DATE_FORMAT(start_time, "%Y-%m-%d") AS date_str FROM appointments WHERE id = ?',
     [createdAppointmentId]
   );
-  const updatedDate = new Date(rows[0].start_time);
-  assert.strictEqual(updatedDate.getFullYear(), 2027);
-  assert.strictEqual(updatedDate.getMonth(), 10); // Noviembre
-  assert.strictEqual(updatedDate.getDate(), 12);
+  assert.strictEqual(rows[0].date_str, validBookingDate2);
 });
 
 test('12. Pacientes no pueden acceder a endpoints administrativos o clínicos del personal (403 Forbidden)', async () => {

@@ -40,27 +40,32 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: spacing.sm,
     marginBottom: spacing.lg,
     paddingBottom: spacing.sm
   },
   textContainer: {
     flex: 1,
+    minWidth: 180,
     paddingRight: spacing.md
   },
   title: {
-    fontSize: typography.fontSize.xl,
+    fontSize: typography.fontSize.xxl,
     fontWeight: typography.fontWeight.bold,
     letterSpacing: -0.3
   },
   subtitle: {
-    fontSize: typography.fontSize.sm,
-    marginTop: 2,
-    lineHeight: typography.fontSize.sm * typography.lineHeight.normal
+    fontSize: typography.fontSize.base,
+    marginTop: 4,
+    lineHeight: typography.fontSize.base * typography.lineHeight.normal
   },
   actionContainer: {
     flexDirection: 'row',
-    alignItems: 'center'
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.xs
   }
 });

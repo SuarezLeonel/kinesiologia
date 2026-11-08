@@ -76,8 +76,8 @@ export const Badge: React.FC<BadgeProps> = ({
         {
           backgroundColor: v.bg,
           borderColor: v.border,
-          paddingHorizontal: isSm ? spacing.xs + 2 : spacing.sm + 2,
-          paddingVertical: isSm ? 2 : spacing.xs
+          paddingHorizontal: isSm ? spacing.sm : spacing.md,
+          paddingVertical: isSm ? 4 : 6
         },
         style
       ]}
@@ -106,8 +106,7 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   text: {
-    fontWeight: typography.fontWeight.semibold,
-    letterSpacing: 0.3,
-    textTransform: 'uppercase'
+    fontWeight: typography.fontWeight.bold,
+    letterSpacing: 0.2
   }
 });

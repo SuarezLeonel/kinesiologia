@@ -26,12 +26,12 @@ import { spacing, radii } from '../theme/tokens';
 import { DateInput, InsuranceSelector, SocialAuthButtons } from '../components/ui';
 
 const registerSchema = z.object({
-  firstName: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
-  lastName: z.string().min(2, 'El apellido debe tener al menos 2 caracteres'),
-  email: z.string().email('Ingrese un correo electrónico válido'),
-  password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
-  phone: z.string().min(6, 'Ingrese un teléfono de contacto válido').optional().or(z.literal('')),
-  dni: z.string().max(20, 'Máximo 20 caracteres').optional().or(z.literal('')),
+  firstName: z.string().min(2, 'Completá este campo.'),
+  lastName: z.string().min(2, 'Completá este campo.'),
+  email: z.string().email('Ingresá un correo válido.'),
+  password: z.string().min(8, 'Mínimo 8 caracteres.'),
+  phone: z.string().min(6, 'Ingresá un teléfono válido.').optional().or(z.literal('')),
+  dni: z.string().max(20, 'Máximo 20 caracteres.').optional().or(z.literal('')),
   birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato inválido (AAAA-MM-DD)').optional().or(z.literal('')),
   insuranceProvider: z.string().default('Particular'),
   customInsuranceProvider: z.string().optional(),
@@ -144,17 +144,11 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
           <Text style={styles.brandTitle}>
             Portal del <Text style={styles.brandTitleAccent}>Paciente</Text>
           </Text>
-          <Text style={styles.brandSubtitle}>
-            Creá tu cuenta personal para reservar y gestionar tus turnos de kinesiología
-          </Text>
         </View>
 
         {/* Tarjeta de Registro Principal */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Registro de Paciente</Text>
-          <Text style={styles.cardSubtitle}>
-            Completá tus datos para activar tu acceso personal
-          </Text>
+          <Text style={[styles.cardTitle, { marginBottom: 14 }]}>Crear cuenta</Text>
 
           {/* Banner Informativo de Vinculación Automática */}
           <View style={styles.infoBanner}>
@@ -165,7 +159,7 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
               style={{ marginRight: 10 }}
             />
             <Text style={styles.infoBannerText}>
-              Si te atendiste previamente en el consultorio, ingresá tu mismo email o DNI para vincular automáticamente tus turnos.
+              Usá el mismo email o DNI con el que te atendiste en el consultorio para vincular tus turnos.
             </Text>
           </View>
 
@@ -208,7 +202,7 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
                       <TextInput
                         style={styles.textInputField}
                         placeholder="Juan"
-                        placeholderTextColor="#4D6357"
+                        placeholderTextColor="#8FA89B"
                         value={value}
                         onChangeText={onChange}
                         onFocus={() => setFocusedField('firstName')}
@@ -251,7 +245,7 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
                       <TextInput
                         style={styles.textInputField}
                         placeholder="Pérez"
-                        placeholderTextColor="#4D6357"
+                        placeholderTextColor="#8FA89B"
                         value={value}
                         onChangeText={onChange}
                         onFocus={() => setFocusedField('lastName')}
@@ -295,7 +289,7 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
                   <TextInput
                     style={styles.textInputField}
                     placeholder="juan.perez@example.com"
-                    placeholderTextColor="#4D6357"
+                    placeholderTextColor="#8FA89B"
                     value={value}
                     onChangeText={onChange}
                     onFocus={() => setFocusedField('email')}
@@ -340,7 +334,7 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
                   <TextInput
                     style={styles.textInputField}
                     placeholder="Mínimo 8 caracteres"
-                    placeholderTextColor="#4D6357"
+                    placeholderTextColor="#8FA89B"
                     value={value}
                     onChangeText={onChange}
                     onFocus={() => setFocusedField('password')}
@@ -396,7 +390,7 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
                       <TextInput
                         style={styles.textInputField}
                         placeholder="12345678"
-                        placeholderTextColor="#4D6357"
+                        placeholderTextColor="#8FA89B"
                         value={value}
                         onChangeText={onChange}
                         onFocus={() => setFocusedField('dni')}
@@ -438,7 +432,7 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
                       <TextInput
                         style={styles.textInputField}
                         placeholder="+54 9 11..."
-                        placeholderTextColor="#4D6357"
+                        placeholderTextColor="#8FA89B"
                         value={value}
                         onChangeText={onChange}
                         onFocus={() => setFocusedField('phone')}
@@ -535,7 +529,7 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
               <ActivityIndicator size="small" color="#0E241A" />
             ) : (
               <>
-                <Text style={styles.submitButtonText}>Crear mi cuenta de Paciente</Text>
+                <Text style={styles.submitButtonText}>Crear cuenta</Text>
                 <MaterialIcons name="arrow-forward" size={18} color="#0E241A" style={{ marginLeft: 6 }} />
               </>
             )}
@@ -567,7 +561,12 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
           {/* Pie: ¿Ya tenés cuenta? */}
           <View style={styles.footerRow}>
             <Text style={styles.footerText}>¿Ya tenés una cuenta? </Text>
-            <TouchableOpacity onPress={() => navigation?.navigate('Login')}>
+            <TouchableOpacity
+              onPress={() => navigation?.navigate('Login')}
+              style={styles.footerLinkBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Iniciá sesión aquí"
+            >
               <Text style={styles.linkText}>Iniciá sesión aquí</Text>
             </TouchableOpacity>
           </View>
@@ -633,15 +632,15 @@ const styles = StyleSheet.create({
   },
   brandContainer: {
     alignItems: 'center',
-    marginBottom: 16
+    marginBottom: 18
   },
   logoCard: {
-    width: 86,
-    height: 86,
+    width: 88,
+    height: 88,
     borderRadius: 22,
     backgroundColor: '#13281E',
     borderWidth: 1.5,
-    borderColor: '#224C39',
+    borderColor: '#2E5B45',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 14,
@@ -656,32 +655,32 @@ const styles = StyleSheet.create({
     height: 72
   },
   brandTitle: {
-    fontSize: 26,
+    fontSize: 30,
     fontWeight: '700',
     color: '#FFFFFF',
     letterSpacing: -0.3,
     textAlign: 'center'
   },
   brandTitleAccent: {
-    color: '#56B988'
+    color: '#6CE0A6'
   },
   brandSubtitle: {
-    fontSize: 13,
-    color: '#7E978A',
+    fontSize: 18,
+    color: '#B2C9BC',
     marginTop: 4,
     textAlign: 'center',
-    maxWidth: 420,
-    lineHeight: 18
+    maxWidth: 440,
+    lineHeight: 24
   },
   card: {
     width: '100%',
-    maxWidth: 520,
+    maxWidth: 560,
     backgroundColor: '#102019',
-    borderWidth: 1,
-    borderColor: '#1B3528',
+    borderWidth: 1.5,
+    borderColor: '#244535',
     borderRadius: 20,
-    paddingHorizontal: 22,
-    paddingVertical: 24,
+    paddingHorizontal: 24,
+    paddingVertical: 26,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.3,
@@ -689,92 +688,95 @@ const styles = StyleSheet.create({
     elevation: 6
   },
   cardTitle: {
-    fontSize: 22,
+    fontSize: 26,
     fontWeight: '700',
     color: '#FFFFFF',
-    marginBottom: 4
+    marginBottom: 6
   },
   cardSubtitle: {
-    fontSize: 13,
-    color: '#7E978A',
+    fontSize: 18,
+    color: '#B2C9BC',
     marginBottom: 16
   },
   infoBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(88, 185, 136, 0.08)',
-    borderWidth: 1,
-    borderColor: '#1F3D2F',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 16
+    backgroundColor: 'rgba(108, 224, 166, 0.12)',
+    borderWidth: 1.5,
+    borderColor: '#2E5B45',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 18
   },
   infoBannerText: {
     flex: 1,
-    fontSize: 12,
-    lineHeight: 18,
-    color: '#8EA89B'
+    fontSize: 16,
+    lineHeight: 22,
+    color: '#D5E5DC'
   },
   errorBanner: {
     padding: spacing.md,
     borderRadius: radii.md,
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.4)',
+    backgroundColor: 'rgba(239, 68, 68, 0.18)',
+    borderWidth: 1.5,
+    borderColor: '#F87171',
     marginBottom: 16
   },
   errorBannerText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#EF4444'
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FCA5A5',
+    lineHeight: 22
   },
   successBanner: {
     padding: spacing.md,
     borderRadius: radii.md,
-    backgroundColor: 'rgba(88, 185, 136, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(88, 185, 136, 0.4)',
+    backgroundColor: 'rgba(108, 224, 166, 0.18)',
+    borderWidth: 1.5,
+    borderColor: '#6CE0A6',
     marginBottom: 16
   },
   successBannerText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#56B988'
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#A7F3D0'
   },
   row: {
     flexDirection: Platform.OS === 'web' ? 'row' : 'column',
-    gap: Platform.OS === 'web' ? 12 : 0
+    gap: Platform.OS === 'web' ? 14 : 0
   },
   col: {
     flex: 1
   },
   fieldGroup: {
-    marginBottom: 14
+    marginBottom: 16
   },
   fieldLabel: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#D0DED5',
-    marginBottom: 6
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#E6F0EA',
+    marginBottom: 8
   },
   requiredAsterisk: {
-    color: '#E05252'
+    color: '#F87171'
   },
   inputBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 48,
-    backgroundColor: '#15261F',
-    borderWidth: 1,
-    borderColor: '#1F382B',
-    borderRadius: 10,
-    paddingHorizontal: 12
+    minHeight: 52,
+    backgroundColor: '#152820',
+    borderWidth: 1.5,
+    borderColor: '#2E5240',
+    borderRadius: 12,
+    paddingHorizontal: 14
   },
   inputBoxFocused: {
-    borderColor: '#58B988'
+    borderColor: '#6CE0A6',
+    borderWidth: 2
   },
   inputBoxError: {
-    borderColor: '#EF4444'
+    borderColor: '#F87171',
+    borderWidth: 2
   },
   inputLeftIcon: {
     marginRight: 10
@@ -782,29 +784,32 @@ const styles = StyleSheet.create({
   textInputField: {
     flex: 1,
     color: '#FFFFFF',
-    fontSize: 14,
-    height: 48,
-    paddingVertical: 0
+    fontSize: 18,
+    minHeight: 52,
+    paddingVertical: 8
   },
   eyeIconButton: {
-    padding: 6,
+    minWidth: 44,
+    minHeight: 48,
     justifyContent: 'center',
     alignItems: 'center'
   },
   fieldErrorText: {
-    fontSize: 11,
-    color: '#EF4444',
-    marginTop: 4,
-    fontWeight: '500'
+    fontSize: 15,
+    color: '#FCA5A5',
+    marginTop: 6,
+    fontWeight: '600'
   },
   submitButton: {
-    height: 50,
-    backgroundColor: '#72BA97',
-    borderRadius: 10,
+    minHeight: 54,
+    backgroundColor: '#6CE0A6',
+    borderRadius: 12,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    marginTop: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
@@ -812,8 +817,8 @@ const styles = StyleSheet.create({
     elevation: 3
   },
   submitButtonText: {
-    color: '#0E241A',
-    fontSize: 15,
+    color: '#0A1B12',
+    fontSize: 18,
     fontWeight: '700'
   },
   dividerRow: {
@@ -824,27 +829,33 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#1B3326'
+    backgroundColor: '#244535'
   },
   dividerText: {
-    marginHorizontal: 10,
-    fontSize: 12,
-    color: '#657D70'
+    marginHorizontal: 12,
+    fontSize: 15,
+    color: '#9CB5A7'
   },
   footerRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 18,
     paddingTop: 8
   },
   footerText: {
-    fontSize: 13,
-    color: '#7E978A'
+    fontSize: 17,
+    color: '#B2C9BC'
+  },
+  footerLinkBtn: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 4
   },
   linkText: {
-    fontSize: 13,
+    fontSize: 17,
     fontWeight: '700',
-    color: '#58B988'
+    color: '#6CE0A6'
   }
 });

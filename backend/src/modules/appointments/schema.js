@@ -90,9 +90,39 @@ export const appointmentUpdateSchema = z.object({
   body: z.object({
     status: z.enum(['pending', 'confirmed', 'attended', 'cancelled', 'absent']).optional(),
     startTime: z.string().optional(),
+    start_time: z.string().optional(),
+    scheduled_at: z.string().optional(),
     endTime: z.string().optional(),
+    end_time: z.string().optional(),
     notes: z.string().optional(),
     reason: z.string().optional()
+  }).transform((val) => ({
+    ...val,
+    startTime: val.startTime || val.start_time || val.scheduled_at,
+    endTime: val.endTime || val.end_time
+  }))
+});
+
+export const holidayConfigureSchema = z.object({
+  body: z.object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha AAAA-MM-DD requerido'),
+    name: z.string().min(2, 'Nombre del feriado o día no laborable requerido'),
+    holidayType: z.string().optional().default('no_laborable'),
+    scope: z.enum(['national', 'provincial', 'municipal', 'clinic']).optional().default('clinic'),
+    jurisdiction: z.string().optional().default('Consultorio'),
+    isOptional: z.boolean().optional().default(true),
+    isClosed: z.boolean().optional().default(true)
+  })
+});
+
+export const holidayToggleOptionalSchema = z.object({
+  body: z.object({
+    id: z.coerce.number().int().positive().optional(),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    scope: z.enum(['national', 'provincial', 'municipal', 'clinic']).optional(),
+    isClosed: z.boolean()
+  }).refine((val) => Boolean(val.id || val.date), {
+    message: 'Se requiere ID o fecha del día no laborable a configurar'
   })
 });
 

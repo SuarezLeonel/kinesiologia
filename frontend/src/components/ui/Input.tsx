@@ -69,7 +69,7 @@ export const Input: React.FC<InputProps> = ({
         <View style={styles.labelRow}>
           <Text style={[styles.label, { color: theme.text }]}>
             {label}
-            {required && <Text style={{ color: theme.error }}> *</Text>}
+            {required && <Text style={{ color: theme.error, fontWeight: '700' }}> *</Text>}
           </Text>
         </View>
       )}
@@ -80,18 +80,20 @@ export const Input: React.FC<InputProps> = ({
           {
             backgroundColor: theme.surface,
             borderColor,
-            minHeight: multiline ? (numberOfLines ? numberOfLines * 24 + 16 : 80) : controlHeights.md
+            borderWidth: isFocused || error ? 2 : 1.5,
+            minHeight: multiline ? (numberOfLines ? numberOfLines * 26 + 20 : 88) : controlHeights.md
           }
         ]}
       >
         <TextInput
+          accessibilityLabel={label || rest.placeholder}
           style={[
             styles.input,
             {
               color: theme.text,
-              height: multiline ? (numberOfLines ? numberOfLines * 24 + 16 : 80) : controlHeights.md,
+              minHeight: multiline ? (numberOfLines ? numberOfLines * 26 + 20 : 88) : controlHeights.md,
               textAlignVertical: multiline ? 'top' : 'center',
-              paddingTop: multiline ? spacing.sm + 2 : undefined
+              paddingVertical: multiline ? spacing.sm + 2 : spacing.xs + 2
             },
             style
           ]}
@@ -113,7 +115,7 @@ export const Input: React.FC<InputProps> = ({
           >
             <MaterialIcons
               name={showPassword ? 'visibility-off' : 'visibility'}
-              size={20}
+              size={22}
               color={theme.textSecondary}
             />
           </TouchableOpacity>
@@ -123,7 +125,10 @@ export const Input: React.FC<InputProps> = ({
       </View>
 
       {error ? (
-        <Text style={[styles.errorText, { color: theme.error }]}>{error}</Text>
+        <View style={styles.errorRow}>
+          <MaterialIcons name="error-outline" size={16} color={theme.error} />
+          <Text style={[styles.errorText, { color: theme.error }]}>{error}</Text>
+        </View>
       ) : helperText ? (
         <Text style={[styles.helperText, { color: theme.textSecondary }]}>{helperText}</Text>
       ) : null}
@@ -133,21 +138,20 @@ export const Input: React.FC<InputProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: spacing.md
+    marginBottom: spacing.md + 2
   },
   labelRow: {
     marginBottom: spacing.xs + 2
   },
   label: {
     fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.medium,
+    fontWeight: typography.fontWeight.semibold,
     letterSpacing: 0.1
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: radii.md,
-    borderWidth: 1,
     overflow: 'hidden'
   },
   input: {
@@ -157,17 +161,25 @@ const styles = StyleSheet.create({
   },
   iconButton: {
     paddingHorizontal: spacing.md,
-    height: controlHeights.md,
+    minWidth: 44,
+    minHeight: controlHeights.md,
     justifyContent: 'center',
     alignItems: 'center'
   },
+  errorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: spacing.xs + 2
+  },
   errorText: {
+    flex: 1,
     fontSize: typography.fontSize.xs,
-    marginTop: spacing.xs,
-    fontWeight: typography.fontWeight.medium
+    fontWeight: typography.fontWeight.semibold
   },
   helperText: {
     fontSize: typography.fontSize.xs,
-    marginTop: spacing.xs
+    marginTop: spacing.xs + 2,
+    lineHeight: 20
   }
 });

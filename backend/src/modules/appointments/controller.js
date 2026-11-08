@@ -93,6 +93,42 @@ export class AppointmentsController {
       next(error);
     }
   }
+
+  async getCalendarAvailability(req, res, next) {
+    try {
+      const availability = await appointmentsService.getCalendarAvailability(req.body || {});
+      return sendSuccess(res, availability);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async listHolidays(req, res, next) {
+    try {
+      const holidays = await appointmentsService.listHolidays(req.body || {});
+      return sendSuccess(res, holidays);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async configureHoliday(req, res, next) {
+    try {
+      const configured = await appointmentsService.configureHoliday(req.body, req.user);
+      return sendSuccess(res, configured, 'Feriado o día no laborable configurado con éxito', 201);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async toggleOptionalHoliday(req, res, next) {
+    try {
+      const updated = await appointmentsService.updateOptionalDayStatus(req.body, req.user);
+      return sendSuccess(res, updated, 'Estado de día no laborable actualizado');
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const appointmentsController = new AppointmentsController();

@@ -43,6 +43,15 @@ export class PatientPortalController {
     }
   }
 
+  async calendarAvailability(req, res, next) {
+    try {
+      const availability = await patientPortalService.calendarAvailability(req.body || {});
+      return sendSuccess(res, availability);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async bookAppointment(req, res, next) {
     try {
       const created = await patientPortalService.bookAppointment(req.body, req.user.id);

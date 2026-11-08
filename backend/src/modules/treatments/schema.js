@@ -127,6 +127,8 @@ export const measurementSearchSchema = z.object({
 
 export const routineExerciseItemSchema = z.object({
   exerciseId: z.coerce.number().int().positive('ID de ejercicio requerido'),
+  name: z.string().trim().min(2, 'El nombre del ejercicio debe tener al menos 2 caracteres').max(150).optional().nullable(),
+  customName: z.string().trim().min(2, 'El nombre del ejercicio debe tener al menos 2 caracteres').max(150).optional().nullable(),
   sets: z.coerce.number().int().positive('Series debe ser mayor a 0').optional().nullable().default(3),
   repetitions: z.coerce.number().int().positive('Repeticiones debe ser mayor a 0').optional().nullable().default(10),
   durationSeconds: z.coerce.number().int().positive('Duración debe ser en segundos').optional().nullable(),
@@ -137,6 +139,101 @@ export const routineExerciseItemSchema = z.object({
   customInstructions: z.string().optional().nullable(),
   executionOrder: z.coerce.number().int().positive().default(1)
 });
+
+export const routineExerciseAddSchema = z
+  .object({
+    params: z
+      .object({
+        routineId: z.coerce.number().int().positive().optional()
+      })
+      .optional(),
+    body: z.object({
+      routineId: z.coerce.number().int().positive('ID de rutina requerido').optional(),
+      exerciseId: z.coerce.number().int().positive('ID de ejercicio requerido'),
+      name: z.string().trim().min(2, 'El nombre del ejercicio debe tener al menos 2 caracteres').max(150).optional().nullable(),
+      customName: z.string().trim().min(2, 'El nombre del ejercicio debe tener al menos 2 caracteres').max(150).optional().nullable(),
+      sets: z.coerce.number().int().positive('Series debe ser mayor a 0').default(3),
+      repetitions: z.coerce.number().int().positive('Repeticiones debe ser mayor a 0').default(10),
+      durationSeconds: z.coerce.number().int().positive('El tiempo de ejecución debe ser mayor a 0').optional().nullable(),
+      restSeconds: z.coerce.number().int().nonnegative('El descanso debe ser 0 o mayor').default(60),
+      weeklyFrequency: z.string().trim().min(1).max(100).optional().nullable().default('3 veces por semana'),
+      bodySide: z.enum(['Bilateral', 'Izquierdo', 'Derecho', 'No aplica']).default('Bilateral'),
+      resistanceLoad: z.string().trim().max(120).optional().nullable(),
+      customInstructions: z.string().trim().optional().nullable(),
+      executionOrder: z.coerce.number().int().positive('El orden de ejecución debe ser mayor a 0').optional()
+    })
+  })
+  .refine((data) => Boolean(data.params?.routineId || data.body?.routineId), {
+    message: 'ID de rutina requerido',
+    path: ['body', 'routineId']
+  });
+
+export const routineExerciseUpdateSchema = z
+  .object({
+    params: z
+      .object({
+        routineId: z.coerce.number().int().positive().optional(),
+        routineExerciseId: z.coerce.number().int().positive().optional()
+      })
+      .optional(),
+    body: z.object({
+      routineId: z.coerce.number().int().positive('ID de rutina requerido').optional(),
+      routineExerciseId: z.coerce.number().int().positive('ID de ejercicio de rutina requerido').optional(),
+      id: z.coerce.number().int().positive().optional(),
+      exerciseId: z.coerce.number().int().positive('ID de ejercicio inválido').optional(),
+      name: z.string().trim().min(2, 'El nombre del ejercicio debe tener al menos 2 caracteres').max(150).optional().nullable(),
+      customName: z.string().trim().min(2, 'El nombre del ejercicio debe tener al menos 2 caracteres').max(150).optional().nullable(),
+      sets: z.coerce.number().int().positive('Series debe ser mayor a 0').optional(),
+      repetitions: z.coerce.number().int().positive('Repeticiones debe ser mayor a 0').optional(),
+      durationSeconds: z.coerce.number().int().positive('El tiempo de ejecución debe ser mayor a 0').optional().nullable(),
+      restSeconds: z.coerce.number().int().nonnegative('El descanso debe ser 0 o mayor').optional(),
+      weeklyFrequency: z.string().trim().min(1).max(100).optional().nullable(),
+      bodySide: z.enum(['Bilateral', 'Izquierdo', 'Derecho', 'No aplica']).optional(),
+      resistanceLoad: z.string().trim().max(120).optional().nullable(),
+      customInstructions: z.string().trim().optional().nullable(),
+      executionOrder: z.coerce.number().int().positive('El orden de ejecución debe ser mayor a 0').optional()
+    })
+  })
+  .refine((data) => Boolean(data.params?.routineId || data.body?.routineId), {
+    message: 'ID de rutina requerido',
+    path: ['body', 'routineId']
+  })
+  .refine(
+    (data) => Boolean(data.params?.routineExerciseId || data.body?.routineExerciseId || data.body?.id),
+    {
+      message: 'ID del ejercicio en la rutina requerido',
+      path: ['body', 'routineExerciseId']
+    }
+  );
+
+export const routineExerciseDeleteSchema = z
+  .object({
+    params: z
+      .object({
+        routineId: z.coerce.number().int().positive().optional(),
+        routineExerciseId: z.coerce.number().int().positive().optional()
+      })
+      .optional(),
+    body: z
+      .object({
+        routineId: z.coerce.number().int().positive('ID de rutina requerido').optional(),
+        routineExerciseId: z.coerce.number().int().positive('ID de ejercicio de rutina requerido').optional(),
+        id: z.coerce.number().int().positive().optional()
+      })
+      .optional()
+      .default({})
+  })
+  .refine((data) => Boolean(data.params?.routineId || data.body?.routineId), {
+    message: 'ID de rutina requerido',
+    path: ['body', 'routineId']
+  })
+  .refine(
+    (data) => Boolean(data.params?.routineExerciseId || data.body?.routineExerciseId || data.body?.id),
+    {
+      message: 'ID del ejercicio en la rutina requerido',
+      path: ['body', 'routineExerciseId']
+    }
+  );
 
 export const routineSearchSchema = z.object({
   body: z.object({

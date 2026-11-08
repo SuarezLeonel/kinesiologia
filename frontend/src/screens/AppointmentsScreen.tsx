@@ -19,17 +19,25 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { MaterialIcons } from '@expo/vector-icons';
 import { apiClient } from '../api/client';
+import { useDataSync } from '../context/DataSyncContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { spacing, radii, typography } from '../theme/tokens';
 import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper, BadgeVariant, DateInput } from '../components/ui';
 import { LoadingState, ErrorState } from '../components/FeedbackStates';
+import {
+  fetchBookingCalendarAvailability,
+  evaluateDateClient,
+  getBookingWindow,
+  invalidateBookingCalendarCache,
+  CalendarDayStatus
+} from '../utils/bookingCalendar';
 
 const appointmentSchema = z.object({
-  patient_id: z.coerce.number().positive('Debe seleccionar un paciente'),
-  kinesiologist_id: z.coerce.number().positive('Debe seleccionar un profesional'),
+  patient_id: z.coerce.number().positive('Seleccioná un paciente.'),
+  kinesiologist_id: z.coerce.number().positive('Seleccioná un profesional.'),
   service_id: z.coerce.number().positive().default(1),
-  scheduled_at: z.string().min(10, 'Ingrese fecha y hora (AAAA-MM-DD HH:MM:SS)'),
-  duration_minutes: z.coerce.number().min(15, 'Mínimo 15 minutos').max(180, 'Máximo 180 minutos'),
+  scheduled_at: z.string().min(10, 'Seleccioná fecha y hora.'),
+  duration_minutes: z.coerce.number().min(15, 'Mínimo 15 min.').max(180, 'Máximo 180 min.'),
   reason: z.string().optional()
 });
 
@@ -81,6 +89,7 @@ function getAppointmentTimeStr(item: any): string {
 
 export const AppointmentsScreen = () => {
   const { theme } = useAppTheme();
+  const { scopeVersions } = useDataSync();
   const [appointments, setAppointments] = useState<any[]>([]);
   const [patients, setPatients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -90,6 +99,7 @@ export const AppointmentsScreen = () => {
   const [formError, setFormError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [updatingId, setUpdatingId] = useState<number | null>(null);
+  const [confirmCancelApptId, setConfirmCancelApptId] = useState<number | null>(null);
   const [currentWeekMonday, setCurrentWeekMonday] = useState<Date>(() => getMonday(new Date()));
 
   // Estado para el selector desplegable de pacientes
@@ -99,6 +109,19 @@ export const AppointmentsScreen = () => {
   const [apptTime, setApptTime] = useState<string>('10:00');
   const [availableSlots, setAvailableSlots] = useState<any[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
+
+  // Ventana de reserva (hoy a hoy + 14 días calendario) y feriados
+  const defaultWindow = useMemo(() => getBookingWindow(), []);
+  const [bookingMinDate, setBookingMinDate] = useState<string>(defaultWindow.minDate);
+  const [bookingMaxDate, setBookingMaxDate] = useState<string>(defaultWindow.maxDate);
+  const [firstAvailableDate, setFirstAvailableDate] = useState<string>(defaultWindow.minDate);
+  const [calendarByDate, setCalendarByDate] = useState<Record<string, CalendarDayStatus>>({});
+
+  // Modal de feriados y días no laborables opcionales
+  const [holidaysModalVisible, setHolidaysModalVisible] = useState(false);
+  const [holidaysList, setHolidaysList] = useState<any[]>([]);
+  const [togglingHolidayDate, setTogglingHolidayDate] = useState<string | null>(null);
+  const [holidayError, setHolidayError] = useState<string | null>(null);
 
   const {
     control,
@@ -135,9 +158,58 @@ export const AppointmentsScreen = () => {
     });
   }, [patients, patientSearch]);
 
-  const fetchAppointments = async () => {
+  const loadCalendarAndHolidays = async (forceRefresh = false) => {
     try {
-      setError(null);
+      const cal = await fetchBookingCalendarAvailability('staff', forceRefresh);
+      setBookingMinDate(cal.minDate);
+      setBookingMaxDate(cal.maxDate);
+      setFirstAvailableDate(cal.firstAvailableDate);
+      setCalendarByDate(cal.byDate);
+    } catch {
+      // Fallback en bookingCalendar
+    }
+  };
+
+  const fetchHolidaysForYear = async (year = new Date().getFullYear()) => {
+    try {
+      setHolidayError(null);
+      const res = await apiClient.post('/appointments/holidays/search', { year });
+      if (res.data?.success) {
+        const payload = res.data.data;
+        setHolidaysList(Array.isArray(payload) ? payload : payload?.holidays || []);
+      }
+    } catch (err: any) {
+      setHolidayError(err.response?.data?.error?.message || 'Error al consultar feriados');
+    }
+  };
+
+  const handleToggleOptionalHoliday = async (dateStr: string, nextClosed: boolean) => {
+    try {
+      setTogglingHolidayDate(dateStr);
+      setHolidayError(null);
+      const res = await apiClient.post('/appointments/holidays/toggle-optional', {
+        date: dateStr,
+        isClosed: nextClosed
+      });
+      if (res.data?.success) {
+        invalidateBookingCalendarCache();
+        await Promise.all([loadCalendarAndHolidays(true), fetchHolidaysForYear()]);
+        if (modalVisible && apptDate === dateStr) {
+          fetchAgendaSlots(dateStr);
+        }
+      }
+    } catch (err: any) {
+      setHolidayError(err.response?.data?.error?.message || 'No se pudo actualizar el día no laborable');
+    } finally {
+      setTogglingHolidayDate(null);
+    }
+  };
+
+  const fetchAppointments = async (silent = false) => {
+    try {
+      if (!silent) {
+        setError(null);
+      }
       // REGLA HTTP ESTRICTA: POST para consultas
       const response = await apiClient.post('/appointments/search', {
         page: 1,
@@ -145,9 +217,12 @@ export const AppointmentsScreen = () => {
       });
       if (response.data?.success) {
         setAppointments(response.data.data);
+        setError(null);
       }
     } catch (err: any) {
-      setError(err.response?.data?.error?.message || 'Error al obtener la agenda de turnos');
+      if (!silent || appointments.length === 0) {
+        setError(err.response?.data?.error?.message || 'Error al obtener la agenda de turnos');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -168,12 +243,34 @@ export const AppointmentsScreen = () => {
   };
 
   useEffect(() => {
-    fetchAppointments();
+    fetchAppointments(false);
     fetchPatientsList();
+    loadCalendarAndHolidays(false);
   }, []);
 
-  const fetchAgendaSlots = async (dateStr: string) => {
+  useEffect(() => {
+    if (
+      scopeVersions.appointments > 0 ||
+      scopeVersions.patients > 0 ||
+      scopeVersions.services > 0
+    ) {
+      fetchAppointments(true);
+      fetchPatientsList();
+      loadCalendarAndHolidays(true);
+    }
+  }, [scopeVersions.appointments, scopeVersions.patients, scopeVersions.services]);
+
+  const fetchAgendaSlots = async (dateStr: string, customMap?: Record<string, CalendarDayStatus>) => {
     if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return;
+    const mapToUse = customMap || calendarByDate;
+    const evalResult = evaluateDateClient(dateStr, mapToUse, bookingMinDate, bookingMaxDate);
+    if (evalResult.disabled) {
+      setAvailableSlots([]);
+      setApptTime('');
+      setFormError(evalResult.reason || 'El consultorio permanece cerrado en la fecha seleccionada.');
+      return;
+    }
+
     setLoadingSlots(true);
     setFormError(null);
     try {
@@ -189,9 +286,18 @@ export const AppointmentsScreen = () => {
           const firstTime = list[0].time || list[0].timeLabel || '10:00';
           setApptTime(firstTime);
           setValue('scheduled_at', `${dateStr} ${firstTime}:00`, { shouldValidate: true });
+        } else {
+          setApptTime('');
         }
       }
     } catch {
+      const recheck = evaluateDateClient(dateStr, mapToUse, bookingMinDate, bookingMaxDate);
+      if (recheck.disabled) {
+        setAvailableSlots([]);
+        setApptTime('');
+        setFormError(recheck.reason || 'Fecha no laborable');
+        return;
+      }
       const fallback = Array.from({ length: 11 }, (_, i) => {
         const timeStr = `${String(8 + i).padStart(2, '0')}:00`;
         return { startTime: `${dateStr} ${timeStr}:00`, time: timeStr, timeLabel: timeStr, available: true };
@@ -204,12 +310,17 @@ export const AppointmentsScreen = () => {
     }
   };
 
-  const openCreateModal = (targetDateStr?: string) => {
+  const openCreateModal = async (targetDateStr?: string) => {
     setFormError(null);
     fetchPatientsList();
+    const cal = await fetchBookingCalendarAvailability('staff');
+    setBookingMinDate(cal.minDate);
+    setBookingMaxDate(cal.maxDate);
+    setFirstAvailableDate(cal.firstAvailableDate);
+    setCalendarByDate(cal.byDate);
+
     const defaultPid = patients.length > 0 ? patients[0].id : 0;
-    const tomorrow = formatDateISO(new Date(Date.now() + 86400000));
-    const initialDate = targetDateStr || tomorrow;
+    const initialDate = targetDateStr || cal.firstAvailableDate;
     setApptDate(initialDate);
     setApptTime('10:00');
     reset({
@@ -223,7 +334,7 @@ export const AppointmentsScreen = () => {
     setShowPatientPicker(false);
     setPatientSearch('');
     setModalVisible(true);
-    fetchAgendaSlots(initialDate);
+    fetchAgendaSlots(initialDate, cal.byDate);
   };
 
   const onCreateAppointment = async (data: AppointmentFormData) => {
@@ -231,9 +342,31 @@ export const AppointmentsScreen = () => {
     try {
       const response = await apiClient.post('/appointments', data);
       if (response.data?.success) {
+        const createdId = response.data.data?.id || Date.now();
+        const pat = patients.find((p) => p.id === Number(data.patient_id));
+        const optimisticItem = {
+          id: createdId,
+          patient_id: data.patient_id,
+          kinesiologist_id: data.kinesiologist_id,
+          service_id: data.service_id,
+          start_time: data.scheduled_at,
+          scheduled_at: data.scheduled_at,
+          duration_minutes: data.duration_minutes,
+          notes: data.reason,
+          reason: data.reason,
+          status: 'scheduled',
+          patient_first_name: pat?.first_name || '',
+          patient_last_name: pat?.last_name || '',
+          patient_dni: pat?.dni || ''
+        };
+        setAppointments((prev) => [optimisticItem, ...prev.filter((a) => a.id !== createdId)]);
+        const targetDayDate = new Date(`${apptDate}T12:00:00`);
+        if (!isNaN(targetDayDate.getTime())) {
+          setCurrentWeekMonday(getMonday(targetDayDate));
+        }
         setModalVisible(false);
         reset();
-        fetchAppointments();
+        await fetchAppointments(true);
       }
     } catch (err: any) {
       setFormError(err.response?.data?.error?.message || 'Error al agendar el turno');
@@ -241,15 +374,20 @@ export const AppointmentsScreen = () => {
   };
 
   const onUpdateStatus = async (appointmentId: number, nextStatus: string) => {
+    const previousList = appointments;
     try {
       setUpdatingId(appointmentId);
+      setAppointments((prev) =>
+        prev.map((item) => (item.id === appointmentId ? { ...item, status: nextStatus } : item))
+      );
       const res = await apiClient.patch(`/appointments/${appointmentId}`, {
         status: nextStatus
       });
       if (res.data?.success) {
-        await fetchAppointments();
+        await fetchAppointments(true);
       }
     } catch (err: any) {
+      setAppointments(previousList);
       console.error('Error al actualizar estado:', err?.response?.data || err);
     } finally {
       setUpdatingId(null);
@@ -317,6 +455,8 @@ export const AppointmentsScreen = () => {
 
   useFocusEffect(
     useCallback(() => {
+      fetchAppointments(true);
+      fetchPatientsList();
       const timer = setTimeout(() => {
         centerOnToday(false);
       }, 60);
@@ -450,20 +590,35 @@ export const AppointmentsScreen = () => {
     }
   };
 
-  if (loading && !refreshing) return <LoadingState message="Cargando agenda de turnos..." />;
-  if (error) return <ErrorState message={error} onRetry={fetchAppointments} />;
+  if (loading && !refreshing && appointments.length === 0) {
+    return <LoadingState message="Cargando agenda..." />;
+  }
+  if (error && appointments.length === 0) {
+    return <ErrorState message={error} onRetry={() => fetchAppointments(false)} />;
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <ScreenHeader
         title="Agenda de Turnos"
-        subtitle="Cuadro semanal de Lunes a Viernes con distribución por horarios"
+        subtitle="Lunes a viernes"
         action={
-          <Button
-            title="+ Agendar Turno"
-            onPress={() => openCreateModal()}
-            size="sm"
-          />
+          <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
+            <Button
+              title="Feriados"
+              variant="secondary"
+              size="sm"
+              onPress={() => {
+                fetchHolidaysForYear(new Date().getFullYear());
+                setHolidaysModalVisible(true);
+              }}
+            />
+            <Button
+              title="+ Agendar Turno"
+              onPress={() => openCreateModal()}
+              size="sm"
+            />
+          </View>
         }
       />
 
@@ -703,22 +858,49 @@ export const AppointmentsScreen = () => {
 
                           {/* Acciones de cambio de estado */}
                           <View style={[styles.itemActionsRow, { borderTopColor: theme.border + '50' }]}>
-                            {statusRaw === 'pending' || statusRaw === 'scheduled' ? (
+                            {confirmCancelApptId === item.id ? (
+                              <View style={{ gap: spacing.xs }}>
+                                <Text style={{ fontSize: typography.fontSize.xs, fontWeight: '700', color: theme.error }}>
+                                  ¿Cancelar este turno?
+                                </Text>
+                                <View style={styles.actionBtnGroup}>
+                                  <TouchableOpacity
+                                    style={[styles.gridActionBtnSec, { flex: 1, borderColor: theme.border }]}
+                                    onPress={() => setConfirmCancelApptId(null)}
+                                    disabled={isUpdating}
+                                  >
+                                    <Text style={[styles.gridActionBtnSecText, { color: theme.text }]}>No, volver</Text>
+                                  </TouchableOpacity>
+                                  <TouchableOpacity
+                                    style={[styles.gridActionBtn, { backgroundColor: theme.error }]}
+                                    onPress={() => {
+                                      setConfirmCancelApptId(null);
+                                      onUpdateStatus(item.id, 'cancelled');
+                                    }}
+                                    disabled={isUpdating}
+                                  >
+                                    <Text style={styles.gridActionBtnText}>Sí, cancelar</Text>
+                                  </TouchableOpacity>
+                                </View>
+                              </View>
+                            ) : statusRaw === 'pending' || statusRaw === 'scheduled' ? (
                               <View style={styles.actionBtnGroup}>
                                 <TouchableOpacity
                                   style={[styles.gridActionBtn, { backgroundColor: theme.primary }]}
                                   onPress={() => onUpdateStatus(item.id, 'confirmed')}
                                   disabled={isUpdating}
                                 >
-                                  <MaterialIcons name="check" size={14} color="#FFFFFF" />
+                                  <MaterialIcons name="check" size={16} color="#FFFFFF" />
                                   <Text style={styles.gridActionBtnText}>Confirmar</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity
-                                  style={[styles.gridActionBtnSec, { borderColor: theme.border }]}
-                                  onPress={() => onUpdateStatus(item.id, 'cancelled')}
+                                  style={[styles.gridActionBtnSec, { borderColor: theme.error + '60', backgroundColor: theme.errorBg }]}
+                                  onPress={() => setConfirmCancelApptId(item.id)}
                                   disabled={isUpdating}
+                                  accessibilityLabel="Cancelar turno"
                                 >
-                                  <MaterialIcons name="close" size={14} color={theme.textMuted} />
+                                  <MaterialIcons name="close" size={15} color={theme.error} />
+                                  <Text style={[styles.gridActionBtnSecText, { color: theme.error }]}>Cancelar</Text>
                                 </TouchableOpacity>
                               </View>
                             ) : statusRaw === 'confirmed' ? (
@@ -728,15 +910,17 @@ export const AppointmentsScreen = () => {
                                   onPress={() => onUpdateStatus(item.id, 'attended')}
                                   disabled={isUpdating}
                                 >
-                                  <MaterialIcons name="done-all" size={14} color="#FFFFFF" />
+                                  <MaterialIcons name="done-all" size={16} color="#FFFFFF" />
                                   <Text style={styles.gridActionBtnText}>Atendido</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity
-                                  style={[styles.gridActionBtnSec, { borderColor: theme.border }]}
-                                  onPress={() => onUpdateStatus(item.id, 'cancelled')}
+                                  style={[styles.gridActionBtnSec, { borderColor: theme.error + '60', backgroundColor: theme.errorBg }]}
+                                  onPress={() => setConfirmCancelApptId(item.id)}
                                   disabled={isUpdating}
+                                  accessibilityLabel="Cancelar turno"
                                 >
-                                  <MaterialIcons name="close" size={14} color={theme.textMuted} />
+                                  <MaterialIcons name="close" size={15} color={theme.error} />
+                                  <Text style={[styles.gridActionBtnSecText, { color: theme.error }]}>Cancelar</Text>
                                 </TouchableOpacity>
                               </View>
                             ) : statusRaw === 'cancelled' || statusRaw === 'absent' ? (
@@ -745,12 +929,12 @@ export const AppointmentsScreen = () => {
                                 onPress={() => onUpdateStatus(item.id, 'pending')}
                                 disabled={isUpdating}
                               >
-                                <MaterialIcons name="restore" size={14} color={theme.primary} />
+                                <MaterialIcons name="restore" size={16} color={theme.primary} />
                                 <Text style={[styles.gridActionBtnSecText, { color: theme.primary }]}>Reactivar</Text>
                               </TouchableOpacity>
                             ) : (
                               <View style={styles.itemCompletedRow}>
-                                <MaterialIcons name="check-circle" size={14} color="#10B981" />
+                                <MaterialIcons name="check-circle" size={16} color="#10B981" />
                                 <Text style={styles.itemCompletedText}>Completado</Text>
                               </View>
                             )}
@@ -770,8 +954,7 @@ export const AppointmentsScreen = () => {
       <ModalWrapper
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
-        title="Agendar Nuevo Turno"
-        subtitle="Seleccione el paciente y horario de la sesión"
+        title="Agendar Turno"
         footer={
           <>
             <Button
@@ -923,12 +1106,15 @@ export const AppointmentsScreen = () => {
         </View>
 
         <DateInput
-          label="Fecha del turno"
+          label="Fecha del turno (Lunes a Viernes — máx. 14 días)"
           value={apptDate}
-          min={formatDateISO(new Date())}
+          min={bookingMinDate}
+          max={bookingMaxDate}
+          disableWeekends={true}
+          isDateDisabled={(d) => evaluateDateClient(d, calendarByDate, bookingMinDate, bookingMaxDate)}
           onChangeDate={(d) => {
             setApptDate(d);
-            setValue('scheduled_at', `${d} ${apptTime}:00`, { shouldValidate: true });
+            setValue('scheduled_at', `${d} ${apptTime || '10:00'}:00`, { shouldValidate: true });
             if (d) {
               fetchAgendaSlots(d);
             }
@@ -943,11 +1129,11 @@ export const AppointmentsScreen = () => {
           </Text>
           {loadingSlots ? (
             <Text style={{ color: theme.textMuted, fontSize: typography.fontSize.xs, marginVertical: spacing.xs }}>
-              Calculando horarios disponibles...
+              Buscando horarios...
             </Text>
           ) : availableSlots.length === 0 ? (
             <Text style={{ color: theme.warning, fontSize: typography.fontSize.xs, marginVertical: spacing.xs }}>
-              No hay horarios disponibles para esta fecha. Seleccione otro día.
+              No hay horarios disponibles.
             </Text>
           ) : (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
@@ -1009,6 +1195,91 @@ export const AppointmentsScreen = () => {
           )}
         />
       </ModalWrapper>
+
+      {/* Modal de Feriados Oficiales y Días No Laborables Opcionales */}
+      <ModalWrapper
+        visible={holidaysModalVisible}
+        onClose={() => setHolidaysModalVisible(false)}
+        title="Feriados y Días No Laborables"
+        footer={
+          <Button
+            title="Cerrar"
+            variant="secondary"
+            size="md"
+            onPress={() => setHolidaysModalVisible(false)}
+          />
+        }
+      >
+        {holidayError && (
+          <View style={[styles.modalError, { backgroundColor: theme.error + '15', borderColor: theme.error }]}>
+            <Text style={[styles.modalErrorText, { color: theme.error }]}>{holidayError}</Text>
+          </View>
+        )}
+
+        <Text style={{ color: theme.textSecondary, fontSize: typography.fontSize.xs, marginBottom: spacing.md }}>
+          Cerrado sábados, domingos y feriados oficiales. Los días no laborables opcionales son configurables.
+        </Text>
+
+        <ScrollView style={{ maxHeight: 380 }}>
+          {holidaysList.map((item) => {
+            const isOptional = Boolean(item.isOptional);
+            const isClosed = Boolean(item.isClosed);
+            const isToggling = togglingHolidayDate === item.date;
+            return (
+              <View
+                key={item.date}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  paddingVertical: spacing.sm,
+                  borderBottomWidth: 1,
+                  borderBottomColor: theme.border + '40',
+                  gap: spacing.sm
+                }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: theme.text, fontWeight: '700', fontSize: typography.fontSize.sm }}>
+                    {item.date} — {item.name}
+                  </Text>
+                  <Text style={{ color: theme.textSecondary, fontSize: typography.fontSize.xs }}>
+                    {isOptional
+                      ? 'Día no laborable opcional'
+                      : `Feriado ${item.scope === 'national' || item.scope === 'nacional' ? 'nacional' : item.scope === 'provincial' ? 'provincial' : 'municipal'}`}
+                  </Text>
+                </View>
+
+                {isOptional ? (
+                  <TouchableOpacity
+                    disabled={isToggling}
+                    onPress={() => handleToggleOptionalHoliday(item.date, !isClosed)}
+                    style={{
+                      paddingHorizontal: spacing.sm,
+                      paddingVertical: spacing.xs,
+                      borderRadius: radii.md,
+                      borderWidth: 1,
+                      backgroundColor: isClosed ? theme.error + '15' : '#10B98120',
+                      borderColor: isClosed ? theme.error : '#10B981'
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: isClosed ? theme.error : '#10B981',
+                        fontWeight: '700',
+                        fontSize: typography.fontSize.xs
+                      }}
+                    >
+                      {isClosed ? 'Cerrado (Habilitar)' : 'Laborable (Cerrar)'}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <Badge label="Cerrado" variant="error" size="sm" />
+                )}
+              </View>
+            );
+          })}
+        </ScrollView>
+      </ModalWrapper>
     </View>
   );
 };
@@ -1032,10 +1303,12 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md
   },
   filterChip: {
+    minHeight: 42,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs + 1,
+    paddingVertical: spacing.xs + 2,
     borderRadius: radii.full,
-    borderWidth: 1
+    borderWidth: 1,
+    justifyContent: 'center'
   },
   filterText: {
     fontSize: typography.fontSize.xs,
@@ -1052,8 +1325,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md
   },
   navButton: {
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
     borderRadius: radii.full,
     borderWidth: 1,
     alignItems: 'center',
@@ -1073,13 +1346,15 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.bold
   },
   todayButton: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
+    minHeight: 38,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
     borderRadius: radii.full,
-    borderWidth: 1
+    borderWidth: 1,
+    justifyContent: 'center'
   },
   todayButtonText: {
-    fontSize: typography.fontSize.tiny,
+    fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.semibold
   },
   gridOuterScroll: {
@@ -1091,7 +1366,7 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xxxl
   },
   dayColumn: {
-    width: 270,
+    width: 280,
     borderRadius: radii.lg,
     overflow: 'hidden'
   },
@@ -1117,17 +1392,17 @@ const styles = StyleSheet.create({
   },
   todayBadge: {
     paddingHorizontal: spacing.xs + 2,
-    paddingVertical: 1,
+    paddingVertical: 2,
     borderRadius: radii.xs
   },
   todayBadgeText: {
     color: '#FFFFFF',
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: typography.fontWeight.bold
   },
   quickAddButton: {
-    width: 24,
-    height: 24,
+    width: 38,
+    height: 38,
     borderRadius: radii.full,
     borderWidth: 1,
     justifyContent: 'center',
@@ -1166,24 +1441,25 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.xs
   },
   dayEmptyAddBtn: {
+    minHeight: 42,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
-    paddingHorizontal: spacing.sm,
+    gap: 4,
+    paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: radii.sm,
     borderWidth: 1,
     marginTop: spacing.xs
   },
   dayEmptyAddText: {
-    fontSize: typography.fontSize.tiny,
+    fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.semibold
   },
   appointmentItemCard: {
     borderRadius: radii.md,
     borderWidth: 1,
-    padding: spacing.sm + 2,
-    gap: spacing.xs - 1,
+    padding: spacing.md,
+    gap: spacing.xs,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -1218,7 +1494,7 @@ const styles = StyleSheet.create({
   },
   itemReasonText: {
     fontSize: typography.fontSize.tiny,
-    lineHeight: 14
+    lineHeight: 18
   },
   itemKineText: {
     fontSize: typography.fontSize.tiny,
@@ -1236,32 +1512,34 @@ const styles = StyleSheet.create({
   },
   gridActionBtn: {
     flex: 1,
+    minHeight: 42,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
-    paddingVertical: 4,
-    paddingHorizontal: spacing.xs,
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: spacing.sm,
     borderRadius: radii.sm
   },
   gridActionBtnText: {
     color: '#FFFFFF',
-    fontSize: typography.fontSize.tiny,
+    fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.semibold
   },
   gridActionBtnSec: {
+    minHeight: 42,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
-    paddingVertical: 4,
+    gap: 4,
+    paddingVertical: 8,
     paddingHorizontal: spacing.sm,
     borderRadius: radii.sm,
     borderWidth: 1
   },
   gridActionBtnSecText: {
-    fontSize: typography.fontSize.tiny,
-    fontWeight: typography.fontWeight.medium
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.semibold
   },
   itemCompletedRow: {
     flexDirection: 'row',

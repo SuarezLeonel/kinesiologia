@@ -14,9 +14,9 @@ export const SettingsScreen = () => {
   const { user, logout } = useAuth();
 
   const themeOptions: { key: 'system' | 'light' | 'dark'; label: string; desc: string }[] = [
-    { key: 'system', label: 'Sistema', desc: 'Sigue la configuración del dispositivo' },
-    { key: 'light', label: 'Claro', desc: 'Superficies cálidas y legibles' },
-    { key: 'dark', label: 'Oscuro', desc: 'Fondo descansado para baja iluminación' }
+    { key: 'system', label: 'Sistema', desc: 'Automático según el dispositivo' },
+    { key: 'light', label: 'Claro', desc: 'Tema claro' },
+    { key: 'dark', label: 'Oscuro', desc: 'Tema oscuro' }
   ];
 
   const roleName = user?.role || user?.role_name || 'usuario';
@@ -24,16 +24,12 @@ export const SettingsScreen = () => {
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <ScreenHeader
-        title="Configuración"
-        subtitle="Preferencias de apariencia, perfil y seguridad de la sesión"
+        title="Ajustes"
       />
 
       {/* Selector de Apariencia */}
       <Card elevated style={styles.card} padding="lg">
-        <Text style={[styles.cardTitle, { color: theme.text }]}>Apariencia de la Interfaz</Text>
-        <Text style={[styles.cardSubtitle, { color: theme.textSecondary }]}>
-          Seleccione su esquema de colores preferido. La preferencia se sincroniza de forma inmediata.
-        </Text>
+        <Text style={[styles.cardTitle, { color: theme.text, marginBottom: spacing.md }]}>Apariencia</Text>
 
         <View style={styles.segmentContainer}>
           {themeOptions.map((opt) => {
@@ -73,10 +69,7 @@ export const SettingsScreen = () => {
 
       {/* Sesión Actual */}
       <Card elevated style={styles.card} padding="lg">
-        <Text style={[styles.cardTitle, { color: theme.text }]}>Sesión Profesional</Text>
-        <Text style={[styles.cardSubtitle, { color: theme.textSecondary }]}>
-          Credenciales activas para el consultorio
-        </Text>
+        <Text style={[styles.cardTitle, { color: theme.text, marginBottom: spacing.sm }]}>Tu Cuenta</Text>
 
         <View style={styles.profileRow}>
           <View style={[styles.avatar, { backgroundColor: theme.primaryLight, borderColor: theme.primary + '30' }]}>
@@ -93,7 +86,7 @@ export const SettingsScreen = () => {
             </Text>
             <View style={{ marginTop: spacing.xs }}>
               <Badge
-                label={`ROL: ${roleName.toUpperCase()}`}
+                label={roleName.toUpperCase()}
                 variant="default"
                 size="sm"
               />
@@ -104,22 +97,12 @@ export const SettingsScreen = () => {
         <View style={[styles.divider, { backgroundColor: theme.borderSubtle }]} />
 
         <Button
-          title="Cerrar Sesión Segura"
+          title="Cerrar sesión"
           variant="danger"
           size="md"
           onPress={logout}
           style={{ alignSelf: 'flex-start' }}
         />
-      </Card>
-
-      {/* Información Técnica */}
-      <Card style={[styles.card, { backgroundColor: theme.surfaceSubtle }]} padding="md">
-        <Text style={[styles.infoTitle, { color: theme.textSecondary }]}>
-          SEGURIDAD Y CUMPLIMIENTO
-        </Text>
-        <Text style={[styles.infoText, { color: theme.textMuted }]}>
-          KinesioGestión v1.0.0 • Regla cero GET activa • Autenticación fail-closed con TiDB Cloud.
-        </Text>
       </Card>
     </View>
   );

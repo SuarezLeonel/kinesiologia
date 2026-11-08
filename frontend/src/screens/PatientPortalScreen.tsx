@@ -8,7 +8,6 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  FlatList,
   RefreshControl,
   TouchableOpacity,
   Platform,
@@ -19,16 +18,52 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useDataSync } from '../context/DataSyncContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { spacing, radii, typography } from '../theme/tokens';
 import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper, DateInput } from '../components/ui';
 import { LoadingState, ErrorState, EmptyState } from '../components/FeedbackStates';
+import {
+  fetchBookingCalendarAvailability,
+  evaluateDateClient,
+  getBookingWindow,
+  CalendarDayStatus
+} from '../utils/bookingCalendar';
 
 type PortalTab = 'inicio' | 'ejercicios' | 'turnos' | 'servicios' | 'perfil';
+type BookingStep = 1 | 2 | 3 | 4 | 5 | 6;
+
+const BOOKING_STEPS: { step: BookingStep; title: string }[] = [
+  { step: 1, title: 'Servicio' },
+  { step: 2, title: 'Profesional' },
+  { step: 3, title: 'Fecha' },
+  { step: 4, title: 'Horario' },
+  { step: 5, title: 'Revisión' },
+  { step: 6, title: 'Confirmar' }
+];
 
 const formatLocalDateISO = (d: Date = new Date()): string => {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+const formatFullSpanishDate = (dateInput: string | Date): string => {
+  if (!dateInput) return '';
+  let d: Date;
+  if (typeof dateInput === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
+    const [y, m, day] = dateInput.split('-').map(Number);
+    d = new Date(y, m - 1, day, 12, 0, 0);
+  } else {
+    d = new Date(dateInput);
+  }
+  if (isNaN(d.getTime())) return String(dateInput);
+  const formatted = d.toLocaleDateString('es-AR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  });
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 };
 
 const buildFallbackSlots = (dateStr: string, durationMinutes = 45) => {
@@ -49,6 +84,7 @@ const buildFallbackSlots = (dateStr: string, durationMinutes = 45) => {
 export const PatientPortalScreen: React.FC = () => {
   const { user, logout } = useAuth();
   const { theme } = useAppTheme();
+  const { scopeVersions } = useDataSync();
   const insets = useSafeAreaInsets();
 
   const [activeTab, setActiveTab] = useState<PortalTab>('inicio');
@@ -79,8 +115,10 @@ export const PatientPortalScreen: React.FC = () => {
   const [logError, setLogError] = useState<string | null>(null);
   const [logSuccess, setLogSuccess] = useState<string | null>(null);
 
-  // Estados de reserva
+  // Estados de reserva guiada paso a paso (1 a 6)
   const [bookModalVisible, setBookModalVisible] = useState(false);
+  const [bookingStep, setBookingStep] = useState<BookingStep>(1);
+  const [bookingConfirmedData, setBookingConfirmedData] = useState<any | null>(null);
   const [selectedService, setSelectedService] = useState<any>(null);
   const [selectedKinesiologist, setSelectedKinesiologist] = useState<any>(null);
   const [selectedDate, setSelectedDate] = useState<string>(() => formatLocalDateISO(new Date(Date.now() + 86400000)));
@@ -91,6 +129,11 @@ export const PatientPortalScreen: React.FC = () => {
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [bookingSuccess, setBookingSuccess] = useState<string | null>(null);
+
+  const defaultWindow = React.useMemo(() => getBookingWindow(), []);
+  const [bookingMinDate, setBookingMinDate] = useState<string>(defaultWindow.minDate);
+  const [bookingMaxDate, setBookingMaxDate] = useState<string>(defaultWindow.maxDate);
+  const [calendarByDate, setCalendarByDate] = useState<Record<string, CalendarDayStatus>>({});
 
   // Estados de cancelación
   const [cancelModalVisible, setCancelModalVisible] = useState(false);
@@ -112,9 +155,11 @@ export const PatientPortalScreen: React.FC = () => {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
 
-  const loadData = async () => {
+  const loadData = async (silent = false) => {
     try {
-      setError(null);
+      if (!silent) {
+        setError(null);
+      }
       // REGLA HTTP ESTRICTA: Consultas de negocio por POST
       const [dashRes, apptsRes, catRes, profRes, routinesRes] = await Promise.all([
         apiClient.post('/patient-portal/dashboard', {}),
@@ -141,8 +186,11 @@ export const PatientPortalScreen: React.FC = () => {
           });
         }
       }
+      setError(null);
     } catch (err: any) {
-      setError(err.response?.data?.error?.message || 'Error al conectar con el portal de pacientes');
+      if (!silent || (!dashboardData && myAppointments.length === 0)) {
+        setError(err.response?.data?.error?.message || 'Error al conectar con el portal de pacientes');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -150,11 +198,43 @@ export const PatientPortalScreen: React.FC = () => {
   };
 
   useEffect(() => {
-    loadData();
+    loadData(false);
   }, []);
 
-  const fetchAvailableSlots = async (kineId: number, servId: number, dateStr: string) => {
+  useEffect(() => {
+    if (scopeVersions.patientPortal > 0) {
+      loadData(true);
+      if (selectedRoutineId) {
+        fetchComplianceLogs(selectedRoutineId);
+      }
+    }
+  }, [scopeVersions.patientPortal]);
+
+  useEffect(() => {
+    if (!loading) {
+      loadData(true);
+      if (activeTab === 'ejercicios' && selectedRoutineId) {
+        fetchComplianceLogs(selectedRoutineId);
+      }
+    }
+  }, [activeTab]);
+
+  const fetchAvailableSlots = async (
+    kineId: number,
+    servId: number,
+    dateStr: string,
+    customMap?: Record<string, CalendarDayStatus>
+  ) => {
     if (!kineId || !servId || !dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return;
+    const mapToUse = customMap || calendarByDate;
+    const evalResult = evaluateDateClient(dateStr, mapToUse, bookingMinDate, bookingMaxDate);
+    if (evalResult.disabled) {
+      setAvailableSlots([]);
+      setSelectedSlot(null);
+      setBookingError(evalResult.reason || 'El consultorio permanece cerrado en la fecha seleccionada.');
+      return;
+    }
+
     setLoadingSlots(true);
     setBookingError(null);
     setSelectedSlot(null);
@@ -188,6 +268,13 @@ export const PatientPortalScreen: React.FC = () => {
           return;
         }
       } catch {
+        const recheck = evaluateDateClient(dateStr, mapToUse, bookingMinDate, bookingMaxDate);
+        if (recheck.disabled) {
+          setAvailableSlots([]);
+          setSelectedSlot(null);
+          setBookingError(recheck.reason || 'Fecha no laborable');
+          return;
+        }
         const fallback = buildFallbackSlots(dateStr, selectedService?.durationMinutes || 45);
         setAvailableSlots(fallback);
         if (fallback.length > 0) {
@@ -199,11 +286,18 @@ export const PatientPortalScreen: React.FC = () => {
     }
   };
 
-  const handleOpenBooking = (service?: any) => {
+  const handleOpenBooking = async (service?: any) => {
     setBookingError(null);
     setBookingSuccess(null);
+    setBookingConfirmedData(null);
+    setBookingStep(service ? 2 : 1);
     setSelectedSlot(null);
     setBookingNotes('');
+    const cal = await fetchBookingCalendarAvailability('patient');
+    setBookingMinDate(cal.minDate);
+    setBookingMaxDate(cal.maxDate);
+    setCalendarByDate(cal.byDate);
+
     const serv = service || catalog.services[0] || {
       id: 1,
       name: 'Rehabilitación Traumatológica',
@@ -218,17 +312,17 @@ export const PatientPortalScreen: React.FC = () => {
     };
     setSelectedService(serv);
     setSelectedKinesiologist(prof);
-    const tomorrow = formatLocalDateISO(new Date(Date.now() + 86400000));
-    setSelectedDate(tomorrow);
+    const initialDate = cal.firstAvailableDate;
+    setSelectedDate(initialDate);
     setBookModalVisible(true);
     if (prof && serv) {
-      fetchAvailableSlots(prof.id, serv.id, tomorrow);
+      fetchAvailableSlots(prof.id, serv.id, initialDate, cal.byDate);
     }
   };
 
   const handleConfirmBooking = async () => {
     if (!selectedSlot || !selectedService || !selectedKinesiologist) {
-      setBookingError('Por favor seleccione un horario disponible');
+      setBookingError('Seleccioná un horario disponible.');
       return;
     }
     setBookingSubmitting(true);
@@ -241,12 +335,19 @@ export const PatientPortalScreen: React.FC = () => {
         notes: bookingNotes.trim() || undefined
       });
       if (res.data?.success) {
-        setBookingSuccess('¡Turno reservado con éxito! Recibirás confirmación en tu panel.');
-        setTimeout(() => {
-          setBookModalVisible(false);
-          loadData();
-          setActiveTab('turnos');
-        }, 1200);
+        setBookingSuccess('Turno reservado correctamente.');
+        setBookingConfirmedData({
+          serviceName: selectedService.name,
+          durationMinutes: selectedService.durationMinutes,
+          price: selectedService.price,
+          currency: selectedService.currency || 'ARS',
+          professionalName: selectedKinesiologist.fullName,
+          professionalSpecialty: selectedKinesiologist.specialty,
+          dateFormatted: formatFullSpanishDate(selectedDate),
+          timeLabel: selectedSlot.time || selectedSlot.timeLabel,
+          notes: bookingNotes.trim()
+        });
+        await loadData(true);
       }
     } catch (err: any) {
       setBookingError(err.response?.data?.error?.message || 'No se pudo completar la reserva');
@@ -265,8 +366,11 @@ export const PatientPortalScreen: React.FC = () => {
         reason: cancelReason.trim() || 'Cancelado por el paciente'
       });
       if (res.data?.success) {
+        setMyAppointments((prev) =>
+          prev.map((a) => (a.id === appointmentToCancel.id ? { ...a, status: 'cancelled' } : a))
+        );
         setCancelModalVisible(false);
-        loadData();
+        await loadData(true);
       }
     } catch (err: any) {
       setCancelError(err.response?.data?.error?.message || 'Error al cancelar el turno');
@@ -279,7 +383,7 @@ export const PatientPortalScreen: React.FC = () => {
     setProfileError(null);
     setProfileSuccess(null);
     if (!editPhone.trim() || editPhone.trim().length < 6) {
-      setProfileError('Ingrese un teléfono o celular válido (mínimo 6 caracteres)');
+      setProfileError('Ingresá un teléfono válido.');
       return;
     }
     setProfileSaving(true);
@@ -289,7 +393,8 @@ export const PatientPortalScreen: React.FC = () => {
       });
       if (res.data?.success) {
         setProfile(res.data.data);
-        setProfileSuccess('Teléfono de contacto actualizado correctamente');
+        setProfileSuccess('Cambios guardados.');
+        await loadData(true);
       }
     } catch (err: any) {
       setProfileError(err.response?.data?.error?.message || 'Error al actualizar el teléfono');
@@ -302,15 +407,15 @@ export const PatientPortalScreen: React.FC = () => {
     setPasswordError(null);
     setPasswordSuccess(null);
     if (!currentPassword) {
-      setPasswordError('Ingrese su contraseña actual');
+      setPasswordError('Completá este campo.');
       return;
     }
     if (!newPassword || newPassword.length < 8) {
-      setPasswordError('La nueva contraseña debe tener al menos 8 caracteres');
+      setPasswordError('Mínimo 8 caracteres.');
       return;
     }
     if (newPassword !== confirmPassword) {
-      setPasswordError('Las contraseñas nuevas no coinciden');
+      setPasswordError('Las contraseñas no coinciden.');
       return;
     }
     setPasswordSaving(true);
@@ -323,7 +428,7 @@ export const PatientPortalScreen: React.FC = () => {
         setCurrentPassword('');
         setNewPassword('');
         setConfirmPassword('');
-        setPasswordSuccess('Contraseña actualizada correctamente');
+        setPasswordSuccess('Contraseña actualizada.');
       }
     } catch (err: any) {
       setPasswordError(err.response?.data?.error?.message || 'Error al cambiar la contraseña');
@@ -370,14 +475,14 @@ export const PatientPortalScreen: React.FC = () => {
         patientNotes: logNotes.trim() || undefined
       });
       if (res.data?.success) {
-        setLogSuccess('¡Excelente! El cumplimiento de tu ejercicio quedó registrado.');
+        setLogSuccess('Ejercicio registrado.');
+        await Promise.all([
+          loadData(true),
+          selectedRoutineId ? fetchComplianceLogs(selectedRoutineId) : Promise.resolve()
+        ]);
         setTimeout(() => {
           setLogModalVisible(false);
-          loadData();
-          if (selectedRoutineId) {
-            fetchComplianceLogs(selectedRoutineId);
-          }
-        }, 1100);
+        }, 900);
       }
     } catch (err: any) {
       setLogError(err.response?.data?.error?.message || 'Error al guardar el registro del ejercicio');
@@ -386,10 +491,20 @@ export const PatientPortalScreen: React.FC = () => {
     }
   };
 
-  if (loading && !refreshing) return <LoadingState message="Cargando tu portal personal..." />;
-  if (error) return <ErrorState message={error} onRetry={loadData} />;
+  if (loading && !refreshing && !dashboardData && myAppointments.length === 0) {
+    return <LoadingState message="Cargando..." />;
+  }
+  if (error && !dashboardData && myAppointments.length === 0) {
+    return <ErrorState message={error} onRetry={() => loadData(false)} />;
+  }
 
   const nextAppt = dashboardData?.nextAppointment;
+  const upcomingAppointments = myAppointments.filter(
+    (a) => a.status !== 'cancelled' && a.status !== 'attended'
+  );
+  const pastAppointments = myAppointments.filter(
+    (a) => a.status === 'cancelled' || a.status === 'attended'
+  );
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -409,70 +524,130 @@ export const PatientPortalScreen: React.FC = () => {
       >
         <View style={styles.brandRow}>
           <View style={[styles.brandIcon, { backgroundColor: theme.primaryLight }]}>
-            <MaterialIcons name="medical-information" size={22} color={theme.primary} />
+            <MaterialIcons name="medical-information" size={26} color={theme.primary} />
           </View>
-          <View>
-            <Text style={[styles.brandTitle, { color: theme.text }]}>Mi Portal Paciente</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.brandTitle, { color: theme.text }]}>Portal del Paciente</Text>
             <Text style={[styles.brandUser, { color: theme.textSecondary }]}>
-              {profile?.first_name ? `${profile.first_name} ${profile.last_name}` : user?.name}
+              Hola, {profile?.first_name ? `${profile.first_name} ${profile.last_name}` : user?.name}
             </Text>
           </View>
         </View>
 
         <TouchableOpacity
           onPress={logout}
-          style={[styles.logoutBtn, { borderColor: theme.border }]}
+          style={[styles.logoutBtn, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}
           accessibilityRole="button"
           accessibilityLabel="Cerrar sesión"
         >
-          <MaterialIcons name="logout" size={18} color={theme.textMuted} />
-          <Text style={[styles.logoutText, { color: theme.textMuted }]}>Salir</Text>
+          <MaterialIcons name="logout" size={20} color={theme.textSecondary} />
+          <Text style={[styles.logoutText, { color: theme.text }]}>Cerrar sesión</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Barra de pestañas responsive */}
+      {/* Barra de pestañas principal con indicador claro de sección activa */}
       <View style={[styles.tabsNav, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
         <TouchableOpacity
-          style={[styles.tabItem, activeTab === 'inicio' && { borderBottomColor: theme.primary, borderBottomWidth: 3 }]}
+          accessibilityRole="tab"
+          accessibilityLabel="Inicio"
+          accessibilityState={{ selected: activeTab === 'inicio' }}
+          style={[
+            styles.tabItem,
+            activeTab === 'inicio' && {
+              borderBottomColor: theme.primary,
+              borderBottomWidth: 4,
+              backgroundColor: theme.primaryLight + '25'
+            }
+          ]}
           onPress={() => setActiveTab('inicio')}
         >
-          <MaterialIcons name="home" size={20} color={activeTab === 'inicio' ? theme.primary : theme.textMuted} />
-          <Text style={[styles.tabLabel, { color: activeTab === 'inicio' ? theme.primary : theme.textSecondary }]}>Inicio</Text>
+          <MaterialIcons name="home" size={24} color={activeTab === 'inicio' ? theme.primary : theme.textMuted} />
+          <Text style={[styles.tabLabel, { color: activeTab === 'inicio' ? theme.primary : theme.textSecondary }]}>
+            Inicio
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.tabItem, activeTab === 'ejercicios' && { borderBottomColor: theme.primary, borderBottomWidth: 3 }]}
+          accessibilityRole="tab"
+          accessibilityLabel="Mis turnos"
+          accessibilityState={{ selected: activeTab === 'turnos' }}
+          style={[
+            styles.tabItem,
+            activeTab === 'turnos' && {
+              borderBottomColor: theme.primary,
+              borderBottomWidth: 4,
+              backgroundColor: theme.primaryLight + '25'
+            }
+          ]}
+          onPress={() => setActiveTab('turnos')}
+        >
+          <MaterialIcons name="event" size={24} color={activeTab === 'turnos' ? theme.primary : theme.textMuted} />
+          <Text style={[styles.tabLabel, { color: activeTab === 'turnos' ? theme.primary : theme.textSecondary }]}>
+            Mis turnos
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          accessibilityRole="tab"
+          accessibilityLabel="Mis ejercicios"
+          accessibilityState={{ selected: activeTab === 'ejercicios' }}
+          style={[
+            styles.tabItem,
+            activeTab === 'ejercicios' && {
+              borderBottomColor: theme.primary,
+              borderBottomWidth: 4,
+              backgroundColor: theme.primaryLight + '25'
+            }
+          ]}
           onPress={() => {
             setActiveTab('ejercicios');
             if (selectedRoutineId) fetchComplianceLogs(selectedRoutineId);
           }}
         >
-          <MaterialIcons name="fitness-center" size={20} color={activeTab === 'ejercicios' ? theme.primary : theme.textMuted} />
-          <Text style={[styles.tabLabel, { color: activeTab === 'ejercicios' ? theme.primary : theme.textSecondary }]}>Ejercicios</Text>
+          <MaterialIcons name="fitness-center" size={24} color={activeTab === 'ejercicios' ? theme.primary : theme.textMuted} />
+          <Text style={[styles.tabLabel, { color: activeTab === 'ejercicios' ? theme.primary : theme.textSecondary }]}>
+            Ejercicios
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.tabItem, activeTab === 'turnos' && { borderBottomColor: theme.primary, borderBottomWidth: 3 }]}
-          onPress={() => setActiveTab('turnos')}
-        >
-          <MaterialIcons name="event" size={20} color={activeTab === 'turnos' ? theme.primary : theme.textMuted} />
-          <Text style={[styles.tabLabel, { color: activeTab === 'turnos' ? theme.primary : theme.textSecondary }]}>Turnos</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.tabItem, activeTab === 'servicios' && { borderBottomColor: theme.primary, borderBottomWidth: 3 }]}
+          accessibilityRole="tab"
+          accessibilityLabel="Profesionales y servicios"
+          accessibilityState={{ selected: activeTab === 'servicios' }}
+          style={[
+            styles.tabItem,
+            activeTab === 'servicios' && {
+              borderBottomColor: theme.primary,
+              borderBottomWidth: 4,
+              backgroundColor: theme.primaryLight + '25'
+            }
+          ]}
           onPress={() => setActiveTab('servicios')}
         >
-          <MaterialIcons name="local-hospital" size={20} color={activeTab === 'servicios' ? theme.primary : theme.textMuted} />
-          <Text style={[styles.tabLabel, { color: activeTab === 'servicios' ? theme.primary : theme.textSecondary }]}>Servicios</Text>
+          <MaterialIcons name="local-hospital" size={24} color={activeTab === 'servicios' ? theme.primary : theme.textMuted} />
+          <Text style={[styles.tabLabel, { color: activeTab === 'servicios' ? theme.primary : theme.textSecondary }]}>
+            Profesionales
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.tabItem, activeTab === 'perfil' && { borderBottomColor: theme.primary, borderBottomWidth: 3 }]}
+          accessibilityRole="tab"
+          accessibilityLabel="Mi perfil"
+          accessibilityState={{ selected: activeTab === 'perfil' }}
+          style={[
+            styles.tabItem,
+            activeTab === 'perfil' && {
+              borderBottomColor: theme.primary,
+              borderBottomWidth: 4,
+              backgroundColor: theme.primaryLight + '25'
+            }
+          ]}
           onPress={() => setActiveTab('perfil')}
         >
-          <MaterialIcons name="person-outline" size={20} color={activeTab === 'perfil' ? theme.primary : theme.textMuted} />
-          <Text style={[styles.tabLabel, { color: activeTab === 'perfil' ? theme.primary : theme.textSecondary }]}>Perfil</Text>
+          <MaterialIcons name="person-outline" size={24} color={activeTab === 'perfil' ? theme.primary : theme.textMuted} />
+          <Text style={[styles.tabLabel, { color: activeTab === 'perfil' ? theme.primary : theme.textSecondary }]}>
+            Mi perfil
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -486,47 +661,125 @@ export const PatientPortalScreen: React.FC = () => {
         {/* ========================================== */}
         {activeTab === 'inicio' && (
           <View style={styles.sectionContainer}>
+            {/* Acciones principales claramente identificables para el paciente */}
+            <View style={styles.quickActionsGrid}>
+              <Card elevated style={styles.actionCard} padding="lg">
+                <View style={[styles.actionIconCircle, { backgroundColor: theme.primaryLight }]}>
+                  <MaterialIcons name="add-circle-outline" size={30} color={theme.primary} />
+                </View>
+                <Text style={[styles.actionTitle, { color: theme.text }]}>Solicitar un turno</Text>
+                <Text style={[styles.actionDesc, { color: theme.textSecondary }]}>
+                  Reservá tu próxima sesión paso a paso.
+                </Text>
+                <Button
+                  title="Solicitar turno"
+                  size="md"
+                  fullWidth
+                  icon={<MaterialIcons name="event-available" size={20} color="#FFF" />}
+                  onPress={() => handleOpenBooking()}
+                  style={{ marginTop: spacing.sm }}
+                />
+              </Card>
+
+              <Card elevated style={styles.actionCard} padding="lg">
+                <View style={[styles.actionIconCircle, { backgroundColor: theme.infoBg }]}>
+                  <MaterialIcons name="event-note" size={30} color={theme.info} />
+                </View>
+                <Text style={[styles.actionTitle, { color: theme.text }]}>Mis turnos</Text>
+                <Text style={[styles.actionDesc, { color: theme.textSecondary }]}>
+                  Consultá tus próximos turnos y turnos anteriores.
+                </Text>
+                <Button
+                  title="Ver mis turnos"
+                  variant="outline"
+                  size="md"
+                  fullWidth
+                  onPress={() => setActiveTab('turnos')}
+                  style={{ marginTop: spacing.sm }}
+                />
+              </Card>
+
+              <Card elevated style={styles.actionCard} padding="lg">
+                <View style={[styles.actionIconCircle, { backgroundColor: theme.successBg }]}>
+                  <MaterialIcons name="fitness-center" size={30} color={theme.success} />
+                </View>
+                <Text style={[styles.actionTitle, { color: theme.text }]}>Tratamiento y ejercicios</Text>
+                <Text style={[styles.actionDesc, { color: theme.textSecondary }]}>
+                  Revisá las indicaciones y rutina de tu kinesiólogo.
+                </Text>
+                <Button
+                  title="Ver mis ejercicios"
+                  variant="outline"
+                  size="md"
+                  fullWidth
+                  onPress={() => {
+                    setActiveTab('ejercicios');
+                    if (selectedRoutineId) fetchComplianceLogs(selectedRoutineId);
+                  }}
+                  style={{ marginTop: spacing.sm }}
+                />
+              </Card>
+
+              <Card elevated style={styles.actionCard} padding="lg">
+                <View style={[styles.actionIconCircle, { backgroundColor: theme.warningBg }]}>
+                  <MaterialIcons name="local-hospital" size={30} color={theme.warning} />
+                </View>
+                <Text style={[styles.actionTitle, { color: theme.text }]}>Profesionales y servicios</Text>
+                <Text style={[styles.actionDesc, { color: theme.textSecondary }]}>
+                  Conocé los especialistas y tipos de consulta.
+                </Text>
+                <Button
+                  title="Ver profesionales"
+                  variant="outline"
+                  size="md"
+                  fullWidth
+                  onPress={() => setActiveTab('servicios')}
+                  style={{ marginTop: spacing.sm }}
+                />
+              </Card>
+            </View>
+
             {/* Tarjeta de Próximo Turno */}
             <Card elevated style={styles.heroCard} padding="lg">
               <View style={styles.cardHeaderRow}>
-                <Text style={[styles.cardTitle, { color: theme.text }]}>Próximo Turno Confirmado</Text>
+                <Text style={[styles.cardTitle, { color: theme.text }]}>Tu próximo turno</Text>
                 {nextAppt && (
                   <Badge
                     label={nextAppt.status === 'confirmed' ? 'Confirmado' : 'Programado'}
                     variant={nextAppt.status === 'confirmed' ? 'success' : 'info'}
+                    size="md"
                   />
                 )}
               </View>
 
               {nextAppt ? (
                 <View style={styles.nextApptBody}>
-                  <View style={[styles.apptHighlightBox, { backgroundColor: theme.primaryLight + '40', borderColor: theme.primary + '30' }]}>
-                    <MaterialIcons name="event-available" size={32} color={theme.primary} />
+                  <View style={[styles.apptHighlightBox, { backgroundColor: theme.primaryLight + '35', borderColor: theme.primary }]}>
+                    <MaterialIcons name="event-available" size={36} color={theme.primary} />
                     <View style={styles.highlightTextCol}>
                       <Text style={[styles.highlightService, { color: theme.primary }]}>
                         {nextAppt.service_name}
                       </Text>
                       <Text style={[styles.highlightTime, { color: theme.text }]}>
-                        {new Date(nextAppt.start_time).toLocaleDateString('es-AR', {
-                          weekday: 'long',
-                          day: 'numeric',
-                          month: 'long',
+                        {formatFullSpanishDate(nextAppt.start_time)} a las{' '}
+                        {new Date(nextAppt.start_time).toLocaleTimeString('es-AR', {
                           hour: '2-digit',
                           minute: '2-digit'
-                        })} hs
+                        })}{' '}
+                        hs
                       </Text>
                     </View>
                   </View>
 
                   <View style={styles.detailsRow}>
                     <View style={styles.detailItem}>
-                      <Text style={[styles.detailLabel, { color: theme.textMuted }]}>Profesional</Text>
+                      <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Profesional</Text>
                       <Text style={[styles.detailValue, { color: theme.text }]}>
                         Lic. {nextAppt.kinesiologist_last_name}, {nextAppt.kinesiologist_name}
                       </Text>
                     </View>
                     <View style={styles.detailItem}>
-                      <Text style={[styles.detailLabel, { color: theme.textMuted }]}>Tarifa acordada</Text>
+                      <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Valor de la consulta</Text>
                       <Text style={[styles.detailValue, { color: theme.text }]}>
                         ${Number(nextAppt.agreed_price).toLocaleString('es-AR')} {nextAppt.currency || 'ARS'}
                       </Text>
@@ -535,9 +788,16 @@ export const PatientPortalScreen: React.FC = () => {
 
                   <View style={styles.apptActionsRow}>
                     <Button
-                      title="Cancelar Turno"
+                      title="Ver todos mis turnos"
+                      variant="outline"
+                      size="md"
+                      onPress={() => setActiveTab('turnos')}
+                      style={{ flex: 1 }}
+                    />
+                    <Button
+                      title="Cancelar turno"
                       variant="danger"
-                      size="sm"
+                      size="md"
                       onPress={() => {
                         setAppointmentToCancel(nextAppt);
                         setCancelModalVisible(true);
@@ -548,13 +808,14 @@ export const PatientPortalScreen: React.FC = () => {
                 </View>
               ) : (
                 <View style={styles.noApptBox}>
-                  <MaterialIcons name="calendar-today" size={40} color={theme.textMuted} style={{ marginBottom: spacing.sm }} />
+                  <MaterialIcons name="calendar-today" size={44} color={theme.textMuted} style={{ marginBottom: spacing.sm }} />
                   <Text style={[styles.noApptText, { color: theme.textSecondary }]}>
                     No tenés turnos programados en este momento.
                   </Text>
                   <Button
-                    title="Reservar un Turno Ahora"
-                    size="md"
+                    title="Solicitar turno"
+                    size="lg"
+                    icon={<MaterialIcons name="add-circle-outline" size={22} color="#FFF" />}
                     onPress={() => handleOpenBooking()}
                     style={{ marginTop: spacing.md }}
                   />
@@ -567,17 +828,17 @@ export const PatientPortalScreen: React.FC = () => {
               <View style={styles.cardHeaderRow}>
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
-                    <MaterialIcons name="fitness-center" size={20} color={theme.primary} />
-                    <Text style={[styles.cardTitle, { color: theme.text }]}>Mi Rutina de Rehabilitación</Text>
+                    <MaterialIcons name="fitness-center" size={24} color={theme.primary} />
+                    <Text style={[styles.cardTitle, { color: theme.text }]}>Tu plan de ejercicios</Text>
                   </View>
-                  <Text style={[styles.cardSubtitle, { color: theme.textSecondary, marginBottom: 0, marginTop: 4 }]}>
-                    {dashboardData?.activeRoutine?.kinesiologist_name
-                      ? `Prescrita por Lic. ${dashboardData.activeRoutine.kinesiologist_name} ${dashboardData.activeRoutine.kinesiologist_last_name}`
-                      : 'Plan de ejercicios terapéuticos'}
-                  </Text>
+                  {dashboardData?.activeRoutine?.kinesiologist_name ? (
+                    <Text style={[styles.cardSubtitle, { color: theme.textSecondary, marginBottom: 0, marginTop: 4 }]}>
+                      Indicado por Lic. {dashboardData.activeRoutine.kinesiologist_name} {dashboardData.activeRoutine.kinesiologist_last_name}
+                    </Text>
+                  ) : null}
                 </View>
                 {dashboardData?.activeRoutine && (
-                  <Badge label="Vigente" variant="success" />
+                  <Badge label="Vigente" variant="success" size="md" />
                 )}
               </View>
 
@@ -588,14 +849,14 @@ export const PatientPortalScreen: React.FC = () => {
                       {dashboardData.activeRoutine.name}
                     </Text>
                     {dashboardData.activeRoutine.valid_from && (
-                      <Text style={[styles.routineValidityText, { color: theme.textMuted }]}>
-                        Desde {new Date(dashboardData.activeRoutine.valid_from).toLocaleDateString('es-AR')}
-                        {dashboardData.activeRoutine.valid_until ? ` hasta ${new Date(dashboardData.activeRoutine.valid_until).toLocaleDateString('es-AR')}` : ' (Sin vencimiento definido)'}
+                      <Text style={[styles.routineValidityText, { color: theme.textSecondary }]}>
+                        Desde el {new Date(dashboardData.activeRoutine.valid_from).toLocaleDateString('es-AR')}
+                        {dashboardData.activeRoutine.valid_until ? ` hasta el ${new Date(dashboardData.activeRoutine.valid_until).toLocaleDateString('es-AR')}` : ''}
                       </Text>
                     )}
                     {dashboardData.activeRoutine.notes ? (
-                      <View style={[styles.indicationCallout, { backgroundColor: theme.infoBg, borderColor: theme.info + '30' }]}>
-                        <MaterialIcons name="info" size={16} color={theme.info} />
+                      <View style={[styles.indicationCallout, { backgroundColor: theme.infoBg, borderColor: theme.info }]}>
+                        <MaterialIcons name="info" size={22} color={theme.info} />
                         <Text style={[styles.indicationText, { color: theme.text, flex: 1 }]}>
                           {dashboardData.activeRoutine.notes}
                         </Text>
@@ -605,7 +866,7 @@ export const PatientPortalScreen: React.FC = () => {
                     <View style={styles.routineProgressRow}>
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.progressCountText, { color: theme.text }]}>
-                          {dashboardData.activeRoutine.completed_today_count || 0} de {dashboardData.activeRoutine.exercises_count || 0} ejercicios realizados hoy
+                          Progreso de hoy: {dashboardData.activeRoutine.completed_today_count || 0} de {dashboardData.activeRoutine.exercises_count || 0} ejercicios realizados
                         </Text>
                         <View style={[styles.progressBarBg, { backgroundColor: theme.border }]}>
                           <View
@@ -623,8 +884,8 @@ export const PatientPortalScreen: React.FC = () => {
                   </View>
 
                   <Button
-                    title="Ver Ejercicios e Instrucciones"
-                    icon={<MaterialIcons name="arrow-forward" size={18} color="#FFF" />}
+                    title="Abrir mis ejercicios"
+                    icon={<MaterialIcons name="arrow-forward" size={20} color="#FFF" />}
                     size="md"
                     onPress={() => {
                       setActiveTab('ejercicios');
@@ -638,52 +899,13 @@ export const PatientPortalScreen: React.FC = () => {
                 </View>
               ) : (
                 <View style={styles.noApptBox}>
-                  <MaterialIcons name="fitness-center" size={36} color={theme.textMuted} style={{ marginBottom: spacing.xs }} />
+                  <MaterialIcons name="fitness-center" size={44} color={theme.textMuted} style={{ marginBottom: spacing.xs }} />
                   <Text style={[styles.noApptText, { color: theme.textSecondary }]}>
-                    No tenés una rutina asignada actualmente. Tu kinesiólogo prescribirá tus ejercicios en tu próxima consulta.
+                    Todavía no tenés una rutina de ejercicios asignada.
                   </Text>
                 </View>
               )}
             </Card>
-
-            {/* Accesos directos */}
-            <View style={styles.quickActionsRow}>
-              <Card elevated style={[styles.actionCard, { flex: 1 }]} padding="md">
-                <MaterialIcons name="add-circle-outline" size={28} color={theme.primary} />
-                <Text style={[styles.actionTitle, { color: theme.text }]}>Nuevo Turno</Text>
-                <Text style={[styles.actionDesc, { color: theme.textSecondary }]}>
-                  Elegí servicio y horario disponible en segundos.
-                </Text>
-                <Button title="Agendar" size="sm" onPress={() => handleOpenBooking()} style={{ marginTop: spacing.sm }} />
-              </Card>
-
-              <Card elevated style={[styles.actionCard, { flex: 1 }]} padding="md">
-                <MaterialIcons name="fitness-center" size={28} color={theme.success} />
-                <Text style={[styles.actionTitle, { color: theme.text }]}>Mis Ejercicios</Text>
-                <Text style={[styles.actionDesc, { color: theme.textSecondary }]}>
-                  Consultá las rutinas e indicaciones de tu kinesiólogo.
-                </Text>
-                <Button
-                  title="Ver Rutina"
-                  variant="outline"
-                  size="sm"
-                  onPress={() => {
-                    setActiveTab('ejercicios');
-                    if (selectedRoutineId) fetchComplianceLogs(selectedRoutineId);
-                  }}
-                  style={{ marginTop: spacing.sm }}
-                />
-              </Card>
-
-              <Card elevated style={[styles.actionCard, { flex: 1 }]} padding="md">
-                <MaterialIcons name="history" size={28} color={theme.info} />
-                <Text style={[styles.actionTitle, { color: theme.text }]}>Mis Turnos</Text>
-                <Text style={[styles.actionDesc, { color: theme.textSecondary }]}>
-                  Revisá tus citas anteriores y próximas reservas.
-                </Text>
-                <Button title="Historial" variant="outline" size="sm" onPress={() => setActiveTab('turnos')} style={{ marginTop: spacing.sm }} />
-              </Card>
-            </View>
           </View>
         )}
 
@@ -693,27 +915,30 @@ export const PatientPortalScreen: React.FC = () => {
         {activeTab === 'ejercicios' && (
           <View style={styles.sectionContainer}>
             <ScreenHeader
-              title="Mis Ejercicios y Rutinas"
-              subtitle="Ejercicios prescritos por tu profesional para realizar en tu hogar o gimnasio"
+              title="Mis ejercicios e indicaciones"
+              subtitle="Seguí las indicaciones de tu kinesiólogo paso a paso."
             />
 
             {myRoutines.length === 0 ? (
               <EmptyState
-                title="No tenés rutinas asignadas"
-                subtitle="Tu kinesiólogo prescribirá y cargará tu rutina de rehabilitación personalizada en tu próxima sesión."
+                title="Sin rutinas asignadas"
+                subtitle="Tu kinesiólogo cargará tus ejercicios en la consulta."
               />
             ) : (
               <>
                 {/* Selector de rutinas cuando existen múltiples versiones o tratamientos */}
                 {myRoutines.length > 1 && (
                   <View style={{ marginBottom: spacing.xs }}>
-                    <Text style={[styles.inputLabel, { color: theme.text }]}>Seleccionar Rutina:</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <Text style={[styles.inputLabel, { color: theme.text }]}>Seleccionar rutina:</Text>
+                    <View style={styles.wrappedChipsRow}>
                       {myRoutines.map((r) => {
                         const isSelected = selectedRoutineId === r.id;
                         return (
                           <TouchableOpacity
                             key={r.id}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Rutina ${r.name}`}
+                            accessibilityState={{ selected: isSelected }}
                             onPress={() => {
                               setSelectedRoutineId(r.id);
                               fetchComplianceLogs(r.id);
@@ -729,16 +954,16 @@ export const PatientPortalScreen: React.FC = () => {
                             <Text
                               style={{
                                 color: isSelected ? '#FFF' : theme.text,
-                                fontWeight: isSelected ? '700' : '500',
-                                fontSize: typography.fontSize.xs
+                                fontWeight: isSelected ? '700' : '600',
+                                fontSize: typography.fontSize.base
                               }}
                             >
-                              {r.name} {r.is_current ? '★ (Vigente)' : `(v${r.version})`}
+                              {r.name} {r.is_current ? '★ (Vigente)' : `(Versión ${r.version})`}
                             </Text>
                           </TouchableOpacity>
                         );
                       })}
-                    </ScrollView>
+                    </View>
                   </View>
                 )}
 
@@ -748,7 +973,7 @@ export const PatientPortalScreen: React.FC = () => {
                   if (!currentRoutine) return null;
 
                   return (
-                    <View style={{ gap: spacing.md }}>
+                    <View style={{ gap: spacing.lg }}>
                       {/* Cabecera de la rutina */}
                       <Card elevated padding="lg">
                         <View style={styles.cardHeaderRow}>
@@ -762,6 +987,7 @@ export const PatientPortalScreen: React.FC = () => {
                           <Badge
                             label={currentRoutine.is_current ? 'Vigente' : currentRoutine.status === 'completed' ? 'Finalizada' : currentRoutine.status}
                             variant={currentRoutine.is_current ? 'success' : 'info'}
+                            size="md"
                           />
                         </View>
 
@@ -771,19 +997,19 @@ export const PatientPortalScreen: React.FC = () => {
                           </Text>
                         ) : null}
 
-                        <View style={[styles.divider, { backgroundColor: theme.border, marginVertical: spacing.sm }]} />
+                        <View style={[styles.divider, { backgroundColor: theme.border, marginVertical: spacing.md }]} />
 
                         <View style={styles.routineDatesRow}>
                           <View style={styles.routineDateItem}>
-                            <MaterialIcons name="event" size={16} color={theme.textMuted} />
-                            <Text style={[styles.gridText, { color: theme.textMuted }]}>
+                            <MaterialIcons name="event" size={20} color={theme.textSecondary} />
+                            <Text style={[styles.gridText, { color: theme.textSecondary }]}>
                               Desde: {currentRoutine.valid_from ? new Date(currentRoutine.valid_from).toLocaleDateString('es-AR') : 'Inicio del tratamiento'}
                             </Text>
                           </View>
                           {currentRoutine.valid_until && (
                             <View style={styles.routineDateItem}>
-                              <MaterialIcons name="event-available" size={16} color={theme.textMuted} />
-                              <Text style={[styles.gridText, { color: theme.textMuted }]}>
+                              <MaterialIcons name="event-available" size={20} color={theme.textSecondary} />
+                              <Text style={[styles.gridText, { color: theme.textSecondary }]}>
                                 Próxima revisión: {new Date(currentRoutine.valid_until).toLocaleDateString('es-AR')}
                               </Text>
                             </View>
@@ -791,8 +1017,8 @@ export const PatientPortalScreen: React.FC = () => {
                         </View>
 
                         {currentRoutine.notes ? (
-                          <View style={[styles.indicationCallout, { backgroundColor: theme.primaryLight + '25', borderColor: theme.primary + '40', marginTop: spacing.sm }]}>
-                            <MaterialIcons name="assignment" size={18} color={theme.primary} />
+                          <View style={[styles.indicationCallout, { backgroundColor: theme.primaryLight + '25', borderColor: theme.primary, marginTop: spacing.md }]}>
+                            <MaterialIcons name="assignment" size={24} color={theme.primary} />
                             <View style={{ flex: 1 }}>
                               <Text style={[styles.indicationTitle, { color: theme.primary }]}>Indicaciones del profesional:</Text>
                               <Text style={[styles.indicationText, { color: theme.text }]}>{currentRoutine.notes}</Text>
@@ -802,14 +1028,14 @@ export const PatientPortalScreen: React.FC = () => {
                       </Card>
 
                       {/* Lista de ejercicios en orden de ejecución */}
-                      <Text style={[styles.subHeaderTitle, { color: theme.text, marginTop: spacing.sm }]}>
-                        Ejercicios Prescritos ({currentRoutine.exercises?.length || 0})
+                      <Text style={[styles.subHeaderTitle, { color: theme.text, marginTop: spacing.xs }]}>
+                        Ejercicios indicados ({currentRoutine.exercises?.length || 0})
                       </Text>
 
                       {(!currentRoutine.exercises || currentRoutine.exercises.length === 0) ? (
-                        <Card elevated padding="md">
-                          <Text style={[{ color: theme.textSecondary, textAlign: 'center' }]}>
-                            No hay ejercicios listados en esta versión de la rutina.
+                        <Card elevated padding="lg">
+                          <Text style={[styles.noApptText, { color: theme.textSecondary }]}>
+                            No hay ejercicios listados en esta rutina.
                           </Text>
                         </Card>
                       ) : (
@@ -817,24 +1043,24 @@ export const PatientPortalScreen: React.FC = () => {
                           const isDoneToday = Boolean(ex.completed_today && ex.completed_today > 0);
 
                           return (
-                            <Card key={ex.routine_exercise_id || idx} elevated style={styles.exerciseCard} padding="md">
+                            <Card key={ex.routine_exercise_id || idx} elevated style={styles.exerciseCard} padding="lg">
                               {/* Fila superior: orden secuencial + nombre + badges */}
                               <View style={styles.exerciseHeaderRow}>
                                 <View style={[styles.orderBadge, { backgroundColor: theme.primaryLight }]}>
-                                  <Text style={[styles.orderBadgeText, { color: theme.primary }]}>#{ex.execution_order || idx + 1}</Text>
+                                  <Text style={[styles.orderBadgeText, { color: theme.primary }]}>{ex.execution_order || idx + 1}</Text>
                                 </View>
                                 <View style={{ flex: 1 }}>
                                   <Text style={[styles.exerciseName, { color: theme.text }]}>{ex.name}</Text>
                                   <View style={styles.badgeRow}>
-                                    {ex.category && <Badge label={ex.category} variant="info" size="sm" />}
-                                    {ex.body_zone && <Badge label={ex.body_zone} variant="default" size="sm" />}
-                                    {ex.difficulty_level && <Badge label={ex.difficulty_level} variant="neutral" size="sm" />}
+                                    {ex.category && <Badge label={ex.category} variant="info" size="md" />}
+                                    {ex.body_zone && <Badge label={ex.body_zone} variant="default" size="md" />}
+                                    {ex.difficulty_level && <Badge label={ex.difficulty_level} variant="neutral" size="md" />}
                                   </View>
                                 </View>
                                 {isDoneToday ? (
-                                  <Badge label="✓ Realizado hoy" variant="success" size="sm" />
+                                  <Badge label="✓ Realizado hoy" variant="success" size="md" />
                                 ) : (
-                                  <Badge label="Pendiente hoy" variant="warning" size="sm" />
+                                  <Badge label="Pendiente hoy" variant="warning" size="md" />
                                 )}
                               </View>
 
@@ -842,43 +1068,43 @@ export const PatientPortalScreen: React.FC = () => {
                               <View style={[styles.paramsGrid, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
                                 {ex.sets ? (
                                   <View style={styles.paramItem}>
-                                    <Text style={[styles.paramLabel, { color: theme.textMuted }]}>Series</Text>
+                                    <Text style={[styles.paramLabel, { color: theme.textSecondary }]}>Series</Text>
                                     <Text style={[styles.paramValue, { color: theme.text }]}>{ex.sets}</Text>
                                   </View>
                                 ) : null}
                                 {ex.repetitions ? (
                                   <View style={styles.paramItem}>
-                                    <Text style={[styles.paramLabel, { color: theme.textMuted }]}>Reps</Text>
+                                    <Text style={[styles.paramLabel, { color: theme.textSecondary }]}>Repeticiones</Text>
                                     <Text style={[styles.paramValue, { color: theme.text }]}>{ex.repetitions}</Text>
                                   </View>
                                 ) : null}
                                 {ex.duration_seconds ? (
                                   <View style={styles.paramItem}>
-                                    <Text style={[styles.paramLabel, { color: theme.textMuted }]}>Duración</Text>
-                                    <Text style={[styles.paramValue, { color: theme.text }]}>{ex.duration_seconds}s</Text>
+                                    <Text style={[styles.paramLabel, { color: theme.textSecondary }]}>Duración</Text>
+                                    <Text style={[styles.paramValue, { color: theme.text }]}>{ex.duration_seconds} seg</Text>
                                   </View>
                                 ) : null}
                                 {ex.rest_seconds ? (
                                   <View style={styles.paramItem}>
-                                    <Text style={[styles.paramLabel, { color: theme.textMuted }]}>Descanso</Text>
-                                    <Text style={[styles.paramValue, { color: theme.text }]}>{ex.rest_seconds}s</Text>
+                                    <Text style={[styles.paramLabel, { color: theme.textSecondary }]}>Descanso</Text>
+                                    <Text style={[styles.paramValue, { color: theme.text }]}>{ex.rest_seconds} seg</Text>
                                   </View>
                                 ) : null}
                                 {ex.weekly_frequency ? (
                                   <View style={styles.paramItem}>
-                                    <Text style={[styles.paramLabel, { color: theme.textMuted }]}>Frecuencia</Text>
+                                    <Text style={[styles.paramLabel, { color: theme.textSecondary }]}>Frecuencia</Text>
                                     <Text style={[styles.paramValue, { color: theme.text }]}>{ex.weekly_frequency}</Text>
                                   </View>
                                 ) : null}
                                 {ex.body_side && ex.body_side !== 'No aplica' ? (
                                   <View style={styles.paramItem}>
-                                    <Text style={[styles.paramLabel, { color: theme.textMuted }]}>Lado</Text>
+                                    <Text style={[styles.paramLabel, { color: theme.textSecondary }]}>Lado</Text>
                                     <Text style={[styles.paramValue, { color: theme.text }]}>{ex.body_side}</Text>
                                   </View>
                                 ) : null}
                                 {ex.resistance_load ? (
                                   <View style={styles.paramItem}>
-                                    <Text style={[styles.paramLabel, { color: theme.textMuted }]}>Carga</Text>
+                                    <Text style={[styles.paramLabel, { color: theme.textSecondary }]}>Peso / Carga</Text>
                                     <Text style={[styles.paramValue, { color: theme.text }]}>{ex.resistance_load}</Text>
                                   </View>
                                 ) : null}
@@ -886,10 +1112,10 @@ export const PatientPortalScreen: React.FC = () => {
 
                               {/* Indicaciones personalizadas del kinesiólogo */}
                               {ex.custom_instructions ? (
-                                <View style={[styles.indicationCallout, { backgroundColor: theme.primaryLight + '20', borderColor: theme.primary + '30' }]}>
-                                  <MaterialIcons name="medical-services" size={18} color={theme.primary} />
+                                <View style={[styles.indicationCallout, { backgroundColor: theme.primaryLight + '25', borderColor: theme.primary }]}>
+                                  <MaterialIcons name="medical-services" size={22} color={theme.primary} />
                                   <View style={{ flex: 1 }}>
-                                    <Text style={[styles.indicationTitle, { color: theme.primary }]}>Indicación particular para ti:</Text>
+                                    <Text style={[styles.indicationTitle, { color: theme.primary }]}>Indicación especial para vos:</Text>
                                     <Text style={[styles.indicationText, { color: theme.text }]}>{ex.custom_instructions}</Text>
                                   </View>
                                 </View>
@@ -898,17 +1124,17 @@ export const PatientPortalScreen: React.FC = () => {
                               {/* Instrucciones técnicas */}
                               {ex.instructions ? (
                                 <View style={styles.instructionsBox}>
-                                  <Text style={[styles.instructionsTitle, { color: theme.text }]}>Técnica de ejecución:</Text>
+                                  <Text style={[styles.instructionsTitle, { color: theme.text }]}>Cómo realizar el ejercicio:</Text>
                                   <Text style={[styles.instructionsText, { color: theme.textSecondary }]}>{ex.instructions}</Text>
                                 </View>
                               ) : null}
 
                               {/* Precauciones / Contraindicaciones */}
                               {ex.contraindications ? (
-                                <View style={[styles.indicationCallout, { backgroundColor: theme.warningBg, borderColor: theme.warning + '40' }]}>
-                                  <MaterialIcons name="warning" size={18} color={theme.warning} />
+                                <View style={[styles.indicationCallout, { backgroundColor: theme.warningBg, borderColor: theme.warning }]}>
+                                  <MaterialIcons name="warning" size={22} color={theme.warning} />
                                   <View style={{ flex: 1 }}>
-                                    <Text style={[styles.indicationTitle, { color: theme.warning }]}>Precauciones / Detener si:</Text>
+                                    <Text style={[styles.indicationTitle, { color: theme.warning }]}>Precauciones (detener si ocurre):</Text>
                                     <Text style={[styles.indicationText, { color: theme.text }]}>{ex.contraindications}</Text>
                                   </View>
                                 </View>
@@ -917,12 +1143,14 @@ export const PatientPortalScreen: React.FC = () => {
                               {/* Video demostrativo opcional */}
                               {ex.media_url ? (
                                 <TouchableOpacity
+                                  accessibilityRole="button"
+                                  accessibilityLabel="Ver video demostrativo del ejercicio"
                                   style={[styles.mediaLinkBtn, { borderColor: theme.info, backgroundColor: theme.infoBg }]}
                                   onPress={() => {
                                     if (ex.media_url) Linking.openURL(ex.media_url);
                                   }}
                                 >
-                                  <MaterialIcons name="play-circle-outline" size={20} color={theme.info} />
+                                  <MaterialIcons name="play-circle-outline" size={24} color={theme.info} />
                                   <Text style={[styles.mediaLinkText, { color: theme.info }]}>Ver video demostrativo del ejercicio</Text>
                                 </TouchableOpacity>
                               ) : null}
@@ -930,10 +1158,10 @@ export const PatientPortalScreen: React.FC = () => {
                               {/* Botón de cumplimiento informado */}
                               <View style={[styles.exerciseActionRow, { borderTopColor: theme.border }]}>
                                 <Button
-                                  title={isDoneToday ? "Registrar nueva realización" : "Marcar como realizado"}
-                                  variant={isDoneToday ? "outline" : "primary"}
-                                  icon={<MaterialIcons name={isDoneToday ? "check-circle" : "check"} size={18} color={isDoneToday ? theme.primary : '#FFF'} />}
-                                  size="sm"
+                                  title={isDoneToday ? 'Registrar otra realización hoy' : 'Marcar ejercicio como realizado'}
+                                  variant={isDoneToday ? 'outline' : 'primary'}
+                                  icon={<MaterialIcons name={isDoneToday ? 'check-circle' : 'check'} size={22} color={isDoneToday ? theme.primary : '#FFF'} />}
+                                  size="md"
                                   onPress={() => handleOpenLogExercise(ex)}
                                   style={{ flex: 1 }}
                                 />
@@ -944,8 +1172,10 @@ export const PatientPortalScreen: React.FC = () => {
                       )}
 
                       {/* Historial de cumplimiento informado por el paciente */}
-                      <View style={{ marginTop: spacing.md }}>
+                      <View style={{ marginTop: spacing.sm }}>
                         <TouchableOpacity
+                          accessibilityRole="button"
+                          accessibilityLabel="Ver mi historial de realización de ejercicios"
                           style={[styles.historyToggleRow, { backgroundColor: theme.surface, borderColor: theme.border }]}
                           onPress={() => {
                             if (!showLogsHistory && complianceLogs.length === 0 && currentRoutine?.id) {
@@ -954,42 +1184,43 @@ export const PatientPortalScreen: React.FC = () => {
                             setShowLogsHistory(!showLogsHistory);
                           }}
                         >
-                          <MaterialIcons name="history" size={20} color={theme.primary} />
+                          <MaterialIcons name="history" size={24} color={theme.primary} />
                           <Text style={[styles.historyToggleText, { color: theme.text, flex: 1 }]}>
-                            Mi Historial de Realización ({complianceLogs.length} registros)
+                            Mi historial de ejercicios realizados ({complianceLogs.length})
                           </Text>
-                          <MaterialIcons name={showLogsHistory ? "expand-less" : "expand-more"} size={22} color={theme.textMuted} />
+                          <MaterialIcons name={showLogsHistory ? 'expand-less' : 'expand-more'} size={28} color={theme.textSecondary} />
                         </TouchableOpacity>
 
                         {showLogsHistory && (
-                          <View style={{ marginTop: spacing.sm, gap: spacing.xs }}>
+                          <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
                             {complianceLogs.length === 0 ? (
-                              <Card elevated padding="md">
-                                <Text style={[{ color: theme.textSecondary, textAlign: 'center', fontSize: typography.fontSize.xs }]}>
-                                  Aún no tenés registros de realización para esta rutina. Podés marcar un ejercicio al completarlo.
+                              <Card elevated padding="lg">
+                                <Text style={[styles.noApptText, { color: theme.textSecondary }]}>
+                                  Aún no tenés registros de realización para esta rutina.
                                 </Text>
                               </Card>
                             ) : (
                               complianceLogs.map((log: any) => (
-                                <Card key={log.id} elevated padding="sm" style={styles.historyLogCard}>
+                                <Card key={log.id} elevated padding="md" style={styles.historyLogCard}>
                                   <View style={styles.cardHeaderRow}>
                                     <Text style={[styles.logExerciseName, { color: theme.text }]}>{log.exercise_name}</Text>
-                                    <Text style={[styles.logDateText, { color: theme.textMuted }]}>
+                                    <Text style={[styles.logDateText, { color: theme.textSecondary }]}>
                                       {new Date(log.completed_at || log.completed_date).toLocaleDateString('es-AR')}
                                     </Text>
                                   </View>
                                   <View style={styles.logMetaRow}>
                                     <Text style={[styles.logMetaItem, { color: theme.textSecondary }]}>
-                                      {log.sets_completed ? `${log.sets_completed} series` : ''} {log.reps_completed ? `x ${log.reps_completed} reps` : ''}
+                                      {log.sets_completed ? `${log.sets_completed} series` : ''}{' '}
+                                      {log.reps_completed ? `× ${log.reps_completed} repeticiones` : ''}
                                     </Text>
                                     <Badge
-                                      label={`Molestia: ${log.perceived_pain_level ?? 0}/10`}
+                                      label={`Molestia: ${log.perceived_pain_level ?? 0} de 10`}
                                       variant={log.perceived_pain_level > 5 ? 'error' : log.perceived_pain_level > 2 ? 'warning' : 'success'}
-                                      size="sm"
+                                      size="md"
                                     />
                                   </View>
                                   {log.patient_notes ? (
-                                    <Text style={[styles.logNotesText, { color: theme.textMuted }]}>
+                                    <Text style={[styles.logNotesText, { color: theme.textSecondary }]}>
                                       "{log.patient_notes}"
                                     </Text>
                                   ) : null}
@@ -1013,13 +1244,43 @@ export const PatientPortalScreen: React.FC = () => {
         {activeTab === 'servicios' && (
           <View style={styles.sectionContainer}>
             <ScreenHeader
-              title="Profesionales y Servicios"
-              subtitle="Conocé nuestro equipo kinesiológico, tarifas oficiales y prestaciones"
+              title="Profesionales y servicios"
+              subtitle="Conocé nuestros especialistas y tipos de consulta."
             />
 
-            <Text style={[styles.subHeaderTitle, { color: theme.text }]}>Prestaciones Disponibles</Text>
+            <Text style={[styles.subHeaderTitle, { color: theme.text }]}>Nuestros profesionales</Text>
+            {catalog.professionals.map((prof) => (
+              <Card key={prof.id} elevated style={styles.profCard} padding="lg">
+                <View style={styles.profRow}>
+                  <View style={[styles.profAvatar, { backgroundColor: theme.primaryLight }]}>
+                    <MaterialIcons name="badge" size={28} color={theme.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.profName, { color: theme.text }]}>{prof.fullName}</Text>
+                    <Text style={[styles.profSpecialty, { color: theme.textSecondary }]}>
+                      {prof.specialty}
+                    </Text>
+                  </View>
+                </View>
+                <View style={{ marginTop: spacing.md }}>
+                  <Button
+                    title="Solicitar turno con este profesional"
+                    variant="outline"
+                    size="md"
+                    onPress={() => {
+                      setSelectedKinesiologist(prof);
+                      handleOpenBooking();
+                    }}
+                  />
+                </View>
+              </Card>
+            ))}
+
+            <Text style={[styles.subHeaderTitle, { color: theme.text, marginTop: spacing.lg }]}>
+              Servicios y tipos de consulta
+            </Text>
             {catalog.services.map((serv) => (
-              <Card key={serv.id} elevated style={styles.serviceCard} padding="md">
+              <Card key={serv.id} elevated style={styles.serviceCard} padding="lg">
                 <View style={styles.serviceHeader}>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.serviceTitle, { color: theme.text }]}>{serv.name}</Text>
@@ -1031,7 +1292,7 @@ export const PatientPortalScreen: React.FC = () => {
                     <Text style={[styles.priceTag, { color: theme.primary }]}>
                       ${serv.price.toLocaleString('es-AR')}
                     </Text>
-                    <Text style={[styles.currencyTag, { color: theme.textMuted }]}>{serv.currency}</Text>
+                    <Text style={[styles.currencyTag, { color: theme.textSecondary }]}>{serv.currency}</Text>
                   </View>
                 </View>
 
@@ -1039,36 +1300,17 @@ export const PatientPortalScreen: React.FC = () => {
 
                 <View style={styles.serviceFooterRow}>
                   <View style={styles.durationBadge}>
-                    <MaterialIcons name="schedule" size={16} color={theme.textMuted} />
+                    <MaterialIcons name="schedule" size={20} color={theme.textSecondary} />
                     <Text style={[styles.durationText, { color: theme.textSecondary }]}>
-                      {serv.durationMinutes} minutos
+                      Duración aproximada: {serv.durationMinutes} minutos
                     </Text>
                   </View>
 
                   <Button
-                    title="Reservar Turno"
-                    size="sm"
+                    title="Solicitar turno"
+                    size="md"
                     onPress={() => handleOpenBooking(serv)}
                   />
-                </View>
-              </Card>
-            ))}
-
-            <Text style={[styles.subHeaderTitle, { color: theme.text, marginTop: spacing.xl }]}>
-              Equipo Profesional Autorizado
-            </Text>
-            {catalog.professionals.map((prof) => (
-              <Card key={prof.id} elevated style={styles.profCard} padding="md">
-                <View style={styles.profRow}>
-                  <View style={[styles.profAvatar, { backgroundColor: theme.primaryLight }]}>
-                    <MaterialIcons name="badge" size={24} color={theme.primary} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.profName, { color: theme.text }]}>{prof.fullName}</Text>
-                    <Text style={[styles.profSpecialty, { color: theme.textSecondary }]}>
-                      {prof.specialty}
-                    </Text>
-                  </View>
                 </View>
               </Card>
             ))}
@@ -1076,17 +1318,18 @@ export const PatientPortalScreen: React.FC = () => {
         )}
 
         {/* ========================================== */}
-        {/* PESTAÑA 3: MIS TURNOS */}
+        {/* PESTAÑA 4: MIS TURNOS (Próximos y Anteriores) */}
         {/* ========================================== */}
         {activeTab === 'turnos' && (
           <View style={styles.sectionContainer}>
             <ScreenHeader
-              title="Mis Turnos"
-              subtitle="Consultá el estado de tus citas o cancelalas con anticipación"
+              title="Mis turnos"
+              subtitle="Consultá tus próximos turnos y tu historial de atención."
               action={
                 <Button
-                  title="+ Nuevo Turno"
-                  size="sm"
+                  title="Solicitar turno"
+                  size="md"
+                  icon={<MaterialIcons name="add-circle-outline" size={20} color="#FFF" />}
                   onPress={() => handleOpenBooking()}
                 />
               }
@@ -1094,139 +1337,186 @@ export const PatientPortalScreen: React.FC = () => {
 
             {myAppointments.length === 0 ? (
               <EmptyState
-                title="Aún no tenés turnos registrados"
-                subtitle="Podés agendar una consulta médica de evaluación en cualquier momento."
+                title="No tenés turnos registrados"
+                subtitle="Podés solicitar un nuevo turno en cualquier momento."
                 action={{
-                  label: 'Reservar Turno',
+                  label: 'Solicitar turno',
                   onPress: () => handleOpenBooking()
                 }}
               />
             ) : (
-              myAppointments.map((appt) => {
-                const isCancelled = appt.status === 'cancelled';
-                const isAttended = appt.status === 'attended';
-                const isActionable = !isCancelled && !isAttended;
+              <View style={{ gap: spacing.lg }}>
+                {/* SECCIÓN: PRÓXIMOS TURNOS */}
+                <View style={{ gap: spacing.md }}>
+                  <Text style={[styles.subHeaderTitle, { color: theme.text }]}>
+                    Próximos turnos ({upcomingAppointments.length})
+                  </Text>
 
-                return (
-                  <Card key={appt.id} elevated style={styles.apptCard} padding="md">
-                    <View style={styles.cardHeaderRow}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.apptService, { color: theme.text }]}>{appt.service_name}</Text>
-                        <Text style={[styles.apptKine, { color: theme.textSecondary }]}>
-                          Lic. {appt.kinesiologist_last_name}, {appt.kinesiologist_name}
-                        </Text>
-                      </View>
-                      <Badge
-                        label={
-                          appt.status === 'confirmed' ? 'Confirmado' :
-                          appt.status === 'pending' ? 'Pendiente' :
-                          appt.status === 'attended' ? 'Atendido' :
-                          appt.status === 'cancelled' ? 'Cancelado' : appt.status
-                        }
-                        variant={
-                          appt.status === 'confirmed' ? 'success' :
-                          appt.status === 'pending' ? 'warning' :
-                          appt.status === 'attended' ? 'info' : 'error'
-                        }
-                      />
-                    </View>
+                  {upcomingAppointments.length === 0 ? (
+                    <Card elevated padding="lg">
+                      <Text style={[styles.noApptText, { color: theme.textSecondary }]}>
+                        No tenés próximos turnos pendientes.
+                      </Text>
+                    </Card>
+                  ) : (
+                    upcomingAppointments.map((appt) => (
+                      <Card key={appt.id} elevated style={styles.apptCard} padding="lg">
+                        <View style={styles.cardHeaderRow}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.apptService, { color: theme.text }]}>{appt.service_name}</Text>
+                            <Text style={[styles.apptKine, { color: theme.textSecondary }]}>
+                              Profesional: Lic. {appt.kinesiologist_last_name}, {appt.kinesiologist_name}
+                            </Text>
+                          </View>
+                          <Badge
+                            label={appt.status === 'confirmed' ? 'Confirmado' : 'Programado'}
+                            variant={appt.status === 'confirmed' ? 'success' : 'warning'}
+                            size="md"
+                          />
+                        </View>
 
-                    <View style={[styles.divider, { backgroundColor: theme.border }]} />
+                        <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
-                    <View style={styles.apptDetailsGrid}>
-                      <View style={styles.apptGridItem}>
-                        <MaterialIcons name="event" size={16} color={theme.textMuted} />
-                        <Text style={[styles.gridText, { color: theme.text }]}>
-                          {new Date(appt.start_time).toLocaleDateString('es-AR', {
-                            weekday: 'short',
-                            day: 'numeric',
-                            month: 'short',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })} hs
-                        </Text>
-                      </View>
+                        <View style={styles.apptDetailsGrid}>
+                          <View style={styles.apptGridItem}>
+                            <MaterialIcons name="event" size={22} color={theme.primary} />
+                            <Text style={[styles.gridText, { color: theme.text }]}>
+                              {formatFullSpanishDate(appt.start_time)} a las{' '}
+                              {new Date(appt.start_time).toLocaleTimeString('es-AR', {
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}{' '}
+                              hs
+                            </Text>
+                          </View>
 
-                      <View style={styles.apptGridItem}>
-                        <MaterialIcons name="payments" size={16} color={theme.textMuted} />
-                        <Text style={[styles.gridText, { color: theme.text }]}>
-                          ${Number(appt.agreed_price).toLocaleString('es-AR')} {appt.currency || 'ARS'}
-                        </Text>
-                      </View>
-                    </View>
+                          <View style={styles.apptGridItem}>
+                            <MaterialIcons name="payments" size={22} color={theme.textSecondary} />
+                            <Text style={[styles.gridText, { color: theme.text }]}>
+                              Valor: ${Number(appt.agreed_price).toLocaleString('es-AR')} {appt.currency || 'ARS'}
+                            </Text>
+                          </View>
+                        </View>
 
-                    {isActionable && (
-                      <View style={styles.apptActionsFooter}>
-                        <Button
-                          title="Cancelar"
-                          variant="danger"
-                          size="sm"
-                          onPress={() => {
-                            setAppointmentToCancel(appt);
-                            setCancelModalVisible(true);
-                          }}
-                          style={{ flex: 1 }}
-                        />
-                      </View>
-                    )}
-                  </Card>
-                );
-              })
+                        <View style={styles.apptActionsFooter}>
+                          <Button
+                            title="Cancelar turno"
+                            variant="danger"
+                            size="md"
+                            onPress={() => {
+                              setAppointmentToCancel(appt);
+                              setCancelModalVisible(true);
+                            }}
+                            style={{ flex: 1 }}
+                          />
+                        </View>
+                      </Card>
+                    ))
+                  )}
+                </View>
+
+                {/* SECCIÓN: TURNOS ANTERIORES Y CANCELADOS */}
+                {pastAppointments.length > 0 && (
+                  <View style={{ gap: spacing.md, marginTop: spacing.sm }}>
+                    <Text style={[styles.subHeaderTitle, { color: theme.text }]}>
+                      Turnos anteriores ({pastAppointments.length})
+                    </Text>
+
+                    {pastAppointments.map((appt) => (
+                      <Card key={appt.id} elevated style={styles.apptCard} padding="lg">
+                        <View style={styles.cardHeaderRow}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.apptService, { color: theme.text }]}>{appt.service_name}</Text>
+                            <Text style={[styles.apptKine, { color: theme.textSecondary }]}>
+                              Profesional: Lic. {appt.kinesiologist_last_name}, {appt.kinesiologist_name}
+                            </Text>
+                          </View>
+                          <Badge
+                            label={appt.status === 'attended' ? 'Atendido' : 'Cancelado'}
+                            variant={appt.status === 'attended' ? 'info' : 'error'}
+                            size="md"
+                          />
+                        </View>
+
+                        <View style={[styles.divider, { backgroundColor: theme.border }]} />
+
+                        <View style={styles.apptDetailsGrid}>
+                          <View style={styles.apptGridItem}>
+                            <MaterialIcons name="event" size={22} color={theme.textSecondary} />
+                            <Text style={[styles.gridText, { color: theme.textSecondary }]}>
+                              {formatFullSpanishDate(appt.start_time)} a las{' '}
+                              {new Date(appt.start_time).toLocaleTimeString('es-AR', {
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}{' '}
+                              hs
+                            </Text>
+                          </View>
+
+                          <View style={styles.apptGridItem}>
+                            <MaterialIcons name="payments" size={22} color={theme.textSecondary} />
+                            <Text style={[styles.gridText, { color: theme.textSecondary }]}>
+                              ${Number(appt.agreed_price).toLocaleString('es-AR')} {appt.currency || 'ARS'}
+                            </Text>
+                          </View>
+                        </View>
+                      </Card>
+                    ))}
+                  </View>
+                )}
+              </View>
             )}
           </View>
         )}
 
         {/* ========================================== */}
-        {/* PESTAÑA 4: MI PERFIL */}
+        {/* PESTAÑA 5: MI PERFIL */}
         {/* ========================================== */}
         {activeTab === 'perfil' && (
           <View style={styles.sectionContainer}>
             <ScreenHeader
-              title="Mi Perfil y Cuenta"
-              subtitle="Datos personales, teléfono de contacto y seguridad de acceso"
+              title="Mi perfil"
+              subtitle="Tus datos personales y de contacto."
             />
 
             {profileError && (
-              <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
+              <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error }]}>
                 <Text style={[styles.modalBannerText, { color: theme.error }]}>{profileError}</Text>
               </View>
             )}
 
             {profileSuccess && (
-              <View style={[styles.successBanner, { backgroundColor: theme.successBg, borderColor: theme.success + '40' }]}>
+              <View style={[styles.successBanner, { backgroundColor: theme.successBg, borderColor: theme.success }]}>
                 <Text style={[styles.successBannerText, { color: theme.success }]}>{profileSuccess}</Text>
               </View>
             )}
 
             <Card elevated style={styles.profileCard} padding="lg">
-              <Text style={[styles.cardTitle, { color: theme.text }]}>Datos Personales</Text>
-              <Text style={[styles.cardSubtitle, { color: theme.textSecondary }]}>
-                Información registrada en tu ficha médica oficial
-              </Text>
+              <Text style={[styles.cardTitle, { color: theme.text, marginBottom: spacing.sm }]}>Datos personales</Text>
 
               <View style={styles.profileInfoRow}>
-                <Text style={[styles.profileLabel, { color: theme.textMuted }]}>Nombre Completo:</Text>
+                <Text style={[styles.profileLabel, { color: theme.textSecondary }]}>Nombre completo:</Text>
                 <Text style={[styles.profileValue, { color: theme.text }]}>
                   {profile?.first_name} {profile?.last_name}
                 </Text>
               </View>
 
               <View style={styles.profileInfoRow}>
-                <Text style={[styles.profileLabel, { color: theme.textMuted }]}>DNI / Documento:</Text>
+                <Text style={[styles.profileLabel, { color: theme.textSecondary }]}>Documento (DNI):</Text>
                 <Text style={[styles.profileValue, { color: theme.text }]}>
                   {profile?.dni || 'No registrado'}
                 </Text>
               </View>
 
               <View style={styles.profileInfoRow}>
-                <Text style={[styles.profileLabel, { color: theme.textMuted }]}>Correo electrónico:</Text>
+                <Text style={[styles.profileLabel, { color: theme.textSecondary }]}>Correo electrónico:</Text>
                 <Text style={[styles.profileValue, { color: theme.text }]}>
                   {profile?.email || profile?.account_email || user?.email}
                 </Text>
               </View>
 
               <View style={styles.profileInfoRow}>
-                <Text style={[styles.profileLabel, { color: theme.textMuted }]}>Obra Social / Cobertura:</Text>
+                <Text style={[styles.profileLabel, { color: theme.textSecondary }]}>Obra social o cobertura:</Text>
                 <Text style={[styles.profileValue, { color: theme.text }]}>
                   {profile?.insurance_provider || profile?.address || 'Particular'}
                 </Text>
@@ -1235,19 +1525,19 @@ export const PatientPortalScreen: React.FC = () => {
               <View style={[styles.divider, { backgroundColor: theme.border, marginVertical: spacing.md }]} />
 
               <Text style={[styles.cardTitle, { color: theme.text, marginBottom: spacing.md }]}>
-                Actualizar Teléfono de Contacto
+                Teléfono de contacto
               </Text>
 
               <Input
-                label="Teléfono / Celular"
+                label="Número de teléfono o celular"
                 value={editPhone}
                 onChangeText={setEditPhone}
-                placeholder="+54 9 11..."
+                placeholder="Ej: +54 9 11 4567 8901"
                 keyboardType="phone-pad"
               />
 
               <Button
-                title="Guardar Teléfono"
+                title="Guardar teléfono"
                 size="md"
                 loading={profileSaving}
                 onPress={handleSaveProfile}
@@ -1256,19 +1546,16 @@ export const PatientPortalScreen: React.FC = () => {
             </Card>
 
             <Card elevated style={[styles.profileCard, { marginTop: spacing.lg }]} padding="lg">
-              <Text style={[styles.cardTitle, { color: theme.text }]}>Cambiar Contraseña</Text>
-              <Text style={[styles.cardSubtitle, { color: theme.textSecondary }]}>
-                Ingresá tu contraseña actual para establecer una nueva clave de acceso
-              </Text>
+              <Text style={[styles.cardTitle, { color: theme.text, marginBottom: spacing.sm }]}>Cambiar contraseña</Text>
 
               {passwordError && (
-                <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
+                <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error }]}>
                   <Text style={[styles.modalBannerText, { color: theme.error }]}>{passwordError}</Text>
                 </View>
               )}
 
               {passwordSuccess && (
-                <View style={[styles.successBanner, { backgroundColor: theme.successBg, borderColor: theme.success + '40' }]}>
+                <View style={[styles.successBanner, { backgroundColor: theme.successBg, borderColor: theme.success }]}>
                   <Text style={[styles.successBannerText, { color: theme.success }]}>{passwordSuccess}</Text>
                 </View>
               )}
@@ -1295,13 +1582,13 @@ export const PatientPortalScreen: React.FC = () => {
                 label="Confirmar nueva contraseña"
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
-                placeholder="Reescribí la nueva contraseña"
+                placeholder="Escribí de nuevo la contraseña"
                 isPassword
                 required
               />
 
               <Button
-                title="Actualizar Contraseña"
+                title="Guardar nueva contraseña"
                 size="md"
                 loading={passwordSaving}
                 onPress={handleChangePassword}
@@ -1310,25 +1597,22 @@ export const PatientPortalScreen: React.FC = () => {
             </Card>
 
             <Card elevated style={[styles.profileCard, { marginTop: spacing.lg }]} padding="lg">
-              <Text style={[styles.cardTitle, { color: theme.text }]}>Cuenta y Seguridad</Text>
-              <Text style={[styles.cardSubtitle, { color: theme.textSecondary }]}>
-                Estado de sesión y privacidad
-              </Text>
+              <Text style={[styles.cardTitle, { color: theme.text, marginBottom: spacing.sm }]}>Tu cuenta</Text>
 
               <View style={styles.profileInfoRow}>
-                <Text style={[styles.profileLabel, { color: theme.textMuted }]}>Rol en el sistema:</Text>
-                <Badge label="Paciente Verificado" variant="info" size="sm" />
+                <Text style={[styles.profileLabel, { color: theme.textSecondary }]}>Estado de la cuenta:</Text>
+                <Badge label="Paciente verificado" variant="info" size="md" />
               </View>
 
               <View style={styles.profileInfoRow}>
-                <Text style={[styles.profileLabel, { color: theme.textMuted }]}>ID de Ficha Clínica:</Text>
+                <Text style={[styles.profileLabel, { color: theme.textSecondary }]}>Número de historia clínica:</Text>
                 <Text style={[styles.profileValue, { color: theme.text }]}>
                   #{profile?.id || 'Asociada'}
                 </Text>
               </View>
 
               <Button
-                title="Cerrar Sesión Segura"
+                title="Cerrar sesión"
                 variant="outline"
                 size="md"
                 onPress={logout}
@@ -1340,159 +1624,441 @@ export const PatientPortalScreen: React.FC = () => {
       </ScrollView>
 
       {/* ========================================== */}
-      {/* MODAL: RESERVAR TURNO */}
+      {/* MODAL: RESERVAR TURNO (6 PASOS GUIADOS + CONFIRMACIÓN) */}
       {/* ========================================== */}
       <ModalWrapper
         visible={bookModalVisible}
         onClose={() => setBookModalVisible(false)}
-        title="Reservar Nuevo Turno"
-        subtitle="Seleccioná profesional, fecha y el horario que mejor te convenga"
+        title={bookingConfirmedData ? 'Reserva confirmada' : 'Solicitar turno'}
+        subtitle={
+          bookingConfirmedData
+            ? 'Tu turno quedó agendado correctamente.'
+            : `Paso ${bookingStep} de 6: ${BOOKING_STEPS[bookingStep - 1]?.title}`
+        }
         footer={
-          <>
-            <Button title="Cancelar" variant="secondary" size="md" onPress={() => setBookModalVisible(false)} />
-            <Button
-              title="Confirmar Reserva"
-              size="md"
-              loading={bookingSubmitting}
-              onPress={handleConfirmBooking}
-            />
-          </>
+          bookingConfirmedData ? (
+            <>
+              <Button
+                title="Cerrar"
+                variant="secondary"
+                size="md"
+                onPress={() => setBookModalVisible(false)}
+              />
+              <Button
+                title="Ver mis turnos"
+                size="md"
+                icon={<MaterialIcons name="event-note" size={20} color="#FFF" />}
+                onPress={() => {
+                  setBookModalVisible(false);
+                  setActiveTab('turnos');
+                }}
+              />
+            </>
+          ) : (
+            <>
+              {bookingStep > 1 ? (
+                <Button
+                  title="Paso anterior"
+                  variant="outline"
+                  size="md"
+                  onPress={() => setBookingStep((prev) => Math.max(1, prev - 1) as BookingStep)}
+                />
+              ) : (
+                <Button
+                  title="Cancelar"
+                  variant="secondary"
+                  size="md"
+                  onPress={() => setBookModalVisible(false)}
+                />
+              )}
+
+              {bookingStep < 6 ? (
+                <Button
+                  title="Siguiente paso"
+                  size="md"
+                  disabled={
+                    (bookingStep === 1 && !selectedService) ||
+                    (bookingStep === 2 && !selectedKinesiologist) ||
+                    (bookingStep === 3 && !selectedDate) ||
+                    (bookingStep === 4 && !selectedSlot)
+                  }
+                  onPress={() => setBookingStep((prev) => Math.min(6, prev + 1) as BookingStep)}
+                />
+              ) : (
+                <Button
+                  title="Confirmar reserva"
+                  size="lg"
+                  loading={bookingSubmitting}
+                  disabled={!selectedSlot || !selectedService || !selectedKinesiologist}
+                  onPress={handleConfirmBooking}
+                />
+              )}
+            </>
+          )
         }
       >
         {bookingError && (
-          <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
+          <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error }]}>
             <Text style={[styles.modalBannerText, { color: theme.error }]}>{bookingError}</Text>
           </View>
         )}
 
-        {bookingSuccess && (
-          <View style={[styles.modalBanner, { backgroundColor: theme.successBg, borderColor: theme.success + '40' }]}>
-            <Text style={[styles.modalBannerText, { color: theme.success }]}>{bookingSuccess}</Text>
-          </View>
-        )}
+        {bookingConfirmedData ? (
+          <View style={{ gap: spacing.md, alignItems: 'center', paddingVertical: spacing.sm }}>
+            <View style={[styles.confirmedIconCircle, { backgroundColor: theme.successBg }]}>
+              <MaterialIcons name="check-circle" size={56} color={theme.success} />
+            </View>
+            <Text style={[styles.confirmedHeadline, { color: theme.text }]}>
+              ¡Tu turno fue reservado con éxito!
+            </Text>
+            <Text style={[styles.modalBodyText, { color: theme.textSecondary, textAlign: 'center' }]}>
+              Guardá o revisá a continuación los datos de tu consulta:
+            </Text>
 
-        <Text style={[styles.inputLabel, { color: theme.text }]}>1. Servicio / Prestación</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.md }}>
-          {catalog.services.map((s) => (
-            <TouchableOpacity
-              key={s.id}
-              style={[
-                styles.selectChip,
-                {
-                  backgroundColor: selectedService?.id === s.id ? theme.primary : theme.surfaceSubtle,
-                  borderColor: selectedService?.id === s.id ? theme.primary : theme.border
-                }
-              ]}
-              onPress={() => {
-                setSelectedService(s);
-                if (selectedKinesiologist) {
-                  fetchAvailableSlots(selectedKinesiologist.id, s.id, selectedDate);
-                }
-              }}
-            >
-              <Text style={{ color: selectedService?.id === s.id ? '#FFF' : theme.text, fontWeight: '600' }}>
-                {s.name} (${s.price})
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        <Text style={[styles.inputLabel, { color: theme.text }]}>2. Profesional Kinesiólogo</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.md }}>
-          {catalog.professionals.map((p) => (
-            <TouchableOpacity
-              key={p.id}
-              style={[
-                styles.selectChip,
-                {
-                  backgroundColor: selectedKinesiologist?.id === p.id ? theme.primary : theme.surfaceSubtle,
-                  borderColor: selectedKinesiologist?.id === p.id ? theme.primary : theme.border
-                }
-              ]}
-              onPress={() => {
-                setSelectedKinesiologist(p);
-                if (selectedService) {
-                  fetchAvailableSlots(p.id, selectedService.id, selectedDate);
-                }
-              }}
-            >
-              <Text style={{ color: selectedKinesiologist?.id === p.id ? '#FFF' : theme.text, fontWeight: '600' }}>
-                {p.fullName}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        <DateInput
-          label="3. Fecha de atención"
-          value={selectedDate}
-          min={formatLocalDateISO(new Date())}
-          onChangeDate={(val) => {
-            setSelectedDate(val);
-            if (val && /^\d{4}-\d{2}-\d{2}$/.test(val) && selectedKinesiologist && selectedService) {
-              fetchAvailableSlots(selectedKinesiologist.id, selectedService.id, val);
-            }
-          }}
-        />
-
-        <Text style={[styles.inputLabel, { color: theme.text }]}>4. Horario Disponible</Text>
-        {loadingSlots ? (
-          <Text style={[styles.slotInfoText, { color: theme.textMuted }]}>Calculando disponibilidad en tiempo real...</Text>
-        ) : availableSlots.length === 0 ? (
-          <Text style={[styles.slotInfoText, { color: theme.warning }]}>
-            No hay horarios disponibles para esta fecha con el profesional seleccionado. Probá otra fecha.
-          </Text>
-        ) : (
-          <View style={styles.slotsGrid}>
-            {availableSlots.map((slot, idx) => (
-              <TouchableOpacity
-                key={idx}
-                style={[
-                  styles.slotBadge,
-                  {
-                    backgroundColor: selectedSlot?.startTime === slot.startTime ? theme.primary : theme.surfaceSubtle,
-                    borderColor: selectedSlot?.startTime === slot.startTime ? theme.primary : theme.border
-                  }
-                ]}
-                onPress={() => setSelectedSlot(slot)}
-              >
-                <Text style={{ color: selectedSlot?.startTime === slot.startTime ? '#FFF' : theme.text, fontWeight: '600' }}>
-                  {slot.time || slot.timeLabel} hs
+            <View style={[styles.summaryBox, { width: '100%', backgroundColor: theme.surfaceSubtle, borderColor: theme.success }]}>
+              <View style={styles.confirmDetailRow}>
+                <Text style={[styles.confirmDetailLabel, { color: theme.textSecondary }]}>Fecha:</Text>
+                <Text style={[styles.confirmDetailValue, { color: theme.text }]}>
+                  {bookingConfirmedData.dateFormatted}
                 </Text>
-              </TouchableOpacity>
-            ))}
+              </View>
+              <View style={styles.confirmDetailRow}>
+                <Text style={[styles.confirmDetailLabel, { color: theme.textSecondary }]}>Horario:</Text>
+                <Text style={[styles.confirmDetailValue, { color: theme.primary }]}>
+                  {bookingConfirmedData.timeLabel} hs
+                </Text>
+              </View>
+              <View style={styles.confirmDetailRow}>
+                <Text style={[styles.confirmDetailLabel, { color: theme.textSecondary }]}>Profesional:</Text>
+                <Text style={[styles.confirmDetailValue, { color: theme.text }]}>
+                  {bookingConfirmedData.professionalName}
+                </Text>
+              </View>
+              <View style={styles.confirmDetailRow}>
+                <Text style={[styles.confirmDetailLabel, { color: theme.textSecondary }]}>Servicio:</Text>
+                <Text style={[styles.confirmDetailValue, { color: theme.text }]}>
+                  {bookingConfirmedData.serviceName} ({bookingConfirmedData.durationMinutes} min)
+                </Text>
+              </View>
+              <View style={styles.confirmDetailRow}>
+                <Text style={[styles.confirmDetailLabel, { color: theme.textSecondary }]}>Valor:</Text>
+                <Text style={[styles.confirmDetailValue, { color: theme.text }]}>
+                  ${Number(bookingConfirmedData.price).toLocaleString('es-AR')} {bookingConfirmedData.currency}
+                </Text>
+              </View>
+            </View>
+          </View>
+        ) : (
+          <View style={{ gap: spacing.md }}>
+            {/* Barra de progreso de los 6 pasos */}
+            <View style={styles.stepperContainer}>
+              <View style={styles.stepperPillsRow}>
+                {BOOKING_STEPS.map((item) => {
+                  const isCurrent = bookingStep === item.step;
+                  const isDone = bookingStep > item.step;
+                  return (
+                    <TouchableOpacity
+                      key={item.step}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Paso ${item.step}: ${item.title}`}
+                      onPress={() => {
+                        if (item.step < bookingStep) {
+                          setBookingStep(item.step);
+                        }
+                      }}
+                      style={[
+                        styles.stepPill,
+                        {
+                          backgroundColor: isCurrent
+                            ? theme.primary
+                            : isDone
+                            ? theme.primaryLight
+                            : theme.surfaceSubtle,
+                          borderColor: isCurrent || isDone ? theme.primary : theme.border
+                        }
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.stepPillText,
+                          {
+                            color: isCurrent ? '#FFFFFF' : isDone ? theme.primary : theme.textSecondary
+                          }
+                        ]}
+                      >
+                        {item.step}. {item.title}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* PASO 1: SELECCIONAR EL SERVICIO O TIPO DE CONSULTA */}
+            {bookingStep === 1 && (
+              <View style={{ gap: spacing.sm }}>
+                <Text style={[styles.stepQuestionTitle, { color: theme.text }]}>
+                  1. Seleccioná el servicio o tipo de consulta
+                </Text>
+                <Text style={[styles.modalBodyText, { color: theme.textSecondary }]}>
+                  Tocá una opción de la lista para seleccionarla:
+                </Text>
+                {catalog.services.map((s) => {
+                  const isSelected = selectedService?.id === s.id;
+                  return (
+                    <TouchableOpacity
+                      key={s.id}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: isSelected }}
+                      style={[
+                        styles.wizardOptionCard,
+                        {
+                          backgroundColor: isSelected ? theme.primaryLight + '35' : theme.surfaceSubtle,
+                          borderColor: isSelected ? theme.primary : theme.border,
+                          borderWidth: isSelected ? 2 : 1.5
+                        }
+                      ]}
+                      onPress={() => {
+                        setSelectedService(s);
+                        if (selectedKinesiologist) {
+                          fetchAvailableSlots(selectedKinesiologist.id, s.id, selectedDate);
+                        }
+                      }}
+                    >
+                      <MaterialIcons
+                        name={isSelected ? 'radio-button-checked' : 'radio-button-unchecked'}
+                        size={26}
+                        color={isSelected ? theme.primary : theme.textMuted}
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.wizardOptionTitle, { color: theme.text }]}>{s.name}</Text>
+                        <Text style={[styles.wizardOptionSub, { color: theme.textSecondary }]}>
+                          Duración: {s.durationMinutes} min · Valor: ${Number(s.price).toLocaleString('es-AR')} {s.currency || 'ARS'}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+
+            {/* PASO 2: SELECCIONAR EL PROFESIONAL */}
+            {bookingStep === 2 && (
+              <View style={{ gap: spacing.sm }}>
+                <Text style={[styles.stepQuestionTitle, { color: theme.text }]}>
+                  2. Seleccioná el profesional
+                </Text>
+                <Text style={[styles.modalBodyText, { color: theme.textSecondary }]}>
+                  Elegí el kinesiólogo con quien querés atenderte:
+                </Text>
+                {catalog.professionals.map((p) => {
+                  const isSelected = selectedKinesiologist?.id === p.id;
+                  return (
+                    <TouchableOpacity
+                      key={p.id}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: isSelected }}
+                      style={[
+                        styles.wizardOptionCard,
+                        {
+                          backgroundColor: isSelected ? theme.primaryLight + '35' : theme.surfaceSubtle,
+                          borderColor: isSelected ? theme.primary : theme.border,
+                          borderWidth: isSelected ? 2 : 1.5
+                        }
+                      ]}
+                      onPress={() => {
+                        setSelectedKinesiologist(p);
+                        if (selectedService) {
+                          fetchAvailableSlots(p.id, selectedService.id, selectedDate);
+                        }
+                      }}
+                    >
+                      <MaterialIcons
+                        name={isSelected ? 'radio-button-checked' : 'radio-button-unchecked'}
+                        size={26}
+                        color={isSelected ? theme.primary : theme.textMuted}
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.wizardOptionTitle, { color: theme.text }]}>{p.fullName}</Text>
+                        <Text style={[styles.wizardOptionSub, { color: theme.textSecondary }]}>
+                          {p.specialty}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+
+            {/* PASO 3: ELEGIR UNA FECHA DISPONIBLE */}
+            {bookingStep === 3 && (
+              <View style={{ gap: spacing.sm }}>
+                <Text style={[styles.stepQuestionTitle, { color: theme.text }]}>
+                  3. Elegí una fecha disponible
+                </Text>
+                <DateInput
+                  label="Fecha del turno (lunes a viernes, próximos 14 días)"
+                  value={selectedDate}
+                  min={bookingMinDate}
+                  max={bookingMaxDate}
+                  disableWeekends={true}
+                  inlineCalendar={true}
+                  isDateDisabled={(d) => evaluateDateClient(d, calendarByDate, bookingMinDate, bookingMaxDate)}
+                  onChangeDate={(val) => {
+                    setSelectedDate(val);
+                    if (val && /^\d{4}-\d{2}-\d{2}$/.test(val) && selectedKinesiologist && selectedService) {
+                      fetchAvailableSlots(selectedKinesiologist.id, selectedService.id, val);
+                    }
+                  }}
+                />
+              </View>
+            )}
+
+            {/* PASO 4: ELEGIR UN HORARIO */}
+            {bookingStep === 4 && (
+              <View style={{ gap: spacing.sm }}>
+                <Text style={[styles.stepQuestionTitle, { color: theme.text }]}>
+                  4. Elegí un horario disponible
+                </Text>
+                <Text style={[styles.modalBodyText, { color: theme.textSecondary }]}>
+                  Horarios disponibles para el <Text style={{ fontWeight: '700', color: theme.text }}>{formatFullSpanishDate(selectedDate)}</Text>:
+                </Text>
+
+                {loadingSlots ? (
+                  <Text style={[styles.slotInfoText, { color: theme.textSecondary }]}>
+                    Buscando horarios disponibles...
+                  </Text>
+                ) : availableSlots.length === 0 ? (
+                  <View style={[styles.modalBanner, { backgroundColor: theme.warningBg, borderColor: theme.warning }]}>
+                    <Text style={[styles.modalBannerText, { color: theme.warning }]}>
+                      No quedan horarios libres en esta fecha. Volvé al paso anterior para elegir otro día.
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.slotsGrid}>
+                    {availableSlots.map((slot, idx) => {
+                      const isSlotSelected = selectedSlot?.startTime === slot.startTime;
+                      return (
+                        <TouchableOpacity
+                          key={idx}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Horario ${slot.time || slot.timeLabel} horas`}
+                          accessibilityState={{ selected: isSlotSelected }}
+                          style={[
+                            styles.slotBadge,
+                            {
+                              backgroundColor: isSlotSelected ? theme.primary : theme.surfaceSubtle,
+                              borderColor: isSlotSelected ? theme.primary : theme.border
+                            }
+                          ]}
+                          onPress={() => setSelectedSlot(slot)}
+                        >
+                          <MaterialIcons
+                            name="schedule"
+                            size={20}
+                            color={isSlotSelected ? '#FFF' : theme.primary}
+                          />
+                          <Text
+                            style={{
+                              color: isSlotSelected ? '#FFF' : theme.text,
+                              fontWeight: '700',
+                              fontSize: typography.fontSize.md
+                            }}
+                          >
+                            {slot.time || slot.timeLabel} hs
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* PASO 5: REVISAR LOS DATOS DEL TURNO */}
+            {bookingStep === 5 && (
+              <View style={{ gap: spacing.md }}>
+                <Text style={[styles.stepQuestionTitle, { color: theme.text }]}>
+                  5. Revisá los datos de tu turno
+                </Text>
+                <View style={[styles.summaryBox, { backgroundColor: theme.surfaceSubtle, borderColor: theme.primary }]}>
+                  <Text style={[styles.summaryTitle, { color: theme.primary }]}>Datos seleccionados</Text>
+                  <Text style={[styles.summaryText, { color: theme.text }]}>
+                    • Servicio: {selectedService?.name} ({selectedService?.durationMinutes} minutos)
+                  </Text>
+                  <Text style={[styles.summaryText, { color: theme.text }]}>
+                    • Profesional: {selectedKinesiologist?.fullName}
+                  </Text>
+                  <Text style={[styles.summaryText, { color: theme.text }]}>
+                    • Fecha: {formatFullSpanishDate(selectedDate)}
+                  </Text>
+                  <Text style={[styles.summaryText, { color: theme.text }]}>
+                    • Horario: {selectedSlot?.time || selectedSlot?.timeLabel} hs
+                  </Text>
+                  <Text style={[styles.summaryPrice, { color: theme.text }]}>
+                    Valor de la consulta: ${Number(selectedService?.price || 0).toLocaleString('es-AR')} {selectedService?.currency || 'ARS'}
+                  </Text>
+                </View>
+
+                <Input
+                  label="Comentarios o motivo de consulta (opcional)"
+                  value={bookingNotes}
+                  onChangeText={setBookingNotes}
+                  placeholder="Ej: Dolor en hombro derecho"
+                />
+              </View>
+            )}
+
+            {/* PASO 6: CONFIRMAR LA RESERVA */}
+            {bookingStep === 6 && (
+              <View style={{ gap: spacing.md }}>
+                <Text style={[styles.stepQuestionTitle, { color: theme.text }]}>
+                  6. Confirmá tu reserva
+                </Text>
+                <Text style={[styles.modalBodyText, { color: theme.textSecondary }]}>
+                  Verificá que la fecha, el horario y el profesional sean correctos y presioná "Confirmar reserva":
+                </Text>
+                <View style={[styles.summaryBox, { backgroundColor: theme.primaryLight + '25', borderColor: theme.primary }]}>
+                  <View style={styles.confirmDetailRow}>
+                    <Text style={[styles.confirmDetailLabel, { color: theme.textSecondary }]}>Fecha:</Text>
+                    <Text style={[styles.confirmDetailValue, { color: theme.text }]}>
+                      {formatFullSpanishDate(selectedDate)}
+                    </Text>
+                  </View>
+                  <View style={styles.confirmDetailRow}>
+                    <Text style={[styles.confirmDetailLabel, { color: theme.textSecondary }]}>Horario:</Text>
+                    <Text style={[styles.confirmDetailValue, { color: theme.primary }]}>
+                      {selectedSlot?.time || selectedSlot?.timeLabel} hs
+                    </Text>
+                  </View>
+                  <View style={styles.confirmDetailRow}>
+                    <Text style={[styles.confirmDetailLabel, { color: theme.textSecondary }]}>Profesional:</Text>
+                    <Text style={[styles.confirmDetailValue, { color: theme.text }]}>
+                      {selectedKinesiologist?.fullName}
+                    </Text>
+                  </View>
+                  <View style={styles.confirmDetailRow}>
+                    <Text style={[styles.confirmDetailLabel, { color: theme.textSecondary }]}>Servicio:</Text>
+                    <Text style={[styles.confirmDetailValue, { color: theme.text }]}>
+                      {selectedService?.name}
+                    </Text>
+                  </View>
+                  {bookingNotes.trim() ? (
+                    <View style={styles.confirmDetailRow}>
+                      <Text style={[styles.confirmDetailLabel, { color: theme.textSecondary }]}>Comentario:</Text>
+                      <Text style={[styles.confirmDetailValue, { color: theme.text }]}>
+                        {bookingNotes.trim()}
+                      </Text>
+                    </View>
+                  ) : null}
+                  <Text style={[styles.summaryPolicy, { color: theme.textSecondary, marginTop: spacing.xs }]}>
+                    Podés cancelar sin cargo hasta 2 horas antes del horario del turno.
+                  </Text>
+                </View>
+              </View>
+            )}
           </View>
         )}
-
-        {/* Resumen pre-confirmación */}
-        {selectedService && selectedSlot && (
-          <View style={[styles.summaryBox, { backgroundColor: theme.surfaceSubtle, borderColor: theme.primary + '40' }]}>
-            <Text style={[styles.summaryTitle, { color: theme.primary }]}>Resumen de la Reserva</Text>
-            <Text style={[styles.summaryText, { color: theme.text }]}>
-              • Prestación: {selectedService.name} ({selectedService.durationMinutes} min)
-            </Text>
-            <Text style={[styles.summaryText, { color: theme.text }]}>
-              • Profesional: {selectedKinesiologist?.fullName}
-            </Text>
-            <Text style={[styles.summaryText, { color: theme.text }]}>
-              • Horario: {selectedDate} a las {selectedSlot.time || selectedSlot.timeLabel} hs
-            </Text>
-            <Text style={[styles.summaryPrice, { color: theme.text }]}>
-              Precio vigente: ${selectedService.price} {selectedService.currency}
-            </Text>
-            <Text style={[styles.summaryPolicy, { color: theme.textMuted }]}>
-              * Cancelación sin costo hasta 2 horas antes de la consulta.
-            </Text>
-          </View>
-        )}
-
-        <Input
-          label="Comentarios para el kinesiólogo (opcional)"
-          value={bookingNotes}
-          onChangeText={setBookingNotes}
-          placeholder="Ej: Dolor en hombro derecho tras caída"
-          containerStyle={{ marginTop: spacing.md }}
-        />
       </ModalWrapper>
 
       {/* ========================================== */}
@@ -1501,13 +2067,12 @@ export const PatientPortalScreen: React.FC = () => {
       <ModalWrapper
         visible={cancelModalVisible}
         onClose={() => setCancelModalVisible(false)}
-        title="Cancelar Turno"
-        subtitle="Confirmá la cancelación de tu reserva"
+        title="Confirmar cancelación de turno"
         footer={
           <>
-            <Button title="Volver" variant="secondary" size="md" onPress={() => setCancelModalVisible(false)} />
+            <Button title="Volver atrás" variant="secondary" size="md" onPress={() => setCancelModalVisible(false)} />
             <Button
-              title="Confirmar Cancelación"
+              title="Sí, cancelar turno"
               variant="danger"
               size="md"
               loading={cancelSubmitting}
@@ -1517,20 +2082,36 @@ export const PatientPortalScreen: React.FC = () => {
         }
       >
         {cancelError && (
-          <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
+          <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error }]}>
             <Text style={[styles.modalBannerText, { color: theme.error }]}>{cancelError}</Text>
           </View>
         )}
 
         <Text style={[styles.modalBodyText, { color: theme.text }]}>
-          ¿Estás seguro de que deseás cancelar tu turno de {appointmentToCancel?.service_name}?
+          ¿Estás seguro de que querés cancelar este turno?
         </Text>
 
+        {appointmentToCancel && (
+          <View style={[styles.summaryBox, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border, marginTop: spacing.sm }]}>
+            <Text style={[styles.summaryText, { color: theme.text, fontWeight: '700' }]}>
+              {appointmentToCancel.service_name}
+            </Text>
+            <Text style={[styles.summaryText, { color: theme.textSecondary }]}>
+              {formatFullSpanishDate(appointmentToCancel.start_time)} a las{' '}
+              {new Date(appointmentToCancel.start_time).toLocaleTimeString('es-AR', {
+                hour: '2-digit',
+                minute: '2-digit'
+              })}{' '}
+              hs
+            </Text>
+          </View>
+        )}
+
         <Input
-          label="Motivo de la cancelación"
+          label="Motivo de cancelación (opcional)"
           value={cancelReason}
           onChangeText={setCancelReason}
-          placeholder="Ej: Imprevisto laboral o personal"
+          placeholder="Ej: No puedo asistir en ese horario"
           containerStyle={{ marginTop: spacing.md }}
         />
       </ModalWrapper>
@@ -1541,13 +2122,13 @@ export const PatientPortalScreen: React.FC = () => {
       <ModalWrapper
         visible={logModalVisible}
         onClose={() => setLogModalVisible(false)}
-        title="Registrar Ejercicio Realizado"
-        subtitle={exerciseToLog ? `${exerciseToLog.name} (Paso #${exerciseToLog.execution_order})` : ''}
+        title="Registrar ejercicio realizado"
+        subtitle={exerciseToLog ? `${exerciseToLog.name} (Ejercicio #${exerciseToLog.execution_order})` : ''}
         footer={
           <>
             <Button title="Cancelar" variant="secondary" size="md" onPress={() => setLogModalVisible(false)} />
             <Button
-              title="Guardar Registro"
+              title="Guardar registro"
               size="md"
               loading={logSubmitting}
               onPress={handleConfirmLogExercise}
@@ -1556,52 +2137,51 @@ export const PatientPortalScreen: React.FC = () => {
         }
       >
         {logError && (
-          <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
+          <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error }]}>
             <Text style={[styles.modalBannerText, { color: theme.error }]}>{logError}</Text>
           </View>
         )}
 
         {logSuccess && (
-          <View style={[styles.modalBanner, { backgroundColor: theme.successBg, borderColor: theme.success + '40' }]}>
+          <View style={[styles.modalBanner, { backgroundColor: theme.successBg, borderColor: theme.success }]}>
             <Text style={[styles.modalBannerText, { color: theme.success }]}>{logSuccess}</Text>
           </View>
         )}
 
-        <Text style={[styles.modalBodyText, { color: theme.text, marginBottom: spacing.md }]}>
-          Completá los datos reales de tu sesión. Esta información permite a tu kinesiólogo evaluar tu evolución.
-        </Text>
-
-        <View style={{ flexDirection: 'row', gap: spacing.md }}>
-          <View style={{ flex: 1 }}>
+        <View style={{ flexDirection: 'row', gap: spacing.md, flexWrap: 'wrap' }}>
+          <View style={{ flex: 1, minWidth: 140 }}>
             <Input
-              label="Series completadas"
+              label="Series realizadas"
               value={logSets}
               onChangeText={setLogSets}
               keyboardType="numeric"
               placeholder="Ej: 3"
             />
           </View>
-          <View style={{ flex: 1 }}>
+          <View style={{ flex: 1, minWidth: 140 }}>
             <Input
               label="Repeticiones"
               value={logReps}
               onChangeText={setLogReps}
               keyboardType="numeric"
-              placeholder="Ej: 12"
+              placeholder="Ej: 10"
             />
           </View>
         </View>
 
-        <Text style={[styles.inputLabel, { color: theme.text, marginTop: spacing.md }]}>
-          Nivel de molestia / dolor percibido (0 = Ninguno, 10 = Máximo):
+        <Text style={[styles.inputLabel, { color: theme.text, marginTop: spacing.sm }]}>
+          Nivel de molestia o dolor sentido (0 = Sin dolor, 10 = Dolor máximo):
         </Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: spacing.xs }}>
+        <View style={styles.painGrid}>
           {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((score) => {
             const isSelected = logPain === score;
             const color = score === 0 ? theme.success : score <= 3 ? theme.info : score <= 6 ? theme.warning : theme.error;
             return (
               <TouchableOpacity
                 key={score}
+                accessibilityRole="button"
+                accessibilityLabel={`Nivel de dolor ${score} de 10`}
+                accessibilityState={{ selected: isSelected }}
                 onPress={() => setLogPain(score)}
                 style={[
                   styles.painChip,
@@ -1611,25 +2191,25 @@ export const PatientPortalScreen: React.FC = () => {
                   }
                 ]}
               >
-                <Text style={{ color: isSelected ? '#FFF' : theme.text, fontWeight: '700', fontSize: typography.fontSize.sm }}>
+                <Text style={{ color: isSelected ? '#FFF' : theme.text, fontWeight: '700', fontSize: typography.fontSize.md }}>
                   {score}
                 </Text>
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
-        <Text style={[styles.painHintText, { color: theme.textMuted }]}>
-          {logPain === 0 ? 'Sin molestias ni dolor durante el ejercicio' :
-           logPain !== null && logPain <= 3 ? 'Molestia o tensión leve bien tolerada' :
-           logPain !== null && logPain <= 6 ? 'Dolor moderado que dificulta el movimiento' :
-           'Dolor agudo o intenso (informar inmediatamente al profesional)'}
+        </View>
+        <Text style={[styles.painHintText, { color: theme.textSecondary }]}>
+          {logPain === 0 ? '0: Sin molestias ni dolor durante el ejercicio.' :
+           logPain !== null && logPain <= 3 ? `${logPain}: Molestia o tensión leve bien tolerada.` :
+           logPain !== null && logPain <= 6 ? `${logPain}: Dolor moderado que dificulta el movimiento.` :
+           `${logPain}: Dolor intenso (informar a tu kinesiólogo).`}
         </Text>
 
         <Input
-          label="Observaciones o sensaciones (opcional)"
+          label="Comentarios para tu kinesiólogo (opcional)"
           value={logNotes}
           onChangeText={setLogNotes}
-          placeholder="Ej: Sentí una ligera molestia en la última serie"
+          placeholder="Ej: Me resultó más sencillo que ayer"
           containerStyle={{ marginTop: spacing.md }}
         />
       </ModalWrapper>
@@ -1645,60 +2225,70 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.md,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    borderBottomWidth: 1
+    borderBottomWidth: 1.5
   },
   brandRow: {
     flexDirection: 'row',
-    alignItems: 'center'
+    alignItems: 'center',
+    flex: 1,
+    minWidth: 200
   },
   brandIcon: {
-    width: 40,
-    height: 40,
+    width: 48,
+    height: 48,
     borderRadius: radii.md,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: spacing.md
   },
   brandTitle: {
-    fontSize: typography.fontSize.md,
+    fontSize: typography.fontSize.xl,
     fontWeight: typography.fontWeight.bold
   },
   brandUser: {
-    fontSize: typography.fontSize.xs
+    fontSize: typography.fontSize.md,
+    marginTop: 2
   },
   logoutBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    minHeight: 44,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    gap: 4
+    paddingVertical: spacing.xs + 2,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
+    gap: 6
   },
   logoutText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.medium
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.semibold
   },
   tabsNav: {
     flexDirection: 'row',
-    borderBottomWidth: 1
+    flexWrap: 'wrap',
+    borderBottomWidth: 1.5
   },
   tabItem: {
     flex: 1,
-    paddingVertical: spacing.md,
+    minWidth: 96,
+    minHeight: 56,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.xs,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4
   },
   tabLabel: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.semibold
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold
   },
   scrollContent: {
     padding: spacing.lg,
-    maxWidth: 720,
+    maxWidth: 820,
     alignSelf: 'center',
     width: '100%'
   },
@@ -1712,14 +2302,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
     marginBottom: spacing.md
   },
   cardTitle: {
-    fontSize: typography.fontSize.md,
+    fontSize: typography.fontSize.xl,
     fontWeight: typography.fontWeight.bold
   },
   cardSubtitle: {
-    fontSize: typography.fontSize.xs,
+    fontSize: typography.fontSize.md,
     marginBottom: spacing.md
   },
   nextApptBody: {
@@ -1728,42 +2320,44 @@ const styles = StyleSheet.create({
   apptHighlightBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: 1,
+    padding: spacing.lg,
+    borderRadius: radii.lg,
+    borderWidth: 1.5,
     gap: spacing.md
   },
   highlightTextCol: {
     flex: 1
   },
   highlightService: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold
   },
   highlightTime: {
-    fontSize: typography.fontSize.md,
+    fontSize: typography.fontSize.lg,
     fontWeight: typography.fontWeight.bold,
-    marginTop: 2
+    marginTop: 4,
+    lineHeight: 26
   },
   detailsRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.lg
   },
   detailItem: {
-    flex: 1
+    flex: 1,
+    minWidth: 180
   },
   detailLabel: {
-    fontSize: typography.fontSize.xs
+    fontSize: typography.fontSize.sm
   },
   detailValue: {
-    fontSize: typography.fontSize.sm,
+    fontSize: typography.fontSize.md,
     fontWeight: typography.fontWeight.semibold,
-    marginTop: 2
+    marginTop: 4
   },
   apptActionsRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.md,
     marginTop: spacing.xs
   },
@@ -1772,28 +2366,40 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xl
   },
   noApptText: {
-    fontSize: typography.fontSize.sm,
-    textAlign: 'center'
+    fontSize: typography.fontSize.md,
+    textAlign: 'center',
+    lineHeight: 26
   },
-  quickActionsRow: {
+  quickActionsGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.md
   },
   actionCard: {
+    flex: 1,
+    minWidth: 260,
     alignItems: 'flex-start',
     gap: spacing.xs
   },
+  actionIconCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: radii.lg,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4
+  },
   actionTitle: {
-    fontSize: typography.fontSize.sm,
+    fontSize: typography.fontSize.lg,
     fontWeight: typography.fontWeight.bold,
-    marginTop: spacing.xs
+    marginTop: 2
   },
   actionDesc: {
-    fontSize: typography.fontSize.xs,
-    lineHeight: 16
+    fontSize: typography.fontSize.md,
+    lineHeight: 25
   },
   subHeaderTitle: {
-    fontSize: typography.fontSize.md,
+    fontSize: typography.fontSize.xl,
     fontWeight: typography.fontWeight.bold,
     marginBottom: spacing.xs
   },
@@ -1804,27 +2410,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
+    flexWrap: 'wrap',
     gap: spacing.md
   },
   serviceTitle: {
-    fontSize: typography.fontSize.md,
+    fontSize: typography.fontSize.xl,
     fontWeight: typography.fontWeight.bold
   },
   serviceDescription: {
-    fontSize: typography.fontSize.xs,
-    marginTop: 4,
-    lineHeight: 18
+    fontSize: typography.fontSize.md,
+    marginTop: 6,
+    lineHeight: 26
   },
   servicePriceBox: {
     alignItems: 'flex-end'
   },
   priceTag: {
-    fontSize: typography.fontSize.lg,
+    fontSize: typography.fontSize.xl,
     fontWeight: typography.fontWeight.bold
   },
   currencyTag: {
-    fontSize: typography.fontSize.tiny,
-    textTransform: 'uppercase'
+    fontSize: typography.fontSize.sm,
+    textTransform: 'uppercase',
+    fontWeight: typography.fontWeight.semibold
   },
   divider: {
     height: 1,
@@ -1833,18 +2441,21 @@ const styles = StyleSheet.create({
   serviceFooterRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center'
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.md
   },
   durationBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4
+    gap: 6
   },
   durationText: {
-    fontSize: typography.fontSize.xs
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.medium
   },
   profCard: {
-    marginBottom: spacing.sm
+    marginBottom: spacing.md
   },
   profRow: {
     flexDirection: 'row',
@@ -1852,43 +2463,46 @@ const styles = StyleSheet.create({
     gap: spacing.md
   },
   profAvatar: {
-    width: 44,
-    height: 44,
+    width: 52,
+    height: 52,
     borderRadius: radii.full,
     justifyContent: 'center',
     alignItems: 'center'
   },
   profName: {
-    fontSize: typography.fontSize.sm,
+    fontSize: typography.fontSize.lg,
     fontWeight: typography.fontWeight.bold
   },
   profSpecialty: {
-    fontSize: typography.fontSize.xs,
-    marginTop: 2
+    fontSize: typography.fontSize.md,
+    marginTop: 4,
+    lineHeight: 24
   },
   apptCard: {
     marginBottom: spacing.md
   },
   apptService: {
-    fontSize: typography.fontSize.md,
+    fontSize: typography.fontSize.xl,
     fontWeight: typography.fontWeight.bold
   },
   apptKine: {
-    fontSize: typography.fontSize.xs,
-    marginTop: 2
+    fontSize: typography.fontSize.md,
+    marginTop: 4
   },
   apptDetailsGrid: {
-    flexDirection: 'row',
-    gap: spacing.lg
+    flexDirection: 'column',
+    gap: spacing.sm
   },
   apptGridItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6
+    gap: 8
   },
   gridText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.medium
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.medium,
+    lineHeight: 25,
+    flex: 1
   },
   apptActionsFooter: {
     flexDirection: 'row',
@@ -1902,131 +2516,220 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: spacing.xs
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    paddingVertical: spacing.sm
   },
   profileLabel: {
-    fontSize: typography.fontSize.xs
+    fontSize: typography.fontSize.md
   },
   profileValue: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.semibold
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.bold
   },
   successBanner: {
     padding: spacing.md,
     borderRadius: radii.md,
-    borderWidth: 1,
+    borderWidth: 1.5,
     marginBottom: spacing.md
   },
   successBannerText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.medium
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.semibold
   },
   modalBanner: {
     padding: spacing.md,
     borderRadius: radii.md,
-    borderWidth: 1,
+    borderWidth: 1.5,
     marginBottom: spacing.md
   },
   modalBannerText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.medium
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.semibold,
+    lineHeight: 24
   },
   inputLabel: {
-    fontSize: typography.fontSize.xs,
+    fontSize: typography.fontSize.md,
     fontWeight: typography.fontWeight.bold,
-    marginBottom: spacing.xs,
+    marginBottom: spacing.xs + 2,
     marginTop: spacing.xs
   },
+  wrappedChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm
+  },
   selectChip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radii.full,
-    borderWidth: 1,
-    marginRight: spacing.sm
+    minHeight: 46,
+    paddingHorizontal: spacing.md + 2,
+    paddingVertical: spacing.sm + 2,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
+    justifyContent: 'center'
+  },
+  stepperContainer: {
+    marginBottom: spacing.xs
+  },
+  stepperPillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs
+  },
+  stepPill: {
+    minHeight: 40,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 6,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  stepPillText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold
+  },
+  stepQuestionTitle: {
+    fontSize: typography.fontSize.xl,
+    fontWeight: typography.fontWeight.bold
+  },
+  wizardOptionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.md,
+    borderRadius: radii.lg,
+    minHeight: 68
+  },
+  wizardOptionTitle: {
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.bold
+  },
+  wizardOptionSub: {
+    fontSize: typography.fontSize.base,
+    marginTop: 2,
+    lineHeight: 22
+  },
+  confirmedIconCircle: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  confirmedHeadline: {
+    fontSize: typography.fontSize.xl,
+    fontWeight: typography.fontWeight.bold,
+    textAlign: 'center'
+  },
+  confirmDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    paddingVertical: 4
+  },
+  confirmDetailLabel: {
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.medium
+  },
+  confirmDetailValue: {
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.bold,
+    flexShrink: 1,
+    textAlign: 'right'
   },
   slotInfoText: {
-    fontSize: typography.fontSize.xs,
+    fontSize: typography.fontSize.md,
     marginVertical: spacing.sm
   },
   slotsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.xs,
+    gap: spacing.sm,
     marginBottom: spacing.md
   },
   slotBadge: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radii.sm,
-    borderWidth: 1
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    minHeight: 52,
+    minWidth: 120,
+    paddingHorizontal: spacing.md + 2,
+    paddingVertical: spacing.sm + 2,
+    borderRadius: radii.md,
+    borderWidth: 1.5
   },
   summaryBox: {
-    padding: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    marginTop: spacing.sm,
-    gap: 4
+    padding: spacing.lg,
+    borderRadius: radii.lg,
+    borderWidth: 1.5,
+    marginTop: spacing.xs,
+    gap: 8
   },
   summaryTitle: {
-    fontSize: typography.fontSize.xs,
+    fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.bold,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 4
   },
   summaryText: {
-    fontSize: typography.fontSize.xs
+    fontSize: typography.fontSize.md,
+    lineHeight: 26
   },
   summaryPrice: {
-    fontSize: typography.fontSize.sm,
+    fontSize: typography.fontSize.lg,
     fontWeight: typography.fontWeight.bold,
-    marginTop: 4
+    marginTop: 6
   },
   summaryPolicy: {
-    fontSize: typography.fontSize.tiny,
-    marginTop: 2
+    fontSize: typography.fontSize.sm,
+    lineHeight: 22,
+    marginTop: 4
   },
   modalBodyText: {
-    fontSize: typography.fontSize.sm,
-    lineHeight: 20
+    fontSize: typography.fontSize.md,
+    lineHeight: 26
   },
   routineOverviewBody: {
     gap: spacing.md
   },
   routineOverviewBox: {
-    padding: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    gap: spacing.xs
+    padding: spacing.lg,
+    borderRadius: radii.lg,
+    borderWidth: 1.5,
+    gap: spacing.sm
   },
   routineOverviewName: {
-    fontSize: typography.fontSize.sm,
+    fontSize: typography.fontSize.lg,
     fontWeight: typography.fontWeight.bold
   },
   routineValidityText: {
-    fontSize: typography.fontSize.xs
+    fontSize: typography.fontSize.md
   },
   routineProgressRow: {
     marginTop: spacing.xs
   },
   progressCountText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.medium,
-    marginBottom: 4
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.semibold,
+    marginBottom: 8
   },
   progressBarBg: {
-    height: 8,
-    borderRadius: 4,
+    height: 12,
+    borderRadius: 6,
     overflow: 'hidden'
   },
   progressBarFill: {
     height: '100%',
-    borderRadius: 4
+    borderRadius: 6
   },
   routineDescText: {
-    fontSize: typography.fontSize.xs,
-    lineHeight: 18,
-    marginTop: 2
+    fontSize: typography.fontSize.md,
+    lineHeight: 26,
+    marginTop: 4
   },
   routineDatesRow: {
     flexDirection: 'row',
@@ -2036,27 +2739,25 @@ const styles = StyleSheet.create({
   routineDateItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4
+    gap: 6
   },
   indicationCallout: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    padding: spacing.sm,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    gap: spacing.xs,
-    marginVertical: 4
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
+    gap: spacing.sm,
+    marginVertical: 6
   },
   indicationTitle: {
-    fontSize: typography.fontSize.tiny,
+    fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 2
+    marginBottom: 4
   },
   indicationText: {
-    fontSize: typography.fontSize.xs,
-    lineHeight: 16
+    fontSize: typography.fontSize.md,
+    lineHeight: 26
   },
   exerciseCard: {
     marginBottom: spacing.md
@@ -2064,132 +2765,144 @@ const styles = StyleSheet.create({
   exerciseHeaderRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
+    flexWrap: 'wrap',
     gap: spacing.sm
   },
   orderBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     justifyContent: 'center',
     alignItems: 'center'
   },
   orderBadgeText: {
-    fontSize: typography.fontSize.xs,
+    fontSize: typography.fontSize.md,
     fontWeight: typography.fontWeight.bold
   },
   exerciseName: {
-    fontSize: typography.fontSize.sm,
+    fontSize: typography.fontSize.xl,
     fontWeight: typography.fontWeight.bold
   },
   badgeRow: {
     flexDirection: 'row',
-    gap: 4,
+    gap: 6,
     flexWrap: 'wrap',
-    marginTop: 4
+    marginTop: 6
   },
   paramsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.sm,
-    padding: spacing.sm,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    marginVertical: spacing.sm
+    gap: spacing.md,
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
+    marginVertical: spacing.md
   },
   paramItem: {
     alignItems: 'center',
-    minWidth: 55
+    minWidth: 78
   },
   paramLabel: {
-    fontSize: typography.fontSize.tiny,
-    textTransform: 'uppercase',
-    fontWeight: typography.fontWeight.medium
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold
   },
   paramValue: {
-    fontSize: typography.fontSize.xs,
+    fontSize: typography.fontSize.lg,
     fontWeight: typography.fontWeight.bold,
-    marginTop: 1
+    marginTop: 2
   },
   instructionsBox: {
-    paddingVertical: spacing.xs
+    paddingVertical: spacing.sm
   },
   instructionsTitle: {
-    fontSize: typography.fontSize.xs,
+    fontSize: typography.fontSize.md,
     fontWeight: typography.fontWeight.bold,
-    marginBottom: 2
+    marginBottom: 4
   },
   instructionsText: {
-    fontSize: typography.fontSize.xs,
-    lineHeight: 18
+    fontSize: typography.fontSize.md,
+    lineHeight: 26
   },
   mediaLinkBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    marginVertical: spacing.xs
+    minHeight: 48,
+    gap: 8,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
+    marginVertical: spacing.sm
   },
   mediaLinkText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.semibold
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.bold
   },
   exerciseActionRow: {
     flexDirection: 'row',
-    paddingTop: spacing.sm,
+    paddingTop: spacing.md,
     borderTopWidth: 1,
-    marginTop: spacing.xs
+    marginTop: spacing.sm
   },
   historyToggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    minHeight: 54,
     padding: spacing.md,
     borderRadius: radii.md,
-    borderWidth: 1,
+    borderWidth: 1.5,
     gap: spacing.sm
   },
   historyToggleText: {
-    fontSize: typography.fontSize.sm,
+    fontSize: typography.fontSize.md,
     fontWeight: typography.fontWeight.bold
   },
   historyLogCard: {
     marginBottom: spacing.xs
   },
   logExerciseName: {
-    fontSize: typography.fontSize.xs,
+    fontSize: typography.fontSize.md,
     fontWeight: typography.fontWeight.bold
   },
   logDateText: {
-    fontSize: typography.fontSize.tiny
+    fontSize: typography.fontSize.sm
   },
   logMetaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 2
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: 4
   },
   logMetaItem: {
-    fontSize: typography.fontSize.xs
+    fontSize: typography.fontSize.md
   },
   logNotesText: {
-    fontSize: typography.fontSize.tiny,
+    fontSize: typography.fontSize.base,
     fontStyle: 'italic',
-    marginTop: 2
+    marginTop: 4
+  },
+  painGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs + 2,
+    marginVertical: spacing.sm
   },
   painChip: {
-    width: 32,
-    height: 36,
-    borderRadius: radii.sm,
-    borderWidth: 1,
+    minWidth: 48,
+    minHeight: 48,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
     justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 6
+    alignItems: 'center'
   },
   painHintText: {
-    fontSize: typography.fontSize.xs,
-    marginVertical: 4
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.medium,
+    marginVertical: 6,
+    lineHeight: 24
   }
 });

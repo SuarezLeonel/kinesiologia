@@ -1059,66 +1059,68 @@ const styles = StyleSheet.create({
     marginBottom: 4
   },
   socialButton: {
-    height: 48,
-    backgroundColor: '#15261F',
-    borderColor: '#203A2D',
-    borderWidth: 1,
-    borderRadius: 10,
+    minHeight: 52,
+    backgroundColor: '#152820',
+    borderColor: '#2E5240',
+    borderWidth: 1.5,
+    borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 48,
     position: 'relative',
-    marginBottom: 10
+    marginBottom: 12
   },
   socialIconLeftSlot: {
     position: 'absolute',
-    left: 18,
-    width: 24,
-    height: 24,
+    left: 16,
+    width: 26,
+    height: 26,
     alignItems: 'center',
     justifyContent: 'center'
   },
   googleIconBadge: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center'
   },
   facebookIconBadge: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: '#1877F2',
     alignItems: 'center',
     justifyContent: 'center'
   },
   facebookIconText: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#FFFFFF',
     marginTop: -2
   },
   githubIconBadge: {
-    width: 22,
-    height: 22,
+    width: 24,
+    height: 24,
     alignItems: 'center',
     justifyContent: 'center'
   },
   msGrid: {
-    width: 16,
-    height: 16,
+    width: 18,
+    height: 18,
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 2
   },
   msTile: {
-    width: 7,
-    height: 7
+    width: 8,
+    height: 8
   },
   socialButtonText: {
-    fontSize: 14,
+    fontSize: 17,
     fontWeight: '600',
     color: '#FFFFFF',
     textAlign: 'center'
@@ -1128,62 +1130,62 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     padding: spacing.md,
     borderRadius: radii.md,
-    borderWidth: 1,
+    borderWidth: 1.5,
     marginBottom: spacing.md
   },
   noticeTitle: {
-    fontSize: typography.fontSize.sm,
+    fontSize: typography.fontSize.md,
     fontWeight: typography.fontWeight.bold,
-    marginBottom: 2
+    marginBottom: 4
   },
   noticeBody: {
-    fontSize: typography.fontSize.xs,
-    lineHeight: 18
+    fontSize: typography.fontSize.base,
+    lineHeight: 24
   },
   configCard: {
     padding: spacing.md,
     borderRadius: radii.md,
-    borderWidth: 1,
+    borderWidth: 1.5,
     marginBottom: spacing.sm
   },
   configCardHeading: {
-    fontSize: typography.fontSize.sm,
+    fontSize: typography.fontSize.md,
     fontWeight: typography.fontWeight.bold,
     marginBottom: spacing.xs
   },
   configStep: {
-    fontSize: typography.fontSize.xs,
+    fontSize: typography.fontSize.base,
     marginTop: spacing.xs,
-    lineHeight: 16
+    lineHeight: 22
   },
   codeBox: {
-    padding: spacing.xs,
+    padding: spacing.sm,
     borderRadius: radii.sm,
     borderWidth: 1,
     marginVertical: 4
   },
   codeText: {
-    fontSize: typography.fontSize.tiny,
+    fontSize: typography.fontSize.xs,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
     fontWeight: typography.fontWeight.semibold
   },
   guideNote: {
-    fontSize: typography.fontSize.tiny,
+    fontSize: typography.fontSize.sm,
     marginTop: spacing.sm
   },
   errorBanner: {
-    padding: spacing.sm,
-    borderRadius: radii.sm,
-    borderWidth: 1,
+    padding: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
     marginBottom: spacing.sm
   },
   errorText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.medium
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.semibold
   },
   modalButtonsRow: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    gap: spacing.md,
     marginTop: spacing.md
   }
 });

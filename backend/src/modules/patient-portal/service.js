@@ -7,6 +7,7 @@ import { query } from '../../config/database.js';
 import { appointmentsRepository } from '../appointments/repository.js';
 import { servicesRepository } from '../services/repository.js';
 import { notificationsService } from '../notifications/service.js';
+import { holidayService } from '../../services/holidayService.js';
 import { NotFoundError, UnauthorizedError, ForbiddenError, ConflictError } from '../../utils/errors.js';
 import { logAudit } from '../../utils/auditLogger.js';
 import bcrypt from 'bcryptjs';
@@ -165,6 +166,10 @@ export class PatientPortalService {
     };
   }
 
+  async calendarAvailability(params = {}) {
+    return await holidayService.getCalendarAvailability(params);
+  }
+
   async availableSlots({ kinesiologistId = 2, serviceId = 1, date } = {}) {
     const service = serviceId ? await servicesRepository.findById(serviceId) : null;
     const durationMinutes = service ? (service.duration_minutes || 45) : 45;
@@ -172,6 +177,12 @@ export class PatientPortalService {
     const targetDate = (date && /^\d{4}-\d{2}-\d{2}$/.test(date))
       ? date
       : this._formatLocalDateTime(new Date(Date.now() + 86400000)).slice(0, 10);
+
+    // No ofrecer horarios en fechas pasadas, posteriores a 14 días, fines de semana ni feriados cerrados
+    const dateEvaluation = await holidayService.evaluateDate(targetDate, { enforceWindow: true });
+    if (!dateEvaluation.available) {
+      return [];
+    }
 
     // Buscar turnos existentes para ese profesional en esa fecha
     const startOfDay = `${targetDate} 00:00:00`;
@@ -234,6 +245,9 @@ export class PatientPortalService {
     const patient = await this.getPatientByUserId(userId);
     const service = await servicesRepository.findById(serviceId);
     if (!service) throw new NotFoundError('Servicio no encontrado');
+
+    // Validar fecha hábil, feriados y límite de 14 días corridos
+    await holidayService.validateAppointmentDate(startTime);
 
     const duration = service.duration_minutes || 45;
     const startD = new Date(startTime.replace(' ', 'T'));
@@ -326,6 +340,9 @@ export class PatientPortalService {
     if (appointment.status === 'cancelled' || appointment.status === 'attended') {
       throw new ConflictError(`No es posible reprogramar un turno en estado ${appointment.status}`);
     }
+
+    // Validar fecha hábil, feriados y límite de 14 días corridos
+    await holidayService.validateAppointmentDate(requestedStartTime);
 
     const service = await servicesRepository.findById(appointment.service_id);
     const duration = service ? service.duration_minutes : 45;
@@ -434,11 +451,14 @@ export class PatientPortalService {
     // Para cada rutina, cargar los ejercicios en orden con su estado de cumplimiento
     for (const r of routines) {
       r.exercises = await query(`
-        SELECT re.id as routine_exercise_id, re.routine_id, re.exercise_id,
+        SELECT re.id as routine_exercise_id, re.routine_id, re.exercise_id, re.custom_name,
                re.sets, re.repetitions, re.duration_seconds, re.rest_seconds,
                re.weekly_frequency, re.body_side, re.resistance_load,
                re.custom_instructions, re.execution_order,
-               e.name, e.category, e.body_zone, e.muscle_group,
+               COALESCE(NULLIF(TRIM(re.custom_name), ''), e.name) as name,
+               COALESCE(NULLIF(TRIM(re.custom_name), ''), e.name) as exercise_name,
+               e.name as catalog_exercise_name,
+               e.category, e.body_zone, e.muscle_group,
                e.therapeutic_objective, e.difficulty_level, e.instructions,
                e.contraindications, e.media_url,
                (SELECT COUNT(*) FROM patient_exercise_logs pel

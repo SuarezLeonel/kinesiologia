@@ -1,5 +1,5 @@
 /**
- * @file index.ts
+ * @file index.tsx
  * @description Barril de exportación de componentes UI reutilizables.
  */
 export * from './Badge';

@@ -3,7 +3,7 @@
  * @description Pantalla de caja y cobros: registro de pagos con precios de catálogo no modificables,
  * selección de consultas atendidas y arqueo diario (exclusivo Admin/Recepción).
  */
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -16,11 +16,13 @@ import {
   Platform,
   ActivityIndicator
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { MaterialIcons } from '@expo/vector-icons';
 import { apiClient } from '../api/client';
+import { useDataSync } from '../context/DataSyncContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { spacing, radii, typography } from '../theme/tokens';
@@ -28,10 +30,10 @@ import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper } from '../compo
 import { LoadingState, ErrorState, EmptyState, AccessDeniedState } from '../components/FeedbackStates';
 
 const paymentSchema = z.object({
-  patient_id: z.coerce.number().positive('Debe seleccionar un paciente'),
-  appointment_id: z.coerce.number().positive('Debe seleccionar la consulta realizada'),
+  patient_id: z.coerce.number().positive('Seleccioná un paciente.'),
+  appointment_id: z.coerce.number().positive('Seleccioná una consulta.'),
   payment_method: z.enum(['cash', 'debit_card', 'credit_card', 'bank_transfer', 'insurance', 'qr_mercadopago']),
-  receipt_number: z.string().min(3, 'El número de comprobante debe tener al menos 3 caracteres'),
+  receipt_number: z.string().min(3, 'Completá este campo.'),
   notes: z.string().optional()
 });
 
@@ -55,6 +57,7 @@ interface CajaSummary {
 export const PaymentsScreen = () => {
   const { theme } = useAppTheme();
   const { isKinesiologist } = useAuth();
+  const { scopeVersions } = useDataSync();
   const [payments, setPayments] = useState<any[]>([]);
   const [cajaSummary, setCajaSummary] = useState<CajaSummary | null>(null);
   const [viewFilter, setViewFilter] = useState<'today' | 'all'>('today');
@@ -139,10 +142,12 @@ export const PaymentsScreen = () => {
     }
   };
 
-  const fetchPayments = async (filterMode: 'today' | 'all' = viewFilter) => {
+  const fetchPayments = async (filterMode: 'today' | 'all' = viewFilter, silent = false) => {
     if (isKinesiologist) return;
     try {
-      setError(null);
+      if (!silent) {
+        setError(null);
+      }
       // REGLA HTTP ESTRICTA: POST para consultas con payload
       const res = await apiClient.post('/payments/search', {
         todayOnly: filterMode === 'today',
@@ -151,9 +156,12 @@ export const PaymentsScreen = () => {
       });
       if (res.data?.success) {
         setPayments(res.data.data);
+        setError(null);
       }
     } catch (err: any) {
-      setError(err.response?.data?.error?.message || 'Error al obtener transacciones de cobros');
+      if (!silent || (payments.length === 0 && !cajaSummary)) {
+        setError(err.response?.data?.error?.message || 'Error al obtener transacciones de cobros');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -244,20 +252,48 @@ export const PaymentsScreen = () => {
     return () => clearTimeout(timer);
   }, [patientSearch]);
 
-  const loadAll = async (mode: 'today' | 'all' = viewFilter) => {
-    await Promise.all([fetchPayments(mode), fetchCajaSummary(), fetchPatientsList()]);
+  const loadAll = async (mode: 'today' | 'all' = viewFilter, silent = false) => {
+    await Promise.all([fetchPayments(mode, silent), fetchCajaSummary(), fetchPatientsList()]);
   };
 
   useEffect(() => {
     if (!isKinesiologist) {
-      loadAll();
+      loadAll(viewFilter, false);
     }
   }, [isKinesiologist]);
 
+  useEffect(() => {
+    if (isKinesiologist) return;
+    if (
+      scopeVersions.payments > 0 ||
+      scopeVersions.appointments > 0 ||
+      scopeVersions.patients > 0 ||
+      scopeVersions.services > 0
+    ) {
+      loadAll(viewFilter, true);
+      if (modalVisible && selectedPatientId && Number(selectedPatientId) > 0) {
+        fetchPatientAppointments(Number(selectedPatientId));
+      }
+    }
+  }, [
+    scopeVersions.payments,
+    scopeVersions.appointments,
+    scopeVersions.patients,
+    scopeVersions.services,
+    isKinesiologist
+  ]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!isKinesiologist) {
+        loadAll(viewFilter, true);
+      }
+    }, [viewFilter, isKinesiologist])
+  );
+
   const handleFilterChange = (mode: 'today' | 'all') => {
     setViewFilter(mode);
-    setLoading(true);
-    fetchPayments(mode);
+    fetchPayments(mode, true);
   };
 
   const onCreatePayment = async (data: PaymentFormData) => {
@@ -273,12 +309,34 @@ export const PaymentsScreen = () => {
       });
 
       if (response.data?.success) {
+        const createdId = response.data.data?.id || Date.now();
+        const amountNumber = Number(
+          response.data.data?.amount ||
+            selectedAppointmentObj?.agreed_price ||
+            selectedAppointmentObj?.service_default_price ||
+            0
+        );
+        const optimisticPayment = {
+          id: createdId,
+          patient_id: data.patient_id,
+          appointment_id: data.appointment_id,
+          patient_first_name: selectedPatient?.first_name || '',
+          patient_last_name: selectedPatient?.last_name || '',
+          patient_dni: selectedPatient?.dni || '',
+          service_name: selectedAppointmentObj?.service_name || 'Consulta Kinésica',
+          amount: amountNumber,
+          payment_method: data.payment_method,
+          receipt_number: data.receipt_number,
+          notes: data.notes,
+          paid_at: new Date().toISOString()
+        };
+        setPayments((prev) => [optimisticPayment, ...prev.filter((p) => p.id !== createdId)]);
         setModalVisible(false);
         reset();
         setSelectedPatientObj(null);
         setSelectedAppointmentObj(null);
         setPatientAppointments([]);
-        await Promise.all([fetchPayments(viewFilter), fetchCajaSummary()]);
+        await Promise.all([fetchPayments(viewFilter, true), fetchCajaSummary()]);
       }
     } catch (err: any) {
       setFormError(err.response?.data?.error?.message || 'Error al registrar el cobro');
@@ -310,8 +368,12 @@ export const PaymentsScreen = () => {
     }
   };
 
-  if (loading && !refreshing) return <LoadingState message="Cargando cobros y caja del día..." />;
-  if (error) return <ErrorState message={error} onRetry={() => loadAll(viewFilter)} />;
+  if (loading && !refreshing && payments.length === 0 && !cajaSummary) {
+    return <LoadingState message="Cargando cobros y caja del día..." />;
+  }
+  if (error && payments.length === 0 && !cajaSummary) {
+    return <ErrorState message={error} onRetry={() => loadAll(viewFilter, false)} />;
+  }
 
   const paymentMethods: { key: PaymentFormData['payment_method']; label: string }[] = [
     { key: 'cash', label: 'Efectivo' },
@@ -342,7 +404,6 @@ export const PaymentsScreen = () => {
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <ScreenHeader
         title="Cobros y Caja"
-        subtitle="Control diario de aranceles, arqueo de ingresos y facturación"
         action={
           <Button
             title="+ Registrar Cobro"
@@ -390,11 +451,11 @@ export const PaymentsScreen = () => {
                 <View style={styles.cajaHeaderTitleRow}>
                   <MaterialIcons name="point-of-sale" size={22} color={theme.primary} style={{ marginRight: spacing.xs }} />
                   <Text style={[styles.cajaCardTitle, { color: theme.text }]}>
-                    ARQUEO DE CAJA DEL DÍA
+                    CAJA DE HOY
                   </Text>
                 </View>
                 <Badge
-                  label={`JORNADA: ${todayLabel}`}
+                  label={todayLabel}
                   variant="neutral"
                   size="sm"
                 />
@@ -403,7 +464,7 @@ export const PaymentsScreen = () => {
               <View style={styles.cajaAmountRow}>
                 <View>
                   <Text style={[styles.cajaAmountLabel, { color: theme.textSecondary }]}>
-                    Total Cobrado Hoy
+                    Total cobrado hoy
                   </Text>
                   <Text style={[styles.cajaBigAmount, { color: theme.text }]}>
                     ${Number(cajaSummary?.totalIncome || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
@@ -411,7 +472,7 @@ export const PaymentsScreen = () => {
                 </View>
                 <View style={styles.txCountBadgeWrapper}>
                   <Badge
-                    label={`${cajaSummary?.transactionsCount || 0} ${cajaSummary?.transactionsCount === 1 ? 'COBRO' : 'COBROS'}`}
+                    label={`${cajaSummary?.transactionsCount || 0} ${cajaSummary?.transactionsCount === 1 ? 'cobro' : 'cobros'}`}
                     variant={Number(cajaSummary?.transactionsCount || 0) > 0 ? 'success' : 'neutral'}
                     size="md"
                   />
@@ -421,7 +482,7 @@ export const PaymentsScreen = () => {
               {/* DESGLOSE POR MÉTODO DE PAGO DE HOY */}
               <View style={[styles.cajaDivider, { backgroundColor: theme.border }]} />
               <Text style={[styles.cajaBreakdownTitle, { color: theme.textSecondary }]}>
-                DESGLOSE DE HOY POR MEDIO DE COBRO
+                POR MEDIO DE PAGO
               </Text>
 
               <View style={styles.methodsGrid}>
@@ -535,35 +596,16 @@ export const PaymentsScreen = () => {
                       { color: viewFilter === 'all' ? '#FFFFFF' : theme.text }
                     ]}
                   >
-                    Historial Completo
+                    Historial
                   </Text>
                 </TouchableOpacity>
-              </View>
-
-              <View style={styles.sectionNoticeRow}>
-                <MaterialIcons
-                  name={viewFilter === 'today' ? 'check-circle' : 'info'}
-                  size={15}
-                  color={viewFilter === 'today' ? theme.primary : theme.textSecondary}
-                  style={{ marginRight: 4 }}
-                />
-                <Text style={[styles.sectionNoticeText, { color: theme.textSecondary }]}>
-                  {viewFilter === 'today'
-                    ? `Mostrando exclusivamente cobros registrados hoy (${todayLabel})`
-                    : 'Mostrando historial general de cobros y comprobantes pasados'}
-                </Text>
               </View>
             </View>
           </View>
         }
         ListEmptyComponent={
           <EmptyState
-            title={viewFilter === 'today' ? 'Sin cobros asentados hoy' : 'Sin cobros registrados'}
-            subtitle={
-              viewFilter === 'today'
-                ? `Aún no se han cobrado aranceles en la fecha ${todayLabel}. Utilice "+ Registrar Cobro" para asentar un ingreso en la caja.`
-                : 'Aún no se han registrado cobros o comprobantes en el sistema.'
-            }
+            title={viewFilter === 'today' ? 'Sin cobros hoy' : 'Sin cobros registrados'}
           />
         }
         renderItem={({ item }) => {
@@ -626,7 +668,6 @@ export const PaymentsScreen = () => {
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
         title="Registrar Cobro"
-        subtitle="Seleccione la consulta realizada para aplicar el arancel oficial vigente"
         footer={
           <>
             <Button
@@ -636,7 +677,7 @@ export const PaymentsScreen = () => {
               onPress={() => setModalVisible(false)}
             />
             <Button
-              title="Asentar Pago"
+              title="Guardar cobro"
               size="md"
               loading={isSubmitting}
               disabled={!selectedAppointmentObj || configuredPrice <= 0}
@@ -791,14 +832,14 @@ export const PaymentsScreen = () => {
             <View style={[styles.noticeCard, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
               <MaterialIcons name="info-outline" size={18} color={theme.textMuted} style={{ marginRight: spacing.xs }} />
               <Text style={[styles.noticeCardText, { color: theme.textSecondary }]}>
-                Seleccione primero al paciente para ver sus consultas atendidas.
+                Seleccioná primero al paciente.
               </Text>
             </View>
           ) : isLoadingAppointments ? (
             <View style={[styles.noticeCard, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
               <ActivityIndicator size="small" color={theme.primary} style={{ marginRight: spacing.sm }} />
               <Text style={[styles.noticeCardText, { color: theme.textSecondary }]}>
-                Cargando consultas realizadas del paciente...
+                Cargando consultas...
               </Text>
             </View>
           ) : patientAppointments.length === 0 ? (
@@ -809,7 +850,7 @@ export const PaymentsScreen = () => {
                   Sin consultas pendientes de cobro
                 </Text>
                 <Text style={[styles.warningSub, { color: theme.textSecondary }]}>
-                  El paciente no registra turnos en estado "Atendido" pendientes de cobro. Recuerde que solo se pueden cobrar consultas que hayan sido realizadas.
+                  Solo se pueden cobrar consultas marcadas como "Atendido".
                 </Text>
               </View>
             </View>
@@ -935,17 +976,10 @@ export const PaymentsScreen = () => {
 
             <View style={styles.priceRow}>
               <Text style={[styles.priceTotalLabel, { color: theme.text }]}>
-                Importe de la Consulta:
+                Importe:
               </Text>
               <Text style={[styles.priceAmountValue, { color: theme.primary }]}>
                 ${configuredPrice.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-              </Text>
-            </View>
-
-            <View style={styles.priceNoticeRow}>
-              <MaterialIcons name="verified-user" size={14} color={theme.textMuted} style={{ marginRight: 4 }} />
-              <Text style={[styles.priceNoticeText, { color: theme.textMuted }]}>
-                Recuperado automáticamente de la configuración oficial. No modificable por el recepcionista.
               </Text>
             </View>
           </View>

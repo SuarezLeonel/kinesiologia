@@ -24,20 +24,20 @@ import { spacing, radii, typography } from '../theme/tokens';
 import { Input, Button, Card } from '../components/ui';
 
 const forgotSchema = z.object({
-  email: z.string().email('Ingrese un correo electrónico válido')
+  email: z.string().email('Ingresá un correo válido.')
 });
 
 const resetSchema = z
   .object({
     token: z
       .string()
-      .min(6, 'Ingrese el código de 6 dígitos recibido por correo')
-      .max(500, 'Código inválido'),
-    newPassword: z.string().min(8, 'La nueva contraseña debe tener al menos 8 caracteres'),
-    confirmPassword: z.string().min(1, 'Confirme la contraseña')
+      .min(6, 'Ingresá el código de 6 dígitos.')
+      .max(500, 'Código inválido.'),
+    newPassword: z.string().min(8, 'Mínimo 8 caracteres.'),
+    confirmPassword: z.string().min(1, 'Completá este campo.')
   })
   .refine((data) => data.newPassword === data.confirmPassword, {
-    message: 'Las contraseñas no coinciden',
+    message: 'Las contraseñas no coinciden.',
     path: ['confirmPassword']
   });
 
@@ -185,10 +185,7 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
           >
             <MaterialIcons name="lock-reset" size={24} color={theme.primary} />
           </View>
-          <Text style={[styles.brandTitle, { color: theme.text }]}>Recuperar Contraseña</Text>
-          <Text style={[styles.brandSubtitle, { color: theme.textSecondary }]}>
-            Restablecimiento seguro de credenciales de acceso
-          </Text>
+          <Text style={[styles.brandTitle, { color: theme.text }]}>Recuperar contraseña</Text>
         </View>
 
         <Card elevated style={styles.card} padding={Platform.OS === 'web' ? 'xl' : 'lg'}>
@@ -203,7 +200,7 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                 <MaterialIcons name="check-circle" size={42} color={theme.primary} />
               </View>
               <Text style={[styles.cardTitle, { color: theme.text, textAlign: 'center' }]}>
-                Contraseña actualizada
+                Contraseña actualizada.
               </Text>
               <Text
                 style={[
@@ -216,11 +213,10 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                   }
                 ]}
               >
-                Su contraseña ha sido modificada correctamente. Ya puede acceder al sistema con su
-                nueva clave.
+                Ya podés iniciar sesión con tu nueva clave.
               </Text>
               <Button
-                title="Iniciar Sesión"
+                title="Iniciar sesión"
                 onPress={() => navigation.navigate('Login')}
                 size="lg"
                 style={{ width: '100%' }}
@@ -364,8 +360,7 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                       { color: theme.textSecondary, marginBottom: spacing.lg }
                     ]}
                   >
-                    Ingrese su correo electrónico registrado para recibir el código de verificación
-                    de 6 dígitos.
+                    Te enviaremos un código de 6 dígitos por correo.
                   </Text>
 
                   <Controller
@@ -374,7 +369,7 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                     render={({ field: { onChange, onBlur, value } }) => (
                       <Input
                         label="Correo electrónico"
-                        placeholder="profesional@kinesiologia.com"
+                        placeholder="tu@correo.com"
                         value={value}
                         onChangeText={onChange}
                         onBlur={onBlur}
@@ -388,7 +383,7 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                   />
 
                   <Button
-                    title="Enviar código de verificación"
+                    title="Enviar código"
                     onPress={() => handleRequestSubmit(onRequestSubmit)()}
                     loading={isRequestSubmitting}
                     size="lg"
@@ -405,8 +400,8 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                     ]}
                   >
                     {targetEmail
-                      ? `Ingrese el código de 6 dígitos enviado a ${targetEmail} y su nueva contraseña.`
-                      : 'Ingrese el código de verificación recibido por correo electrónico y su nueva contraseña.'}
+                      ? `Ingresá el código enviado a ${targetEmail}.`
+                      : 'Ingresá el código recibido por correo.'}
                   </Text>
 
                   <Controller
@@ -508,13 +503,13 @@ const styles = StyleSheet.create({
   },
   brandContainer: {
     alignItems: 'center',
-    marginBottom: spacing.xxl
+    marginBottom: spacing.xl
   },
   brandMark: {
-    width: 48,
-    height: 48,
+    width: 56,
+    height: 56,
     borderRadius: radii.md,
-    borderWidth: 1,
+    borderWidth: 1.5,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: spacing.md
@@ -522,38 +517,39 @@ const styles = StyleSheet.create({
   brandTitle: {
     fontSize: typography.fontSize.xxl,
     fontWeight: typography.fontWeight.bold,
-    letterSpacing: -0.5
+    letterSpacing: -0.3
   },
   brandSubtitle: {
-    fontSize: typography.fontSize.sm,
-    marginTop: spacing.xs,
-    letterSpacing: 0.2
+    fontSize: typography.fontSize.md,
+    marginTop: spacing.xs
   },
   card: {
     width: '100%',
-    maxWidth: 440
+    maxWidth: 480
   },
   cardTitle: {
     fontSize: typography.fontSize.xl,
-    fontWeight: typography.fontWeight.semibold,
+    fontWeight: typography.fontWeight.bold,
     marginBottom: spacing.xs
   },
   cardSubtitle: {
-    fontSize: typography.fontSize.sm,
-    lineHeight: 20
+    fontSize: typography.fontSize.md,
+    lineHeight: 26
   },
   stepTabs: {
     flexDirection: 'row',
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    padding: 3,
+    borderRadius: radii.md,
+    borderWidth: 1.5,
+    padding: 4,
     marginBottom: spacing.lg
   },
   stepTab: {
     flex: 1,
+    minHeight: 46,
+    justifyContent: 'center',
     paddingVertical: spacing.xs + 2,
     alignItems: 'center',
-    borderRadius: radii.sm - 2
+    borderRadius: radii.sm
   },
   stepTabActive: {
     shadowColor: '#000',
@@ -563,34 +559,35 @@ const styles = StyleSheet.create({
     elevation: 1
   },
   stepTabText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.semibold
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.bold
   },
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: spacing.md,
     borderRadius: radii.md,
-    borderWidth: 1,
+    borderWidth: 1.5,
     marginBottom: spacing.md
   },
   bannerText: {
     flex: 1,
-    fontSize: typography.fontSize.sm,
+    fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.medium,
-    lineHeight: 18
+    lineHeight: 24
   },
   previewEmailBox: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: spacing.sm + 2,
+    minHeight: 46,
+    padding: spacing.sm + 4,
     borderRadius: radii.md,
-    borderWidth: 1,
+    borderWidth: 1.5,
     marginBottom: spacing.md
   },
   previewEmailText: {
-    fontSize: typography.fontSize.xs,
+    fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.semibold
   },
   previewCodeBox: {
@@ -598,28 +595,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: spacing.md,
     borderRadius: radii.md,
-    borderWidth: 1,
+    borderWidth: 1.5,
     marginBottom: spacing.md
   },
   previewCodeLabel: {
-    fontSize: typography.fontSize.tiny,
+    fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.medium
   },
   previewCodeValue: {
     fontSize: typography.fontSize.xl,
     fontWeight: typography.fontWeight.bold,
     letterSpacing: 4,
-    marginTop: 2
+    marginTop: 4
   },
   successContainer: {
     alignItems: 'center',
     paddingVertical: spacing.md
   },
   successIconCircle: {
-    width: 68,
-    height: 68,
+    width: 72,
+    height: 72,
     borderRadius: radii.full,
-    borderWidth: 1,
+    borderWidth: 1.5,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: spacing.lg
@@ -628,16 +625,18 @@ const styles = StyleSheet.create({
     marginTop: spacing.xl,
     alignItems: 'center',
     borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.06)',
+    borderTopColor: 'rgba(0,0,0,0.08)',
     paddingTop: spacing.md
   },
   backLink: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.xs
+    minHeight: 46,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md
   },
   backLinkText: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.semibold
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.bold
   }
 });

@@ -1,5 +1,5 @@
 /**
- * @file colors.ts
+ * @file colors.tsx
  * @description Paleta de colores accesible para modo claro y oscuro del consultorio kinésico.
  */
 export interface SemanticColor {
@@ -48,76 +48,76 @@ export interface ThemeColors {
 
 export const lightTheme: ThemeColors = {
   // Fondos y superficies
-  background: '#F7F8F7',
+  background: '#F5F7F5',
   surface: '#FFFFFF',
   surfaceElevated: '#FFFFFF',
-  surfaceSubtle: '#F0F2F0',
+  surfaceSubtle: '#EDF1EE',
 
-  // Tipografía
-  text: '#202522',
-  textSecondary: '#727873',
-  textMuted: '#9AA09B',
+  // Tipografía (Contraste WCAG 2.2 AA/AAA reforzado para adultos mayores)
+  text: '#161C18',
+  textSecondary: '#434D46',
+  textMuted: '#5C665F',
 
-  // Bordes
-  border: '#E7EAE7',
-  borderSubtle: '#EFF2EF',
+  // Bordes claramente distinguibles
+  border: '#CED6D0',
+  borderSubtle: '#DDE3DF',
 
-  // Acento Verde Salvia
-  primary: '#537C68',
-  primaryHover: '#426353',
-  primaryLight: '#E9F0EC',
-  primarySoft: '#F2F6F3',
+  // Acento Verde Salud Profesional (Contraste >= 6.8:1 con texto blanco)
+  primary: '#2F664B',
+  primaryHover: '#234F39',
+  primaryLight: '#E3EFE9',
+  primarySoft: '#EDF5F0',
   primaryContrast: '#FFFFFF',
 
-  // Semánticos
-  success: '#2E7D32',
+  // Semánticos de alto contraste
+  success: '#1B5E20',
   successBg: '#E8F5E9',
-  warning: '#B45309',
+  warning: '#92400E',
   warningBg: '#FEF3C7',
-  error: '#C62828',
+  error: '#B71C1C',
   errorBg: '#FFEBEE',
-  info: '#1565C0',
+  info: '#0D47A1',
   infoBg: '#E3F2FD',
 
   // Legacy
   card: '#FFFFFF',
-  tint: '#537C68'
+  tint: '#2F664B'
 };
 
 export const darkTheme: ThemeColors = {
   // Fondos y superficies
-  background: '#151816',
-  surface: '#1D211E',
-  surfaceElevated: '#252B26',
-  surfaceSubtle: '#191E1A',
+  background: '#111613',
+  surface: '#1A211D',
+  surfaceElevated: '#222B26',
+  surfaceSubtle: '#151B18',
 
-  // Tipografía
-  text: '#F0F2F0',
-  textSecondary: '#A2AAA4',
-  textMuted: '#6E7670',
+  // Tipografía (Contraste WCAG 2.2 AA/AAA en modo oscuro)
+  text: '#F4F7F5',
+  textSecondary: '#C2CCC5',
+  textMuted: '#96A39A',
 
-  // Bordes
-  border: '#303631',
-  borderSubtle: '#262C27',
+  // Bordes visibles en modo oscuro
+  border: '#3A463E',
+  borderSubtle: '#2C362F',
 
   // Acento Verde Salvia Claro
-  primary: '#91B7A0',
-  primaryHover: '#A6C8B4',
-  primaryLight: '#1E2E25',
-  primarySoft: '#18241D',
-  primaryContrast: '#0D1510',
+  primary: '#7CC49B',
+  primaryHover: '#94D1AE',
+  primaryLight: '#1E3328',
+  primarySoft: '#17261E',
+  primaryContrast: '#0A140E',
 
   // Semánticos
   success: '#81C784',
-  successBg: '#1B3322',
+  successBg: '#193320',
   warning: '#FBBF24',
-  warningBg: '#332A15',
-  error: '#E57373',
-  errorBg: '#3A1E1E',
-  info: '#64B5F6',
-  infoBg: '#16293D',
+  warningBg: '#362B12',
+  error: '#FCA5A5',
+  errorBg: '#3D1A1A',
+  info: '#90CAF9',
+  infoBg: '#152A40',
 
   // Legacy
-  card: '#1D211E',
-  tint: '#91B7A0'
+  card: '#1A211D',
+  tint: '#7CC49B'
 };

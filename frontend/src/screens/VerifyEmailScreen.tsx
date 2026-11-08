@@ -143,9 +143,6 @@ export const VerifyEmailScreen: React.FC<VerifyEmailScreenProps> = ({ navigation
             />
           </View>
           <Text style={[styles.brandTitle, { color: theme.text }]}>KinesioGestión</Text>
-          <Text style={[styles.brandSubtitle, { color: theme.textSecondary }]}>
-            Portal de Pacientes y Atención Clínica
-          </Text>
         </View>
 
         {/* Tarjeta de Verificación */}
@@ -154,10 +151,7 @@ export const VerifyEmailScreen: React.FC<VerifyEmailScreenProps> = ({ navigation
             <View style={styles.statusBox}>
               <ActivityIndicator size="large" color={theme.primary} />
               <Text style={[styles.title, { color: theme.text, marginTop: spacing.md }]}>
-                Verificando tu cuenta...
-              </Text>
-              <Text style={[styles.description, { color: theme.textSecondary }]}>
-                Por favor aguardá unos segundos mientras validamos tu enlace.
+                Verificando cuenta...
               </Text>
             </View>
           ) : isVerified ? (
@@ -167,9 +161,9 @@ export const VerifyEmailScreen: React.FC<VerifyEmailScreenProps> = ({ navigation
                 <MaterialIcons name="verified-user" size={44} color="#0D9488" />
               </View>
 
-              <Text style={[styles.title, { color: theme.text }]}>¡Tu cuenta fue verificada!</Text>
+              <Text style={[styles.title, { color: theme.text }]}>Cuenta verificada</Text>
               <Text style={[styles.description, { color: theme.textSecondary }]}>
-                Ya podés iniciar sesión en KinesioGestión para acceder a tu historial clínico, solicitar turnos y seguir tus ejercicios.
+                Ya podés iniciar sesión.
               </Text>
 
               <TouchableOpacity
@@ -188,7 +182,7 @@ export const VerifyEmailScreen: React.FC<VerifyEmailScreenProps> = ({ navigation
                 <MaterialIcons name="mark-email-unread" size={44} color="#537C68" />
               </View>
 
-              <Text style={[styles.title, { color: theme.text }]}>¡Revisá tu correo electrónico!</Text>
+              <Text style={[styles.title, { color: theme.text }]}>Revisá tu correo</Text>
 
               <Text style={[styles.description, { color: theme.textSecondary }]}>
                 Enviamos un enlace de verificación a:
@@ -202,14 +196,14 @@ export const VerifyEmailScreen: React.FC<VerifyEmailScreenProps> = ({ navigation
               )}
 
               <Text style={[styles.instructions, { color: theme.textSecondary }]}>
-                Para completar tu registro y activar tu cuenta, ingresá a tu casilla de correo y presioná el botón destacado{' '}
+                Abrí el correo y tocá{' '}
                 <Text style={{ fontWeight: '700', color: theme.text }}>«Verificar mi cuenta»</Text>.
               </Text>
 
               <View style={styles.noticeBox}>
                 <MaterialIcons name="schedule" size={16} color="#0D9488" style={{ marginRight: 6 }} />
                 <Text style={styles.noticeText}>
-                  El enlace tiene una validez de <Text style={{ fontWeight: '700' }}>30 minutos</Text>. Revisá también tu carpeta de spam o correo no deseado.
+                  El enlace vence en <Text style={{ fontWeight: '700' }}>30 minutos</Text>. Revisá también spam.
                 </Text>
               </View>
 
@@ -323,8 +317,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg
   },
   logoCard: {
-    width: 68,
-    height: 68,
+    width: 72,
+    height: 72,
     borderRadius: radii.md,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
@@ -337,23 +331,23 @@ const styles = StyleSheet.create({
     elevation: 3
   },
   logoImage: {
-    width: 52,
-    height: 52
+    width: 56,
+    height: 56
   },
   brandTitle: {
-    fontSize: typography.fontSize.xl,
+    fontSize: typography.fontSize.xxl,
     fontWeight: typography.fontWeight.bold,
-    letterSpacing: -0.5
+    letterSpacing: -0.3
   },
   brandSubtitle: {
-    fontSize: typography.fontSize.sm,
+    fontSize: typography.fontSize.md,
     marginTop: 2
   },
   card: {
     width: '100%',
-    maxWidth: 480,
+    maxWidth: 500,
     borderRadius: radii.lg,
-    borderWidth: 1,
+    borderWidth: 1.5,
     padding: spacing.xl,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
@@ -365,100 +359,102 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   iconBadge: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.md
   },
   title: {
-    fontSize: typography.fontSize.lg,
+    fontSize: typography.fontSize.xl,
     fontWeight: typography.fontWeight.bold,
     textAlign: 'center',
     marginBottom: spacing.xs
   },
   description: {
-    fontSize: typography.fontSize.base,
+    fontSize: typography.fontSize.md,
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: 26,
     marginBottom: spacing.sm
   },
   emailBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#E6FFFA',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: radii.sm,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: radii.md,
     marginBottom: spacing.md,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#99F6E4'
   },
   emailText: {
-    fontSize: typography.fontSize.base,
-    fontWeight: typography.fontWeight.semibold,
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.bold,
     color: '#0F766E'
   },
   instructions: {
-    fontSize: typography.fontSize.sm,
+    fontSize: typography.fontSize.md,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 26,
     marginBottom: spacing.md
   },
   noticeBox: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: radii.sm,
-    padding: 12,
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+    borderRadius: radii.md,
+    padding: 14,
     marginBottom: spacing.lg,
     width: '100%'
   },
   noticeText: {
     flex: 1,
-    fontSize: typography.fontSize.tiny,
-    color: '#475569',
-    lineHeight: 18
+    fontSize: typography.fontSize.sm,
+    color: '#334155',
+    lineHeight: 22
   },
   feedbackBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
-    borderRadius: radii.sm,
+    padding: 14,
+    borderRadius: radii.md,
     marginBottom: spacing.md,
     width: '100%'
   },
   feedbackSuccess: {
     backgroundColor: '#F0FDF4',
-    borderWidth: 1,
-    borderColor: '#BBF7D0'
+    borderWidth: 1.5,
+    borderColor: '#86EFAC'
   },
   feedbackError: {
     backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#FECACA'
+    borderWidth: 1.5,
+    borderColor: '#FCA5A5'
   },
   feedbackText: {
     flex: 1,
-    fontSize: typography.fontSize.sm,
-    lineHeight: 18
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.medium,
+    lineHeight: 22
   },
   primaryButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
+    minHeight: 52,
     paddingVertical: 14,
     borderRadius: radii.md,
     marginTop: spacing.md
   },
   primaryButtonText: {
     color: '#FFFFFF',
-    fontSize: typography.fontSize.base,
+    fontSize: typography.fontSize.md,
     fontWeight: typography.fontWeight.bold
   },
   resendButton: {
@@ -466,33 +462,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
+    minHeight: 50,
     paddingVertical: 12,
     borderRadius: radii.md,
     backgroundColor: '#E6FFFA',
-    borderWidth: 1,
-    borderColor: '#99F6E4',
+    borderWidth: 1.5,
+    borderColor: '#5EEAD4',
     marginBottom: spacing.md
   },
   resendButtonDisabled: {
     backgroundColor: '#F1F5F9',
-    borderColor: '#E2E8F0'
+    borderColor: '#CBD5E1'
   },
   resendButtonText: {
-    color: '#0D9488',
-    fontSize: typography.fontSize.sm,
+    color: '#0F766E',
+    fontSize: typography.fontSize.base,
     fontWeight: typography.fontWeight.bold
   },
   resendButtonTextDisabled: {
-    color: '#94A3B8'
+    color: '#64748B'
   },
   backButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8
+    minHeight: 46,
+    paddingVertical: 10,
+    paddingHorizontal: 14
   },
   backButtonText: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.medium
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.semibold
   }
 });

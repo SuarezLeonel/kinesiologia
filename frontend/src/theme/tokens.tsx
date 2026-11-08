@@ -1,5 +1,6 @@
 /**
- * Tokens de diseño centralizados del Sistema de Gestión de Kinesiología
+ * @file tokens.tsx
+ * @description Tokens de diseño centralizados del Sistema de Gestión de Kinesiología
  * Inspiración: SaaS de salud con minimalismo funcional (Linear / Notion / Stripe)
  */
 
@@ -29,14 +30,15 @@ export const typography = {
     mono: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
   },
   fontSize: {
-    tiny: 11,
-    xs: 12,
-    sm: 13,
-    base: 14,
-    md: 15,
-    lg: 17,
-    xl: 20,
-    xxl: 24
+    tiny: 13,
+    xs: 14,
+    sm: 15,
+    base: 16,
+    md: 18,
+    lg: 20,
+    xl: 24,
+    xxl: 28,
+    xxxl: 32
   },
   fontWeight: {
     normal: '400' as const,
@@ -45,16 +47,16 @@ export const typography = {
     bold: '700' as const
   },
   lineHeight: {
-    tight: 1.25,
-    normal: 1.4,
-    relaxed: 1.6
+    tight: 1.3,
+    normal: 1.5,
+    relaxed: 1.65
   }
 } as const;
 
 export const controlHeights = {
-  sm: 32,
-  md: 40,
-  lg: 46
+  sm: 44,
+  md: 48,
+  lg: 54
 } as const;
 
 export const borders = {

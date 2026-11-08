@@ -2,7 +2,7 @@
  * @file ClinicalRecordsScreen.tsx
  * @description Pantalla de historias clínicas: motivo de consulta, escala EVA (0-10), evoluciones y exportación a PDF.
  */
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -14,11 +14,13 @@ import {
   ScrollView,
   Platform
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { MaterialIcons } from '@expo/vector-icons';
 import { apiClient } from '../api/client';
+import { useDataSync } from '../context/DataSyncContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { spacing, radii, typography } from '../theme/tokens';
@@ -29,11 +31,11 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 
 const clinicalRecordSchema = z.object({
-  patient_id: z.coerce.number().positive('Debe seleccionar un paciente'),
-  reason_for_consultation: z.string().min(3, 'Ingrese el motivo de consulta'),
-  subjective_assessment: z.string().min(3, 'Ingrese la evaluación subjetiva'),
-  objective_assessment: z.string().min(3, 'Ingrese la evaluación objetiva'),
-  diagnosis: z.string().min(3, 'Ingrese el diagnóstico kinésico'),
+  patient_id: z.coerce.number().positive('Seleccioná un paciente.'),
+  reason_for_consultation: z.string().min(3, 'Completá este campo.'),
+  subjective_assessment: z.string().min(3, 'Completá este campo.'),
+  objective_assessment: z.string().min(3, 'Completá este campo.'),
+  diagnosis: z.string().min(3, 'Completá este campo.'),
   treatment_plan: z.string().optional(),
   pain_scale_initial: z.coerce.number().min(0).max(10).default(5)
 });
@@ -43,10 +45,11 @@ type ClinicalRecordFormData = z.infer<typeof clinicalRecordSchema>;
 export const ClinicalRecordsScreen = () => {
   const { isReceptionist } = useAuth();
   const { theme } = useAppTheme();
+  const { scopeVersions } = useDataSync();
   const [searchTerm, setSearchTerm] = useState('');
   const [records, setRecords] = useState<any[]>([]);
   const [patients, setPatients] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
@@ -105,10 +108,12 @@ export const ClinicalRecordsScreen = () => {
     });
   }, [patients, patientSearch]);
 
-  const fetchRecords = async (query = '') => {
+  const fetchRecords = async (query = '', silent = false) => {
     if (isReceptionist) return;
     try {
-      setError(null);
+      if (!silent) {
+        setError(null);
+      }
       // REGLA HTTP ESTRICTA: POST para consultas
       const response = await apiClient.post('/clinical-records/search', {
         search: query || undefined,
@@ -116,9 +121,12 @@ export const ClinicalRecordsScreen = () => {
       });
       if (response.data?.success) {
         setRecords(response.data.data || []);
+        setError(null);
       }
     } catch (err: any) {
-      setError(err.response?.data?.error?.message || 'Error al obtener historias clínicas');
+      if (!silent || records.length === 0) {
+        setError(err.response?.data?.error?.message || 'Error al obtener historias clínicas');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -142,25 +150,64 @@ export const ClinicalRecordsScreen = () => {
   useEffect(() => {
     if (isReceptionist) return;
     const timeout = setTimeout(() => {
-      fetchRecords(searchTerm);
+      fetchRecords(searchTerm, true);
     }, 250);
     return () => clearTimeout(timeout);
   }, [searchTerm, isReceptionist]);
 
   useEffect(() => {
     if (!isReceptionist) {
+      fetchRecords(searchTerm, false);
       fetchPatientsList();
     }
   }, [isReceptionist]);
+
+  useEffect(() => {
+    if (isReceptionist) return;
+    if (
+      scopeVersions.clinicalRecords > 0 ||
+      scopeVersions.patients > 0 ||
+      scopeVersions.treatments > 0
+    ) {
+      fetchRecords(searchTerm, true);
+      fetchPatientsList();
+    }
+  }, [scopeVersions.clinicalRecords, scopeVersions.patients, scopeVersions.treatments, isReceptionist]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!isReceptionist) {
+        fetchRecords(searchTerm, true);
+        fetchPatientsList();
+      }
+    }, [searchTerm, isReceptionist])
+  );
 
   const onCreateRecord = async (data: ClinicalRecordFormData) => {
     setFormError(null);
     try {
       const response = await apiClient.post('/clinical-records', data);
       if (response.data?.success) {
+        const createdId = response.data.data?.id || Date.now();
+        const pat = patients.find((p) => p.id === Number(data.patient_id));
+        const optimisticRecord = {
+          id: createdId,
+          patient_id: data.patient_id,
+          patient_first_name: pat?.first_name || '',
+          patient_last_name: pat?.last_name || '',
+          patient_dni: pat?.dni || '',
+          reason_for_consultation: data.reason_for_consultation,
+          subjective_assessment: data.subjective_assessment,
+          objective_assessment: data.objective_assessment,
+          diagnosis: data.diagnosis,
+          treatment_plan: data.treatment_plan,
+          pain_scale_initial: data.pain_scale_initial,
+          created_at: new Date().toISOString()
+        };
+        setRecords((prev) => [optimisticRecord, ...prev.filter((r) => r.id !== createdId)]);
         setModalVisible(false);
         reset();
-        fetchRecords(searchTerm);
+        await fetchRecords(searchTerm, true);
       }
     } catch (err: any) {
       setFormError(err.response?.data?.error?.message || 'Error al guardar nota clínica');
@@ -244,14 +291,17 @@ export const ClinicalRecordsScreen = () => {
     return 'error';
   };
 
-  if (loading && !refreshing) return <LoadingState message="Cargando historias clínicas..." />;
-  if (error) return <ErrorState message={error} onRetry={() => fetchRecords(searchTerm)} />;
+  if (loading && !refreshing && records.length === 0) {
+    return <LoadingState message="Cargando historias clínicas..." />;
+  }
+  if (error && records.length === 0) {
+    return <ErrorState message={error} onRetry={() => fetchRecords(searchTerm, false)} />;
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <ScreenHeader
         title="Historias Clínicas"
-        subtitle="Evolución clínica, evaluaciones funcionales y escala de dolor"
         action={
           <Button
             title="+ Nueva Nota"
@@ -280,7 +330,7 @@ export const ClinicalRecordsScreen = () => {
       {/* Buscador en tiempo real */}
       <View style={styles.searchRow}>
         <Input
-          placeholder="Buscar por paciente, DNI o diagnóstico kinésico..."
+          placeholder="Buscar por paciente, DNI o diagnóstico..."
           value={searchTerm}
           onChangeText={setSearchTerm}
           containerStyle={{ marginBottom: 0, flex: 1 }}
@@ -321,8 +371,8 @@ export const ClinicalRecordsScreen = () => {
         }
         ListEmptyComponent={
           <EmptyState
-            title="Sin historias clínicas registradas"
-            subtitle="No se encontraron notas clínicas que coincidan con la búsqueda."
+            title="Sin historias clínicas"
+            subtitle="No hay notas registradas para esta búsqueda."
           />
         }
         renderItem={({ item }) => {
@@ -442,7 +492,6 @@ export const ClinicalRecordsScreen = () => {
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
         title="Nueva Historia Clínica"
-        subtitle="Registro de evaluación kinésica y diagnóstico"
         footer={
           <>
             <Button
@@ -452,7 +501,7 @@ export const ClinicalRecordsScreen = () => {
               onPress={() => setModalVisible(false)}
             />
             <Button
-              title="Guardar Nota Clínica"
+              title="Guardar"
               size="md"
               loading={isSubmitting}
               onPress={() => handleSubmit(onCreateRecord)()}
@@ -649,7 +698,7 @@ export const ClinicalRecordsScreen = () => {
 
         <View style={styles.painContainer}>
           <Text style={[styles.fieldLabel, { color: theme.text }]}>
-            Escala Analógica Visual de Dolor (EVA): {selectedPain}/10
+            Dolor (EVA): {selectedPain}/10
           </Text>
           <View style={styles.painButtonsRow}>
             {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => {

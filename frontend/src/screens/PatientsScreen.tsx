@@ -20,39 +20,46 @@ import { z } from 'zod';
 import { MaterialIcons } from '@expo/vector-icons';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useDataSync } from '../context/DataSyncContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { spacing, radii, typography } from '../theme/tokens';
 import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper, DateInput, InsuranceSelector } from '../components/ui';
 import { LoadingState, ErrorState, EmptyState } from '../components/FeedbackStates';
 import { PatientRoutinesModal } from '../components/treatments/PatientRoutinesModal';
+import {
+  fetchBookingCalendarAvailability,
+  evaluateDateClient,
+  getBookingWindow,
+  CalendarDayStatus
+} from '../utils/bookingCalendar';
 
 const patientSchema = z.object({
-  dni: z.string().min(7, 'El DNI debe tener al menos 7 dígitos').max(20, 'Máximo 20 caracteres'),
-  first_name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
-  last_name: z.string().min(2, 'El apellido debe tener al menos 2 caracteres'),
-  birth_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido (AAAA-MM-DD)'),
-  phone: z.string().min(6, 'Ingrese un teléfono de contacto válido'),
-  email: z.string().min(1, 'El correo electrónico es obligatorio').email('Ingrese un correo electrónico válido'),
+  dni: z.string().min(7, 'DNI inválido.').max(20, 'Máximo 20 caracteres.'),
+  first_name: z.string().min(2, 'Completá este campo.'),
+  last_name: z.string().min(2, 'Completá este campo.'),
+  birth_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato inválido (AAAA-MM-DD).'),
+  phone: z.string().min(6, 'Ingresá un teléfono válido.'),
+  email: z.string().min(1, 'Completá este campo.').email('Ingresá un correo válido.'),
   insurance_provider: z.string().default('Particular'),
   custom_insurance_provider: z.string().optional(),
   insurance_number: z.string().optional(),
-  password: z.string().min(8, 'Mínimo 8 caracteres').optional().or(z.literal(''))
+  password: z.string().min(8, 'Mínimo 8 caracteres.').optional().or(z.literal(''))
 });
 
 const kinesiologistSchema = z
   .object({
-    first_name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
-    last_name: z.string().min(2, 'El apellido debe tener al menos 2 caracteres'),
-    dni: z.string().min(7, 'El DNI debe tener al menos 7 dígitos').max(20, 'Máximo 20 caracteres'),
-    license_number: z.string().min(2, 'La matrícula profesional es obligatoria'),
-    specialty: z.string().min(2, 'La especialidad es obligatoria'),
-    phone: z.string().min(6, 'Ingrese un teléfono de contacto válido'),
-    email: z.string().min(1, 'El correo electrónico es obligatorio').email('Ingrese un correo electrónico válido'),
-    password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
-    confirm_password: z.string().min(1, 'Confirme la contraseña')
+    first_name: z.string().min(2, 'Completá este campo.'),
+    last_name: z.string().min(2, 'Completá este campo.'),
+    dni: z.string().min(7, 'DNI inválido.').max(20, 'Máximo 20 caracteres.'),
+    license_number: z.string().min(2, 'Completá este campo.'),
+    specialty: z.string().min(2, 'Completá este campo.'),
+    phone: z.string().min(6, 'Ingresá un teléfono válido.'),
+    email: z.string().min(1, 'Completá este campo.').email('Ingresá un correo válido.'),
+    password: z.string().min(8, 'Mínimo 8 caracteres.'),
+    confirm_password: z.string().min(1, 'Completá este campo.')
   })
   .refine((data) => data.password === data.confirm_password, {
-    message: 'Las contraseñas no coinciden',
+    message: 'Las contraseñas no coinciden.',
     path: ['confirm_password']
   });
 
@@ -71,6 +78,7 @@ const SPECIALTY_SUGGESTIONS = [
 export const PatientsScreen = () => {
   const { theme } = useAppTheme();
   const { isAdmin, isReceptionist } = useAuth();
+  const { scopeVersions } = useDataSync();
   const [patients, setPatients] = useState<any[]>([]);
   const [staffUsers, setStaffUsers] = useState<any[]>([]);
   const [roleFilter, setRoleFilter] = useState<'todos' | PersonRoleType>('todos');
@@ -110,6 +118,11 @@ export const PatientsScreen = () => {
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [bookingSuccess, setBookingSuccess] = useState<string | null>(null);
+
+  const defaultWindow = React.useMemo(() => getBookingWindow(), []);
+  const [bookingMinDate, setBookingMinDate] = useState<string>(defaultWindow.minDate);
+  const [bookingMaxDate, setBookingMaxDate] = useState<string>(defaultWindow.maxDate);
+  const [calendarByDate, setCalendarByDate] = useState<Record<string, CalendarDayStatus>>({});
 
   // Formulario 1: Paciente
   const {
@@ -172,9 +185,11 @@ export const PatientsScreen = () => {
     setCreatedPersonSuccess(null);
   };
 
-  const fetchPeopleData = async (query = '') => {
+  const fetchPeopleData = async (query = '', silent = false) => {
     try {
-      setError(null);
+      if (!silent) {
+        setError(null);
+      }
       const requests: Promise<any>[] = [
         apiClient.post('/patients/search', {
           search: query || undefined,
@@ -214,8 +229,11 @@ export const PatientsScreen = () => {
           }));
         setStaffUsers(staffOnly);
       }
+      setError(null);
     } catch (err: any) {
-      setError(err.response?.data?.error?.message || 'Error al obtener registros');
+      if (!silent || (patients.length === 0 && staffUsers.length === 0)) {
+        setError(err.response?.data?.error?.message || 'Error al obtener registros');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -224,12 +242,18 @@ export const PatientsScreen = () => {
 
   const loadBookingDependencies = async () => {
     try {
-      const [servRes, userRes] = await Promise.all([
+      const [servRes, userRes, cal] = await Promise.all([
         apiClient.post('/services/search', { limit: 50 }),
-        apiClient.post('/appointments/professionals', {})
+        apiClient.post('/appointments/professionals', {}),
+        fetchBookingCalendarAvailability('staff')
       ]);
       if (servRes.data?.success) setServicesList(servRes.data.data);
       if (userRes.data?.success) setKinesiologistsList(userRes.data.data);
+      if (cal) {
+        setBookingMinDate(cal.minDate);
+        setBookingMaxDate(cal.maxDate);
+        setCalendarByDate(cal.byDate);
+      }
     } catch (e) {
       console.warn('Error loading booking dependencies', e);
     }
@@ -237,14 +261,21 @@ export const PatientsScreen = () => {
 
   useEffect(() => {
     const timeout = setTimeout(() => {
-      fetchPeopleData(searchTerm);
+      fetchPeopleData(searchTerm, true);
     }, 250);
     return () => clearTimeout(timeout);
   }, [searchTerm, isAdmin]);
 
+  useEffect(() => {
+    if (scopeVersions.patients > 0 || scopeVersions.users > 0 || scopeVersions.services > 0) {
+      fetchPeopleData(searchTerm, true);
+      loadBookingDependencies();
+    }
+  }, [scopeVersions.patients, scopeVersions.users, scopeVersions.services]);
+
   useFocusEffect(
     useCallback(() => {
-      fetchPeopleData(searchTerm);
+      fetchPeopleData(searchTerm, true);
       loadBookingDependencies();
     }, [searchTerm, isAdmin])
   );
@@ -309,16 +340,18 @@ export const PatientsScreen = () => {
         const createdId = res.data.data?.id;
         const newPatient = {
           id: createdId,
-          _personType: 'paciente',
+          _personType: 'paciente' as PersonRoleType,
           first_name: payload.firstName,
           last_name: payload.lastName,
           dni: payload.dni,
           phone: payload.phone,
           email: payload.email,
+          address: payload.address,
           user_id: res.data.data?.user_id || null
         };
+        setPatients((prev) => [newPatient, ...prev.filter((p) => p.id !== createdId)]);
         setCreatedPersonSuccess(newPatient);
-        fetchPeopleData(searchTerm);
+        await fetchPeopleData(searchTerm, true);
       }
     } catch (err: any) {
       setFormError(err.response?.data?.error?.message || 'Error al registrar paciente');
@@ -342,18 +375,23 @@ export const PatientsScreen = () => {
       };
       const res = await apiClient.post('/users', payload);
       if (res.data?.success) {
-        setCreatedPersonSuccess({
+        const createdKine = {
           id: res.data.data?.id,
-          _personType: 'kinesiologo',
+          _personType: 'kinesiologo' as PersonRoleType,
+          name: payload.name,
           first_name: payload.name,
           last_name: payload.lastName,
           dni: payload.dni,
           license_number: payload.licenseNumber,
           specialty: payload.specialty,
-          email: payload.email
-        });
-        fetchPeopleData(searchTerm);
-        loadBookingDependencies();
+          phone: payload.phone,
+          email: payload.email,
+          role_name: 'kinesiologist'
+        };
+        setStaffUsers((prev) => [createdKine, ...prev.filter((u) => u.id !== createdKine.id)]);
+        setKinesiologistsList((prev) => [createdKine, ...prev.filter((u) => u.id !== createdKine.id)]);
+        setCreatedPersonSuccess(createdKine);
+        await Promise.all([fetchPeopleData(searchTerm, true), loadBookingDependencies()]);
       }
     } catch (err: any) {
       setFormError(err.response?.data?.error?.message || 'Error al registrar kinesiólogo');
@@ -370,8 +408,22 @@ export const PatientsScreen = () => {
 
   const isAnyFormSubmitting = isPatientSubmitting || isKineSubmitting;
 
-  const fetchReceptionSlots = async (kineId: number, servId: number, dateStr: string) => {
+  const fetchReceptionSlots = async (
+    kineId: number,
+    servId: number,
+    dateStr: string,
+    customMap?: Record<string, CalendarDayStatus>
+  ) => {
     if (!kineId || !servId || !dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return;
+    const mapToUse = customMap || calendarByDate;
+    const evalResult = evaluateDateClient(dateStr, mapToUse, bookingMinDate, bookingMaxDate);
+    if (evalResult.disabled) {
+      setAvailableSlots([]);
+      setBookingTime('');
+      setBookingError(evalResult.reason || 'El consultorio permanece cerrado en la fecha seleccionada.');
+      return;
+    }
+
     setLoadingSlots(true);
     setBookingError(null);
     try {
@@ -390,6 +442,13 @@ export const PatientsScreen = () => {
         }
       }
     } catch {
+      const recheck = evaluateDateClient(dateStr, mapToUse, bookingMinDate, bookingMaxDate);
+      if (recheck.disabled) {
+        setAvailableSlots([]);
+        setBookingTime('');
+        setBookingError(recheck.reason || 'Fecha no laborable');
+        return;
+      }
       const fallback = Array.from({ length: 11 }, (_, i) => {
         const timeStr = `${String(8 + i).padStart(2, '0')}:00`;
         return { startTime: `${dateStr} ${timeStr}:00`, time: timeStr, timeLabel: timeStr, available: true };
@@ -401,23 +460,26 @@ export const PatientsScreen = () => {
     }
   };
 
-  const handleOpenBookingModal = (patient: any) => {
+  const handleOpenBookingModal = async (patient: any) => {
     setBookingError(null);
     setBookingSuccess(null);
     setTargetPatient(patient);
+    const cal = await fetchBookingCalendarAvailability('staff');
+    setBookingMinDate(cal.minDate);
+    setBookingMaxDate(cal.maxDate);
+    setCalendarByDate(cal.byDate);
+
     const serv = servicesList[0] || { id: 1, name: 'Rehabilitación Traumatológica', duration_minutes: 45, default_price: 12000 };
     const kine = kinesiologistsList[0] || { id: 2, name: 'Carlos', last_name: 'Kinesio' };
     setSelectedService(serv);
     setSelectedKinesiologist(kine);
-    const d = new Date(Date.now() + 86400000);
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const tomorrow = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-    setBookingDate(tomorrow);
+    const initialDate = cal.firstAvailableDate;
+    setBookingDate(initialDate);
     setBookingTime('10:00');
     setBookingNotes('');
     setBookingModalVisible(true);
     if (kine && serv) {
-      fetchReceptionSlots(kine.id, serv.id, tomorrow);
+      fetchReceptionSlots(kine.id, serv.id, initialDate, cal.byDate);
     }
   };
 
@@ -447,12 +509,12 @@ export const PatientsScreen = () => {
       });
 
       if (res.data?.success) {
-        setBookingSuccess(
-          `✓ Turno agendado exitosamente para ${targetPatient.last_name || targetPatient.lastName}, ${targetPatient.first_name || targetPatient.firstName}`
-        );
+        setBookingSuccess('Turno reservado correctamente.');
+        fetchReceptionSlots(selectedKinesiologist.id, selectedService.id, bookingDate);
+        fetchPeopleData(searchTerm, true);
         setTimeout(() => {
           setBookingModalVisible(false);
-        }, 1300);
+        }, 900);
       }
     } catch (err: any) {
       setBookingError(err.response?.data?.error?.message || 'Conflicto al agendar turno');
@@ -468,20 +530,17 @@ export const PatientsScreen = () => {
     return combined.filter((item) => item._personType === roleFilter);
   }, [isAdmin, patients, staffUsers, roleFilter]);
 
-  if (loading && !refreshing) {
-    return <LoadingState message={isAdmin ? 'Cargando padrón de personas...' : 'Cargando pacientes...'} />;
+  if (loading && !refreshing && patients.length === 0 && staffUsers.length === 0) {
+    return <LoadingState message="Cargando..." />;
   }
-  if (error) return <ErrorState message={error} onRetry={() => fetchPeopleData(searchTerm)} />;
+  if (error && patients.length === 0 && staffUsers.length === 0) {
+    return <ErrorState message={error} onRetry={() => fetchPeopleData(searchTerm)} />;
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <ScreenHeader
-        title={isAdmin ? 'Padrón de Personas' : 'Padrón de Pacientes'}
-        subtitle={
-          isAdmin
-            ? 'Gestión y registro integral de pacientes y kinesiólogos'
-            : 'Fichas administrativas de pacientes, coberturas y gestión de turnos'
-        }
+        title={isAdmin ? 'Personas' : 'Pacientes'}
         action={
           <Button
             title={isAdmin ? '+ Registrar persona' : '+ Registrar paciente'}
@@ -580,8 +639,8 @@ export const PatientsScreen = () => {
         }
         ListEmptyComponent={
           <EmptyState
-            title={isAdmin ? 'No se encontraron personas registradas' : 'No se encontraron pacientes'}
-            subtitle="Intenta con otro término de búsqueda o da de alta un nuevo registro."
+            title="Sin resultados"
+            subtitle="Probá con otra búsqueda o registrá una nueva ficha."
             action={{
               label: isAdmin ? 'Registrar persona' : 'Registrar paciente',
               onPress: () => {
@@ -720,14 +779,9 @@ export const PatientsScreen = () => {
         title={
           isAdmin
             ? selectedRoleToCreate === 'paciente'
-              ? 'Registrar Persona — Paciente'
-              : 'Registrar Persona — Kinesiólogo'
+              ? 'Registrar paciente'
+              : 'Registrar kinesiólogo'
             : 'Registrar paciente'
-        }
-        subtitle={
-          isAdmin
-            ? 'Seleccione el rol a dar de alta y complete todos sus campos correspondientes.'
-            : 'Ficha administrativa independiente. No genera contraseña ni obliga a crear cuenta.'
         }
         footer={
           createdPersonSuccess ? (
@@ -748,7 +802,7 @@ export const PatientsScreen = () => {
                 onPress={() => setModalVisible(false)}
               />
               <Button
-                title={selectedRoleToCreate === 'paciente' ? 'Guardar Paciente' : 'Guardar Kinesiólogo'}
+                title="Guardar"
                 size="md"
                 loading={isAnyFormSubmitting}
                 onPress={handlePrimaryModalSubmit}
@@ -833,16 +887,16 @@ export const PatientsScreen = () => {
             <MaterialIcons name="check-circle" size={48} color={theme.success} style={{ marginBottom: spacing.sm }} />
             <Text style={[styles.successTitle, { color: theme.text }]}>
               {createdPersonSuccess._personType === 'paciente'
-                ? '¡Paciente registrado exitosamente!'
-                : '¡Kinesiólogo registrado exitosamente!'}
+                ? 'Paciente registrado.'
+                : 'Kinesiólogo registrado.'}
             </Text>
             <Text style={[styles.successDesc, { color: theme.textSecondary }]}>
-              {createdPersonSuccess.last_name}, {createdPersonSuccess.first_name} (DNI {createdPersonSuccess.dni}) ya se encuentra activo en el sistema.
+              {createdPersonSuccess.last_name}, {createdPersonSuccess.first_name} (DNI {createdPersonSuccess.dni})
             </Text>
 
             {createdPersonSuccess._personType === 'paciente' && (
               <Button
-                title="📅 Agendar Turno para este Paciente"
+                title="Agendar turno"
                 size="lg"
                 onPress={() => {
                   const pat = createdPersonSuccess;
@@ -1230,8 +1284,8 @@ export const PatientsScreen = () => {
       <ModalWrapper
         visible={bookingModalVisible}
         onClose={() => setBookingModalVisible(false)}
-        title="Registrar turno"
-        subtitle={`Para el paciente: ${targetPatient?.last_name || targetPatient?.lastName || ''}, ${targetPatient?.first_name || targetPatient?.firstName || ''} (DNI ${targetPatient?.dni || ''})`}
+        title="Reservar turno"
+        subtitle={`${targetPatient?.last_name || targetPatient?.lastName || ''}, ${targetPatient?.first_name || targetPatient?.firstName || ''} (DNI ${targetPatient?.dni || ''})`}
         footer={
           <>
             <Button
@@ -1261,7 +1315,7 @@ export const PatientsScreen = () => {
           </View>
         )}
 
-        <Text style={[styles.inputLabel, { color: theme.text }]}>1. Prestación / Servicio</Text>
+        <Text style={[styles.inputLabel, { color: theme.text }]}>1. Elegí un servicio</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.md }}>
           {servicesList.map((s) => (
             <TouchableOpacity
@@ -1287,7 +1341,7 @@ export const PatientsScreen = () => {
           ))}
         </ScrollView>
 
-        <Text style={[styles.inputLabel, { color: theme.text }]}>2. Profesional Kinesiólogo</Text>
+        <Text style={[styles.inputLabel, { color: theme.text }]}>2. Profesional</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.md }}>
           {kinesiologistsList.map((k) => (
             <TouchableOpacity
@@ -1314,25 +1368,28 @@ export const PatientsScreen = () => {
         </ScrollView>
 
         <DateInput
-          label="3. Fecha del turno"
+          label="3. Fecha (lunes a viernes, máx. 14 días)"
           value={bookingDate}
+          min={bookingMinDate}
+          max={bookingMaxDate}
+          disableWeekends={true}
+          isDateDisabled={(d) => evaluateDateClient(d, calendarByDate, bookingMinDate, bookingMaxDate)}
           onChangeDate={(val) => {
             setBookingDate(val);
             if (val && selectedKinesiologist && selectedService) {
               fetchReceptionSlots(selectedKinesiologist.id, selectedService.id, val);
             }
           }}
-          min={new Date().toISOString().slice(0, 10)}
         />
 
-        <Text style={[styles.inputLabel, { color: theme.text }]}>4. Horario Disponible</Text>
+        <Text style={[styles.inputLabel, { color: theme.text }]}>4. Horario</Text>
         {loadingSlots ? (
           <Text style={[styles.subText, { color: theme.textMuted, marginBottom: spacing.md }]}>
-            Calculando disponibilidad en tiempo real...
+            Buscando horarios...
           </Text>
         ) : availableSlots.length === 0 ? (
           <Text style={[styles.subText, { color: theme.warning, marginBottom: spacing.md }]}>
-            No hay horarios disponibles para esta fecha con el profesional seleccionado.
+            No hay horarios disponibles.
           </Text>
         ) : (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.md }}>

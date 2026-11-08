@@ -68,7 +68,7 @@ export const ModalWrapper: React.FC<ModalWrapperProps> = ({
           ]}
         >
           {/* Header */}
-          <View style={[styles.header, { borderBottomColor: theme.borderSubtle }]}>
+          <View style={[styles.header, { borderBottomColor: theme.border }]}>
             <View style={styles.headerTitles}>
               <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
               {subtitle && (
@@ -79,10 +79,11 @@ export const ModalWrapper: React.FC<ModalWrapperProps> = ({
             </View>
             <TouchableOpacity
               onPress={onClose}
-              style={[styles.closeBtn, { backgroundColor: theme.surfaceSubtle }]}
-              accessibilityLabel="Cerrar modal"
+              style={[styles.closeBtn, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
+              accessibilityRole="button"
+              accessibilityLabel="Cerrar ventana"
             >
-              <Text style={[styles.closeText, { color: theme.textSecondary }]}>✕</Text>
+              <Text style={[styles.closeText, { color: theme.text }]}>✕ Cerrar</Text>
             </TouchableOpacity>
           </View>
 
@@ -146,23 +147,26 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1
   },
   title: {
-    fontSize: typography.fontSize.lg,
+    fontSize: typography.fontSize.xl,
     fontWeight: typography.fontWeight.bold,
     letterSpacing: -0.2
   },
   subtitle: {
-    fontSize: typography.fontSize.xs,
-    marginTop: 2
+    fontSize: typography.fontSize.sm,
+    marginTop: 4,
+    lineHeight: 20
   },
   closeBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: radii.full,
+    minHeight: 44,
+    minWidth: 44,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center'
   },
   closeText: {
-    fontSize: 13,
+    fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.bold
   },
   body: {

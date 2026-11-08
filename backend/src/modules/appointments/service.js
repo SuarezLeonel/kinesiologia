@@ -8,6 +8,7 @@ import { appointmentsRepository } from './repository.js';
 import { servicesRepository } from '../services/repository.js';
 import { patientsRepository } from '../patients/repository.js';
 import { notificationsService } from '../notifications/service.js';
+import { holidayService } from '../../services/holidayService.js';
 import { NotFoundError } from '../../utils/errors.js';
 import { logAudit } from '../../utils/auditLogger.js';
 
@@ -25,6 +26,9 @@ export class AppointmentsService {
   }
 
   async create(data, currentUser) {
+    // Validar fecha hábil, feriados y límite de 14 días corridos
+    await holidayService.validateAppointmentDate(data.startTime);
+
     let agreedPrice = data.agreedPrice;
     if (agreedPrice === undefined || agreedPrice === null) {
       const service = await servicesRepository.findById(data.serviceId);
@@ -69,6 +73,12 @@ export class AppointmentsService {
 
   async update(id, fields, currentUser) {
     await this.getDetail(id);
+
+    // Si se modifica o reprograma la fecha/hora del turno, validar días no laborables y ventana de 14 días
+    if (fields.startTime || fields.endTime) {
+      await holidayService.validateAppointmentDate(fields.startTime || fields.endTime);
+    }
+
     await appointmentsRepository.updateWithHistory(id, fields, currentUser.id);
 
     await logAudit({
@@ -124,6 +134,8 @@ export class AppointmentsService {
     }
 
     if (approved) {
+      await holidayService.validateAppointmentDate(request.requested_start_time);
+
       const result = await appointmentsRepository.approveRescheduleAtomic(requestId, currentUser.id, responseNotes);
       await logAudit({
         userId: currentUser.id,
@@ -179,6 +191,12 @@ export class AppointmentsService {
     const durationMinutes = service ? (service.duration_minutes || 45) : 45;
     const targetDate = date || new Date().toISOString().slice(0, 10);
 
+    // No ofrecer horarios en fechas pasadas, posteriores a 14 días, fines de semana ni feriados cerrados
+    const dateEvaluation = await holidayService.evaluateDate(targetDate, { enforceWindow: true });
+    if (!dateEvaluation.available) {
+      return [];
+    }
+
     const existingAppointments = await appointmentsRepository.search({
       kinesiologistId,
       startDate: `${targetDate} 00:00:00`,
@@ -222,6 +240,38 @@ export class AppointmentsService {
     }
 
     return slots;
+  }
+
+  async getCalendarAvailability(params = {}) {
+    return await holidayService.getCalendarAvailability(params);
+  }
+
+  async listHolidays(params = {}) {
+    return await holidayService.listHolidays(params);
+  }
+
+  async configureHoliday(data, currentUser) {
+    const result = await holidayService.configureHoliday(data);
+    await logAudit({
+      userId: currentUser.id,
+      action: 'HOLIDAY_CONFIGURED',
+      entityType: 'clinic_holiday',
+      entityId: result?.id || 0,
+      details: data
+    });
+    return result;
+  }
+
+  async updateOptionalDayStatus(data, currentUser) {
+    const result = await holidayService.updateOptionalDayStatus(data);
+    await logAudit({
+      userId: currentUser.id,
+      action: 'OPTIONAL_HOLIDAY_STATUS_UPDATED',
+      entityType: 'clinic_holiday',
+      entityId: result?.id || 0,
+      details: data
+    });
+    return result;
   }
 }
 

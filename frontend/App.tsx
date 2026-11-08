@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
 import { ThemeProvider, useAppTheme } from './src/theme/ThemeContext';
 import { AuthProvider } from './src/context/AuthContext';
+import { DataSyncProvider } from './src/context/DataSyncContext';
 import { RootNavigator } from './src/navigation/RootNavigator';
 
 // Intercepta el retorno de OAuth en ventana emergente (popup) sin afectar la ventana principal
@@ -49,7 +50,9 @@ export default function App() {
     <SafeAreaProvider>
       <ThemeProvider>
         <AuthProvider>
-          <AppContent />
+          <DataSyncProvider>
+            <AppContent />
+          </DataSyncProvider>
         </AuthProvider>
       </ThemeProvider>
     </SafeAreaProvider>

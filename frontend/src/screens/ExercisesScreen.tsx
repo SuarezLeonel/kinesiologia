@@ -14,11 +14,13 @@ import {
   ScrollView,
   Linking
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { MaterialIcons } from '@expo/vector-icons';
 import { apiClient } from '../api/client';
+import { useDataSync } from '../context/DataSyncContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { spacing, radii, typography } from '../theme/tokens';
@@ -66,19 +68,19 @@ interface FilterOptions {
 }
 
 const exerciseFormSchema = z.object({
-  name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
-  category: z.string().min(2, 'La categoría es obligatoria'),
-  description: z.string().min(4, 'La descripción clínica es obligatoria'),
-  instructions: z.string().min(4, 'Las indicaciones técnicas son obligatorias'),
-  bodyZone: z.string().min(2, 'La zona corporal es obligatoria'),
+  name: z.string().min(2, 'Completá este campo.'),
+  category: z.string().min(2, 'Completá este campo.'),
+  description: z.string().min(4, 'Completá este campo.'),
+  instructions: z.string().min(4, 'Completá este campo.'),
+  bodyZone: z.string().min(2, 'Completá este campo.'),
   muscleGroup: z.string().optional(),
-  therapeuticObjective: z.string().min(2, 'El objetivo terapéutico es obligatorio'),
+  therapeuticObjective: z.string().min(2, 'Completá este campo.'),
   equipmentNeeded: z.string().optional(),
   difficultyLevel: z.enum(['Bajo', 'Medio', 'Alto']),
   contraindications: z.string().optional(),
   defaultSets: z.coerce.number().int().positive('Debe ser mayor a 0').default(3),
   defaultRepetitions: z.coerce.number().int().positive('Debe ser mayor a 0').default(10),
-  mediaUrl: z.string().url('Debe ser una URL válida (http/https)').optional().or(z.literal(''))
+  mediaUrl: z.string().url('Ingresá una URL válida').optional().or(z.literal(''))
 });
 
 type ExerciseFormData = z.infer<typeof exerciseFormSchema>;
@@ -88,6 +90,7 @@ const PAGE_SIZE = 10;
 export const ExercisesScreen = () => {
   const { theme } = useAppTheme();
   const { isAdmin, isReceptionist } = useAuth();
+  const { scopeVersions } = useDataSync();
 
   // Estados principales
   const [exercises, setExercises] = useState<ExerciseItem[]>([]);
@@ -174,9 +177,11 @@ export const ExercisesScreen = () => {
   }, []);
 
   // Cargar ejercicios paginados y filtrados
-  const fetchExercises = useCallback(async (page = 1) => {
+  const fetchExercises = useCallback(async (page = 1, silent = false) => {
     try {
-      setError(null);
+      if (!silent) {
+        setError(null);
+      }
       // REGLA HTTP ESTRICTA: POST para consultas
       const payload: Record<string, any> = {
         page,
@@ -202,9 +207,12 @@ export const ExercisesScreen = () => {
         setTotalCount(data?.total ?? items.length);
         setCurrentPage(data?.page ?? page);
         setTotalPages(data?.totalPages ?? 1);
+        setError(null);
       }
     } catch (err: any) {
-      setError(err.response?.data?.error?.message || 'Error al obtener catálogo de ejercicios clínicos');
+      if (!silent) {
+        setError(err.response?.data?.error?.message || 'Error al obtener catálogo de ejercicios clínicos');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -220,10 +228,26 @@ export const ExercisesScreen = () => {
   useEffect(() => {
     setCurrentPage(1);
     const timeout = setTimeout(() => {
-      fetchExercises(1);
+      fetchExercises(1, true);
     }, 250);
     return () => clearTimeout(timeout);
   }, [searchTerm, selectedBodyZone, selectedObjective, selectedDifficulty, selectedEquipment, statusFilter, fetchExercises]);
+
+  useEffect(() => {
+    if (!isReceptionist && scopeVersions.exercises > 0) {
+      fetchExercises(currentPage, true);
+      fetchFilterOptions();
+    }
+  }, [scopeVersions.exercises, isReceptionist]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!isReceptionist) {
+        fetchExercises(currentPage, true);
+        fetchFilterOptions();
+      }
+    }, [currentPage, fetchExercises, fetchFilterOptions, isReceptionist])
+  );
 
   // Limpiar banner de éxito tras 4 segundos
   useEffect(() => {
@@ -317,10 +341,26 @@ export const ExercisesScreen = () => {
       if (formMode === 'create') {
         const res = await apiClient.post('/exercises', payload);
         if (res.data?.success) {
+          const createdId = res.data.data?.id || Date.now();
+          const newItem: ExerciseItem = {
+            id: createdId,
+            ...payload,
+            body_zone: payload.bodyZone,
+            muscle_group: payload.muscleGroup,
+            therapeutic_objective: payload.therapeuticObjective,
+            equipment_needed: payload.equipmentNeeded,
+            difficulty_level: payload.difficultyLevel,
+            default_sets: payload.defaultSets,
+            default_repetitions: payload.defaultRepetitions,
+            media_url: payload.mediaUrl,
+            isActive: true,
+            is_active: 1
+          };
+          setExercises((prev) => [newItem, ...prev.filter((item) => item.id !== createdId)]);
+          setTotalCount((prev) => prev + 1);
           setFormModalVisible(false);
-          setSuccessBanner(`Ejercicio "${data.name}" registrado con éxito en el catálogo.`);
-          fetchExercises(1);
-          fetchFilterOptions();
+          setSuccessBanner('Ejercicio guardado.');
+          await Promise.all([fetchExercises(1, true), fetchFilterOptions()]);
         }
       } else if (formMode === 'edit' && editingId) {
         const res = await apiClient.post('/exercises/update', {
@@ -328,18 +368,31 @@ export const ExercisesScreen = () => {
           ...payload
         });
         if (res.data?.success) {
+          const updatedFields = {
+            ...payload,
+            body_zone: payload.bodyZone,
+            muscle_group: payload.muscleGroup,
+            therapeutic_objective: payload.therapeuticObjective,
+            equipment_needed: payload.equipmentNeeded,
+            difficulty_level: payload.difficultyLevel,
+            default_sets: payload.defaultSets,
+            default_repetitions: payload.defaultRepetitions,
+            media_url: payload.mediaUrl
+          };
+          setExercises((prev) =>
+            prev.map((item) => (item.id === editingId ? { ...item, ...updatedFields } : item))
+          );
           setFormModalVisible(false);
-          setSuccessBanner(`Ejercicio "${data.name}" actualizado exitosamente.`);
+          setSuccessBanner('Cambios guardados.');
           // Si estaba en modal de detalle, actualizarlo
           if (selectedExercise && selectedExercise.id === editingId) {
-            setSelectedExercise({ ...selectedExercise, ...payload });
+            setSelectedExercise({ ...selectedExercise, ...updatedFields });
           }
-          fetchExercises(currentPage);
-          fetchFilterOptions();
+          await Promise.all([fetchExercises(currentPage, true), fetchFilterOptions()]);
         }
       }
     } catch (err: any) {
-      setFormError(err.response?.data?.error?.message || 'Error al persistir el ejercicio terapéutico');
+      setFormError(err.response?.data?.error?.message || 'Error al guardar el ejercicio');
     }
   };
 
@@ -360,9 +413,21 @@ export const ExercisesScreen = () => {
       });
 
       if (res.data?.success) {
+        setExercises((prev) =>
+          prev
+            .map((item) =>
+              item.id === exerciseToToggle.id
+                ? { ...item, isActive: targetStatus, is_active: targetStatus ? 1 : 0 }
+                : item
+            )
+            .filter((item) => {
+              if (statusFilter === 'active') return Boolean(item.isActive || item.is_active === 1);
+              if (statusFilter === 'inactive') return !item.isActive && item.is_active !== 1;
+              return true;
+            })
+        );
         setDeactivateModalVisible(false);
-        const actionLabel = targetStatus ? 'reactivado' : 'desactivado lógicamente';
-        setSuccessBanner(`Ejercicio "${exerciseToToggle.name}" ${actionLabel}. Historial clínico preservado.`);
+        setSuccessBanner(targetStatus ? 'Ejercicio activado.' : 'Ejercicio desactivado.');
         if (selectedExercise && selectedExercise.id === exerciseToToggle.id) {
           setSelectedExercise({
             ...selectedExercise,
@@ -371,7 +436,7 @@ export const ExercisesScreen = () => {
           });
         }
         setExerciseToToggle(null);
-        fetchExercises(currentPage);
+        await fetchExercises(currentPage, true);
       }
     } catch (err: any) {
       setSuccessBanner(err.response?.data?.error?.message || 'Error al actualizar el estado del ejercicio');
@@ -415,31 +480,29 @@ export const ExercisesScreen = () => {
     return (
       <View style={[styles.container, { backgroundColor: theme.background }]}>
         <ScreenHeader
-          title="Catálogo de Ejercicios"
-          subtitle="Área restringida a profesionales de kinesiología y administración clínica"
+          title="Ejercicios"
         />
         <EmptyState
-          title="Acceso Restringido"
-          subtitle="Por políticas de confidencialidad y normativas médicas, el catálogo de prescripción clínica y rehabilitación no está disponible para el rol de Recepción."
+          title="Acceso restringido"
+          subtitle="No tenés permisos para ver esta sección."
         />
       </View>
     );
   }
 
-  if (loading && !refreshing) {
-    return <LoadingState message="Cargando biblioteca clínica de ejercicios..." />;
+  if (loading && !refreshing && exercises.length === 0) {
+    return <LoadingState message="Cargando ejercicios..." />;
   }
 
   if (error && !refreshing && exercises.length === 0) {
-    return <ErrorState message={error} onRetry={() => fetchExercises(1)} />;
+    return <ErrorState message={error} onRetry={() => fetchExercises(1, false)} />;
   }
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Encabezado */}
       <ScreenHeader
-        title="Catálogo de Ejercicios Clínicos"
-        subtitle="Biblioteca terapéutica reutilizable, prescripciones y protocolos"
+        title="Ejercicios"
         action={
           <Button
             title="+ Nuevo Ejercicio"
@@ -503,11 +566,11 @@ export const ExercisesScreen = () => {
       {showFiltersPanel && (
         <Card elevated style={[styles.filtersPanel, { borderColor: theme.border }]} padding="md">
           <View style={styles.filtersHeader}>
-            <Text style={[styles.filtersTitle, { color: theme.text }]}>Filtros Clínicos Avanzados</Text>
+            <Text style={[styles.filtersTitle, { color: theme.text }]}>Filtros</Text>
             {hasActiveFilters && (
               <TouchableOpacity onPress={clearFilters} style={styles.clearFiltersBtn}>
                 <MaterialIcons name="clear-all" size={16} color={theme.primary} />
-                <Text style={[styles.clearFiltersText, { color: theme.primary }]}>Limpiar filtros</Text>
+                <Text style={[styles.clearFiltersText, { color: theme.primary }]}>Limpiar</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -665,12 +728,11 @@ export const ExercisesScreen = () => {
       {/* Barra de metadatos de resultados */}
       <View style={styles.resultsInfoRow}>
         <Text style={[styles.resultsCountText, { color: theme.textSecondary }]}>
-          {totalCount} {totalCount === 1 ? 'ejercicio encontrado' : 'ejercicios encontrados'}
-          {hasActiveFilters ? ' con filtros activos' : ''}
+          {totalCount} {totalCount === 1 ? 'ejercicio' : 'ejercicios'}
         </Text>
         {totalPages > 1 && (
           <Text style={[styles.pageInfoText, { color: theme.textMuted }]}>
-            Página {currentPage} de {totalPages}
+            Pág. {currentPage}/{totalPages}
           </Text>
         )}
       </View>
@@ -691,11 +753,11 @@ export const ExercisesScreen = () => {
         }
         ListEmptyComponent={
           <EmptyState
-            title="Sin ejercicios coincidentes"
+            title="Sin ejercicios"
             subtitle={
               hasActiveFilters
-                ? 'No se hallaron protocolos con los filtros seleccionados. Intenta ampliar los criterios o limpiar los filtros.'
-                : 'El catálogo clínico no posee ejercicios registrados actualmente. Crea el primer ejercicio con el botón superior.'
+                ? 'Probá con otros filtros.'
+                : 'Aún no hay ejercicios cargados.'
             }
           />
         }
@@ -878,8 +940,8 @@ export const ExercisesScreen = () => {
       {/* ============================================================ */}
       <ModalWrapper
         visible={detailModalVisible}
-        title={selectedExercise?.name || 'Detalle Clínico'}
-        subtitle={`ID Clínico #${selectedExercise?.id || ''} — Categoría: ${selectedExercise?.category || ''}`}
+        title={selectedExercise?.name || 'Detalle'}
+        subtitle={selectedExercise?.category || ''}
         onClose={() => setDetailModalVisible(false)}
         maxWidth={640}
         footer={
@@ -1056,12 +1118,7 @@ export const ExercisesScreen = () => {
       {/* ============================================================ */}
       <ModalWrapper
         visible={formModalVisible}
-        title={formMode === 'create' ? 'Nuevo Ejercicio Terapéutico' : 'Editar Ejercicio Clínico'}
-        subtitle={
-          formMode === 'create'
-            ? 'Complete los atributos clínicos para incorporar el protocolo al catálogo.'
-            : `Modificando ID #${editingId}`
-        }
+        title={formMode === 'create' ? 'Nuevo Ejercicio' : 'Editar Ejercicio'}
         onClose={() => setFormModalVisible(false)}
         maxWidth={640}
         footer={
@@ -1073,7 +1130,7 @@ export const ExercisesScreen = () => {
               onPress={() => setFormModalVisible(false)}
             />
             <Button
-              title={formMode === 'create' ? 'Registrar Ejercicio' : 'Guardar Cambios'}
+              title="Guardar"
               size="md"
               loading={isSubmitting}
               onPress={() => handleSubmit(onSaveExercise)()}
@@ -1345,8 +1402,8 @@ export const ExercisesScreen = () => {
         visible={deactivateModalVisible}
         title={
           (exerciseToToggle?.isActive ?? exerciseToToggle?.is_active === 1)
-            ? 'Desactivar Ejercicio Terapéutico'
-            : 'Reactivar Ejercicio Terapéutico'
+            ? 'Desactivar ejercicio'
+            : 'Reactivar ejercicio'
         }
         onClose={() => setDeactivateModalVisible(false)}
         maxWidth={480}
@@ -1359,11 +1416,7 @@ export const ExercisesScreen = () => {
               onPress={() => setDeactivateModalVisible(false)}
             />
             <Button
-              title={
-                (exerciseToToggle?.isActive ?? exerciseToToggle?.is_active === 1)
-                  ? 'Confirmar Desactivación'
-                  : 'Confirmar Reactivación'
-              }
+              title="Confirmar"
               variant={(exerciseToToggle?.isActive ?? exerciseToToggle?.is_active === 1) ? 'danger' : 'primary'}
               size="md"
               loading={isToggling}
@@ -1390,14 +1443,14 @@ export const ExercisesScreen = () => {
 
           <Text style={[styles.deactivateTitle, { color: theme.text }]}>
             {(exerciseToToggle?.isActive ?? exerciseToToggle?.is_active === 1)
-              ? `¿Desea desactivar "${exerciseToToggle?.name}"?`
-              : `¿Desea reactivar "${exerciseToToggle?.name}"?`}
+              ? `¿Querés desactivar "${exerciseToToggle?.name}"?`
+              : `¿Querés reactivar "${exerciseToToggle?.name}"?`}
           </Text>
 
           <Text style={[styles.deactivateDescription, { color: theme.textSecondary }]}>
             {(exerciseToToggle?.isActive ?? exerciseToToggle?.is_active === 1)
-              ? 'El ejercicio dejará de estar disponible para nuevas prescripciones y rutinas activas. No se eliminará físicamente de la base de datos para preservar de forma estricta las historias clínicas y los tratamientos históricos que lo contengan.'
-              : 'El ejercicio volverá a estar disponible en el catálogo activo para que los kinesiólogos puedan incluirlo en planes de rehabilitación.'}
+              ? 'No aparecerá para nuevas rutinas. Se conserva en los tratamientos anteriores.'
+              : 'Volverá a estar disponible en el catálogo.'}
           </Text>
         </View>
       </ModalWrapper>

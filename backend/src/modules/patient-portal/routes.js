@@ -27,6 +27,7 @@ patientPortalRouter.use(authenticateToken);
 // Catálogo y consulta de horarios disponibles
 patientPortalRouter.post('/catalog', asyncHandler((req, res, next) => patientPortalController.catalog(req, res, next)));
 patientPortalRouter.post('/available-slots', validate(availableSlotsSchema), asyncHandler((req, res, next) => patientPortalController.availableSlots(req, res, next)));
+patientPortalRouter.post('/calendar-availability', asyncHandler((req, res, next) => patientPortalController.calendarAvailability(req, res, next)));
 
 // Rutas exclusivas para usuarios con rol 'patient'
 patientPortalRouter.use(authorizeRoles('patient'));

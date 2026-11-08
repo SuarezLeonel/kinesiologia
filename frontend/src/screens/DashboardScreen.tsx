@@ -2,10 +2,12 @@
  * @file DashboardScreen.tsx
  * @description Pantalla principal de resumen diario: turnos del día y bloque de caja modular según rol.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, Platform } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { apiClient } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useDataSync } from '../context/DataSyncContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { spacing, radii, typography } from '../theme/tokens';
 import { Card, Badge, ScreenHeader, Button } from '../components/ui';
@@ -13,31 +15,49 @@ import { LoadingState, ErrorState } from '../components/FeedbackStates';
 
 export const DashboardScreen = () => {
   const { user, logout } = useAuth();
+  const { scopeVersions } = useDataSync();
   const { theme } = useAppTheme();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchDashboard = async () => {
+  const fetchDashboard = useCallback(async (silent = false) => {
     try {
-      setError(null);
+      if (!silent) {
+        setError(null);
+      }
       // REGLA HTTP ESTRICTA: POST para consultas con payload
       const response = await apiClient.post('/dashboard/summary', {});
       if (response.data?.success) {
         setData(response.data.data);
+        setError(null);
       }
     } catch (err: any) {
-      setError(err.response?.data?.error?.message || 'Error al conectar con la API');
+      if (!silent) {
+        setError(err.response?.data?.error?.message || 'Error al conectar con la API');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchDashboard();
-  }, []);
+    fetchDashboard(false);
+  }, [fetchDashboard]);
+
+  useEffect(() => {
+    if (scopeVersions.dashboard > 0) {
+      fetchDashboard(true);
+    }
+  }, [scopeVersions.dashboard, fetchDashboard]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchDashboard(true);
+    }, [fetchDashboard])
+  );
 
   const getRoleVariant = (role?: string) => {
     switch (role) {
@@ -52,8 +72,8 @@ export const DashboardScreen = () => {
     }
   };
 
-  if (loading && !refreshing) return <LoadingState message="Cargando resumen del consultorio..." />;
-  if (error) return <ErrorState message={error} onRetry={fetchDashboard} />;
+  if (loading && !refreshing && !data) return <LoadingState message="Cargando..." />;
+  if (error && !data) return <ErrorState message={error} onRetry={() => fetchDashboard(false)} />;
 
   const roleName = user?.role || user?.role_name || 'profesional';
 
@@ -74,7 +94,7 @@ export const DashboardScreen = () => {
     >
       <ScreenHeader
         title={`Hola, ${user?.name || 'Profesional'}`}
-        subtitle="Resumen de actividad y estado operativo del consultorio"
+        subtitle="Resumen del día"
         action={
           <View style={styles.headerAction}>
             <Badge
@@ -95,17 +115,14 @@ export const DashboardScreen = () => {
 
       {/* Métricas Principales */}
       <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-        ACTIVIDAD DE HOY
+        HOY
       </Text>
 
       <View style={styles.metricsGrid}>
         <Card style={styles.metricCard} padding="lg">
-          <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>Turnos Totales</Text>
+          <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>Turnos de hoy</Text>
           <Text style={[styles.metricValue, { color: theme.text }]}>
             {data?.appointments?.total ?? 0}
-          </Text>
-          <Text style={[styles.metricFoot, { color: theme.textMuted }]}>
-            Agenda programada hoy
           </Text>
         </Card>
 
@@ -114,18 +131,12 @@ export const DashboardScreen = () => {
           <Text style={[styles.metricValue, { color: theme.primary }]}>
             {data?.appointments?.attended ?? 0}
           </Text>
-          <Text style={[styles.metricFoot, { color: theme.textMuted }]}>
-            Sesiones completadas
-          </Text>
         </Card>
 
         <Card style={styles.metricCard} padding="lg">
-          <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>Pacientes Activos</Text>
+          <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>Pacientes activos</Text>
           <Text style={[styles.metricValue, { color: theme.text }]}>
             {data?.totalPatients ?? 0}
-          </Text>
-          <Text style={[styles.metricFoot, { color: theme.textMuted }]}>
-            Padrón en seguimiento
           </Text>
         </Card>
 
@@ -133,9 +144,6 @@ export const DashboardScreen = () => {
           <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>Tratamientos</Text>
           <Text style={[styles.metricValue, { color: theme.text }]}>
             {data?.activeTreatments ?? 0}
-          </Text>
-          <Text style={[styles.metricFoot, { color: theme.textMuted }]}>
-            Planes terapéuticos
           </Text>
         </Card>
       </View>
@@ -145,11 +153,11 @@ export const DashboardScreen = () => {
         <>
           <View style={styles.sectionHeaderRow}>
             <Text style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: spacing.lg }]}>
-              COBROS Y CAJA DEL DÍA
+              CAJA DE HOY
             </Text>
             {data?.date ? (
               <Badge
-                label={`HOY: ${new Date(`${data.date}T12:00:00`).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}`}
+                label={new Date(`${data.date}T12:00:00`).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}
                 variant="neutral"
                 size="sm"
                 style={{ marginTop: spacing.lg }}
@@ -159,34 +167,20 @@ export const DashboardScreen = () => {
           <Card elevated style={styles.financialCard} padding="xl">
             <View style={styles.financialRow}>
               <View>
-                <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>Recaudación Hoy (Arqueo Diario)</Text>
+                <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>Recaudación de hoy</Text>
                 <Text style={[styles.financialAmount, { color: theme.text }]}>
                   ${Number(data.financial.totalIncome).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                 </Text>
               </View>
               <Badge
-                label={`${data.financial.transactionsCount} ${data.financial.transactionsCount === 1 ? 'COBRO HOY' : 'COBROS HOY'}`}
+                label={`${data.financial.transactionsCount} ${data.financial.transactionsCount === 1 ? 'cobro' : 'cobros'}`}
                 variant={Number(data.financial.transactionsCount) > 0 ? 'success' : 'neutral'}
                 size="md"
               />
             </View>
-            <View style={[styles.financialDivider, { backgroundColor: theme.borderSubtle }]} />
-            <Text style={[styles.financialNote, { color: theme.textSecondary }]}>
-              Arqueo de cobros exclusivamente del día de hoy (efectivo, transferencias, tarjetas).
-            </Text>
           </Card>
         </>
       )}
-
-      {/* Guía Rápida de Operación */}
-      <Card style={[styles.tipCard, { backgroundColor: theme.surfaceSubtle }]} padding="md">
-        <Text style={[styles.tipTitle, { color: theme.text }]}>
-          Gestión Profesional
-        </Text>
-        <Text style={[styles.tipText, { color: theme.textSecondary }]}>
-          Utilice las solapas inferiores para agendar turnos atómicos, registrar pacientes y redactar notas de evolución clínica con escala EVA.
-        </Text>
-      </Card>
     </ScrollView>
   );
 };
