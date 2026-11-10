@@ -12,6 +12,7 @@ import {
   View,
   Text,
   TouchableOpacity,
+  Pressable,
   Modal,
   StyleSheet,
   StatusBar as RNStatusBar
@@ -92,7 +93,7 @@ function getRouteDescription(routeName: string): string {
  */
 const ResponsiveTabBar: React.FC<BottomTabBarProps> = ({ state, descriptors, navigation }) => {
   const { theme } = useAppTheme();
-  const { isPhone, isSmallPhone } = useResponsive();
+  const { isPhone, isSmallPhone, showNavbarIconsOnly } = useResponsive();
   const { user, logout } = useAuth();
   const insets = useSafeAreaInsets();
   const [moreMenuVisible, setMoreMenuVisible] = useState(false);
@@ -113,6 +114,8 @@ const ResponsiveTabBar: React.FC<BottomTabBarProps> = ({ state, descriptors, nav
 
   // =========================================================================
   // RENDER: ESCRITORIO Y TABLET (>= 768px) -> Top Bar espaciosa
+  // En tablets (768px - 1199px) muestra únicamente iconos centrados (área táctil >= 44x44)
+  // En laptops / escritorios (>= 1200px) muestra iconos y nombres completos
   // =========================================================================
   if (!isPhone) {
     return (
@@ -125,21 +128,26 @@ const ResponsiveTabBar: React.FC<BottomTabBarProps> = ({ state, descriptors, nav
           }
         ]}
       >
-        <View style={styles.desktopNavInner}>
+        <View style={[styles.desktopNavInner, showNavbarIconsOnly && styles.tabletNavInner]}>
           {/* Logo y Rol */}
-          <View style={styles.desktopBrandCol}>
+          <View style={[styles.desktopBrandCol, showNavbarIconsOnly && styles.tabletBrandCol]}>
             <View
               style={[
                 styles.desktopBrandIcon,
                 { backgroundColor: theme.primaryLight, borderColor: theme.primary + '30' }
               ]}
+              // @ts-ignore web attribute
+              title="Consultorio Kinesiología"
+              accessibilityLabel="Consultorio Kinesiología"
             >
               <MaterialIcons name="health-and-safety" size={24} color={theme.primary} />
             </View>
             <View>
-              <Text style={[styles.desktopBrandTitle, { color: theme.text }]}>
-                Consultorio Kinesiología
-              </Text>
+              {!showNavbarIconsOnly && (
+                <Text style={[styles.desktopBrandTitle, { color: theme.text }]}>
+                  Consultorio Kinesiología
+                </Text>
+              )}
               <View style={styles.desktopRoleBadgeRow}>
                 <View
                   style={[
@@ -170,7 +178,7 @@ const ResponsiveTabBar: React.FC<BottomTabBarProps> = ({ state, descriptors, nav
                     {roleName}
                   </Text>
                 </View>
-                {user?.name ? (
+                {!showNavbarIconsOnly && user?.name ? (
                   <Text style={[styles.desktopUserName, { color: theme.textSecondary }]}>
                     • {user.name}
                   </Text>
@@ -180,7 +188,10 @@ const ResponsiveTabBar: React.FC<BottomTabBarProps> = ({ state, descriptors, nav
           </View>
 
           {/* Links de Navegación */}
-          <View style={styles.desktopTabsRow}>
+          <View
+            style={[styles.desktopTabsRow, showNavbarIconsOnly && styles.tabletTabsRow]}
+            accessibilityRole="tablist"
+          >
             {state.routes.map((route, index) => {
               const { options } = descriptors[route.key];
               const label =
@@ -205,55 +216,79 @@ const ResponsiveTabBar: React.FC<BottomTabBarProps> = ({ state, descriptors, nav
               };
 
               return (
-                <TouchableOpacity
+                <Pressable
                   key={route.key}
                   onPress={onPress}
                   accessibilityRole="tab"
                   accessibilityState={{ selected: isFocused }}
-                  accessibilityLabel={options.tabBarAccessibilityLabel}
-                  style={[
+                  accessibilityLabel={options.tabBarAccessibilityLabel || label}
+                  accessibilityHint={`Ir a ${label}`}
+                  // @ts-ignore web attribute
+                  title={label}
+                  style={({ hovered }: any) => [
                     styles.desktopTabItem,
+                    showNavbarIconsOnly && styles.tabletTabItem,
                     {
-                      backgroundColor: isFocused ? theme.primaryLight : 'transparent',
-                      borderBottomColor: isFocused ? theme.primary : 'transparent'
+                      backgroundColor: isFocused
+                        ? theme.primaryLight
+                        : hovered
+                        ? (theme.surfaceSubtle || '#F1F5F9')
+                        : 'transparent',
+                      borderBottomColor: isFocused ? theme.primary : 'transparent',
+                      borderBottomWidth: isFocused ? 3 : 0
                     }
                   ]}
                 >
                   <MaterialIcons
                     name={getRouteIcon(route.name)}
-                    size={20}
+                    size={showNavbarIconsOnly ? 24 : 20}
                     color={isFocused ? theme.primary : theme.textSecondary}
                   />
-                  <Text
-                    style={[
-                      styles.desktopTabLabel,
-                      {
-                        color: isFocused ? theme.primary : theme.textSecondary,
-                        fontWeight: isFocused
-                          ? typography.fontWeight.bold
-                          : typography.fontWeight.medium
-                      }
-                    ]}
-                  >
-                    {label}
-                  </Text>
-                </TouchableOpacity>
+                  {!showNavbarIconsOnly && (
+                    <Text
+                      style={[
+                        styles.desktopTabLabel,
+                        {
+                          color: isFocused ? theme.primary : theme.textSecondary,
+                          fontWeight: isFocused
+                            ? typography.fontWeight.bold
+                            : typography.fontWeight.medium
+                        }
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                  )}
+                </Pressable>
               );
             })}
           </View>
 
           {/* Botón Salir */}
-          <TouchableOpacity
+          <Pressable
             onPress={logout}
-            style={[
-              styles.desktopLogoutBtn,
-              { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }
-            ]}
+            accessibilityRole="button"
             accessibilityLabel="Cerrar sesión"
+            // @ts-ignore web attribute
+            title="Cerrar sesión"
+            style={({ hovered }: any) => [
+              styles.desktopLogoutBtn,
+              showNavbarIconsOnly && styles.tabletLogoutBtn,
+              {
+                backgroundColor: hovered ? (theme.errorBg || '#FFEBEE') : theme.surfaceSubtle,
+                borderColor: hovered ? (theme.error || '#B71C1C') : theme.border
+              }
+            ]}
           >
-            <MaterialIcons name="logout" size={18} color={theme.textMuted} />
-            <Text style={[styles.desktopLogoutText, { color: theme.textSecondary }]}>Salir</Text>
-          </TouchableOpacity>
+            <MaterialIcons
+              name="logout"
+              size={showNavbarIconsOnly ? 20 : 18}
+              color={theme.textMuted}
+            />
+            {!showNavbarIconsOnly && (
+              <Text style={[styles.desktopLogoutText, { color: theme.textSecondary }]}>Salir</Text>
+            )}
+          </Pressable>
         </View>
       </View>
     );
@@ -564,7 +599,8 @@ const MainTabs = () => {
       <Tab.Navigator
         tabBar={(props) => <ResponsiveTabBar {...props} />}
         screenOptions={{
-          headerShown: false
+          headerShown: false,
+          tabBarPosition: isPhone ? 'bottom' : 'top'
         }}
       >
         <Tab.Screen name="Dashboard" component={DashboardScreen} options={{ title: 'Inicio' }} />
@@ -613,7 +649,11 @@ export const RootNavigator = () => {
       <Stack.Navigator
         screenOptions={{
           headerShown: false,
-          contentStyle: { backgroundColor: theme.background }
+          contentStyle: {
+            backgroundColor: theme.background,
+            flex: 1,
+            ...(Platform.OS === 'web' ? ({ minHeight: '100dvh', height: '100%' } as any) : {})
+          }
         }}
       >
         {user ? (
@@ -643,13 +683,11 @@ const styles = StyleSheet.create({
     zIndex: 10
   },
   desktopNavInner: {
-    maxWidth: 1440,
     width: '100%',
-    alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.xl,
     paddingVertical: spacing.sm,
     minHeight: 64
   },
@@ -721,6 +759,42 @@ const styles = StyleSheet.create({
   desktopLogoutText: {
     fontSize: typography.fontSize.xs,
     fontWeight: typography.fontWeight.medium
+  },
+
+  // Tablet Navbar adaptations (iPad y Android tablets, 768px - 1199px)
+  tabletNavInner: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    minHeight: 56,
+    justifyContent: 'space-between'
+  },
+  tabletBrandCol: {
+    gap: spacing.xs
+  },
+  tabletTabsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    flexShrink: 1
+  },
+  tabletTabItem: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 44,
+    minHeight: 44,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.md
+  },
+  tabletLogoutBtn: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center'
   },
 
   // Mobile Bottom Tab Bar

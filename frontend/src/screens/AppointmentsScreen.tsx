@@ -721,7 +721,7 @@ export const AppointmentsScreen = () => {
         key={day.dateStr}
         style={[
           styles.dayColumn,
-          isFullWidth && styles.dayColumnFullWidth,
+          !isPhone ? styles.dayColumnDesktop : (isFullWidth ? styles.dayColumnFullWidth : styles.dayColumnScroll),
           {
             backgroundColor: theme.surface,
             borderColor: isToday ? theme.primary : theme.border,
@@ -968,9 +968,8 @@ export const AppointmentsScreen = () => {
         styles.container,
         {
           backgroundColor: theme.background,
-          maxWidth: contentMaxWidth,
           width: '100%',
-          alignSelf: 'center',
+          flex: 1,
           paddingHorizontal: isSmallPhone ? spacing.sm : isPhone ? spacing.md : spacing.xl
         }
       ]}
@@ -1284,6 +1283,25 @@ export const AppointmentsScreen = () => {
         >
           {renderDayColumn(weekDays[selectedMobileDayIndex] || weekDays[0], true)}
         </ScrollView>
+      ) : !isPhone ? (
+        <ScrollView
+          style={styles.gridOuterScroll}
+          contentContainerStyle={styles.desktopOuterScrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                fetchAppointments();
+              }}
+              tintColor={theme.primary}
+            />
+          }
+        >
+          <View style={styles.desktopColumnsContainer}>
+            {weekDays.map((day) => renderDayColumn(day, false))}
+          </View>
+        </ScrollView>
       ) : (
         <ScrollView
           style={styles.gridOuterScroll}
@@ -1321,6 +1339,7 @@ export const AppointmentsScreen = () => {
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
         title="Agendar Turno"
+        errorMessage={formError}
         footer={
           <>
             <Button
@@ -1338,11 +1357,6 @@ export const AppointmentsScreen = () => {
           </>
         }
       >
-        {formError && (
-          <View style={[styles.modalError, { backgroundColor: theme.error + '15', borderColor: theme.error }]}>
-            <Text style={[styles.modalErrorText, { color: theme.error }]}>{formError}</Text>
-          </View>
-        )}
 
         {/* SELECTOR DESPLEGABLE INTERACTIVO DE PACIENTES */}
         <View style={styles.fieldContainer}>
@@ -1649,6 +1663,7 @@ export const AppointmentsScreen = () => {
         visible={holidaysModalVisible}
         onClose={() => setHolidaysModalVisible(false)}
         title="Feriados y Días No Laborables"
+        errorMessage={holidayError}
         footer={
           <Button
             title="Cerrar"
@@ -1658,12 +1673,6 @@ export const AppointmentsScreen = () => {
           />
         }
       >
-        {holidayError && (
-          <View style={[styles.modalError, { backgroundColor: theme.error + '15', borderColor: theme.error }]}>
-            <Text style={[styles.modalErrorText, { color: theme.error }]}>{holidayError}</Text>
-          </View>
-        )}
-
         <Text style={{ color: theme.textSecondary, fontSize: typography.fontSize.xs, marginBottom: spacing.md }}>
           Cerrado sábados, domingos y feriados oficiales. Los días no laborables opcionales son configurables.
         </Text>
@@ -1975,15 +1984,31 @@ const styles = StyleSheet.create({
   gridOuterScroll: {
     flex: 1
   },
+  desktopOuterScrollContent: {
+    paddingBottom: spacing.xxl
+  },
+  desktopColumnsContainer: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    width: '100%',
+    alignItems: 'stretch'
+  },
   columnsContainer: {
     flexDirection: 'row',
     gap: spacing.md,
     paddingBottom: spacing.xxxl
   },
   dayColumn: {
-    width: 280,
     borderRadius: radii.lg,
     overflow: 'hidden'
+  },
+  dayColumnDesktop: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 520
+  },
+  dayColumnScroll: {
+    width: 280
   },
   dayColumnFullWidth: {
     width: '100%',
@@ -2100,6 +2125,7 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.semibold
   },
   dayColumnBody: {
+    flex: 1,
     padding: spacing.sm,
     gap: spacing.sm,
     minHeight: 280
@@ -2185,33 +2211,33 @@ const styles = StyleSheet.create({
   },
   gridActionBtn: {
     flex: 1,
-    minHeight: 42,
+    minHeight: 38,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
-    paddingVertical: 8,
-    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
     borderRadius: radii.sm
   },
   gridActionBtnText: {
     color: '#FFFFFF',
-    fontSize: typography.fontSize.xs,
+    fontSize: 11,
     fontWeight: typography.fontWeight.semibold
   },
   gridActionBtnSec: {
-    minHeight: 42,
+    minHeight: 38,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
-    paddingVertical: 8,
-    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
     borderRadius: radii.sm,
     borderWidth: 1
   },
   gridActionBtnSecText: {
-    fontSize: typography.fontSize.xs,
+    fontSize: 11,
     fontWeight: typography.fontWeight.semibold
   },
   itemCompletedRow: {

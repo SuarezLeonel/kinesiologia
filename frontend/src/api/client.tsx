@@ -116,6 +116,25 @@ function detectMutationScopes(url?: string, method?: string): MutationScope[] | 
 
 const ACCESS_TOKEN_KEY = 'kine_access_token';
 const REFRESH_TOKEN_KEY = 'kine_refresh_token';
+const USER_STORAGE_KEY = 'kine_current_user';
+
+type SessionExpiredListener = () => void;
+const sessionExpiredListeners = new Set<SessionExpiredListener>();
+
+export const subscribeToSessionExpired = (listener: SessionExpiredListener): (() => void) => {
+  sessionExpiredListeners.add(listener);
+  return () => {
+    sessionExpiredListeners.delete(listener);
+  };
+};
+
+export const emitSessionExpired = (): void => {
+  sessionExpiredListeners.forEach((listener) => {
+    try {
+      listener();
+    } catch {}
+  });
+};
 
 const getStorageItem = async (key: string): Promise<string | null> => {
   try {
@@ -156,19 +175,81 @@ export const apiClient = axios.create({
   timeout: 30000
 });
 
-// Interceptor para inyectar token de autorización
+// Mecanismo centralizado y thread-safe para renovación de tokens
+let refreshPromise: Promise<string | null> | null = null;
+
+export async function refreshSessionTokens(): Promise<string | null> {
+  if (refreshPromise) {
+    return refreshPromise;
+  }
+
+  refreshPromise = (async () => {
+    try {
+      const refreshToken = await getStorageItem(REFRESH_TOKEN_KEY);
+      if (!refreshToken) {
+        await deleteStorageItem(ACCESS_TOKEN_KEY);
+        await deleteStorageItem(REFRESH_TOKEN_KEY);
+        await deleteStorageItem(USER_STORAGE_KEY);
+        emitSessionExpired();
+        return null;
+      }
+
+      const res = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
+      if (res.data?.success && res.data?.data?.accessToken) {
+        const newAccessToken = res.data.data.accessToken;
+        await setStorageItem(ACCESS_TOKEN_KEY, newAccessToken);
+        if (res.data.data.refreshToken) {
+          await setStorageItem(REFRESH_TOKEN_KEY, res.data.data.refreshToken);
+        }
+        return newAccessToken;
+      }
+      await deleteStorageItem(ACCESS_TOKEN_KEY);
+      await deleteStorageItem(REFRESH_TOKEN_KEY);
+      await deleteStorageItem(USER_STORAGE_KEY);
+      emitSessionExpired();
+      return null;
+    } catch {
+      await deleteStorageItem(ACCESS_TOKEN_KEY);
+      await deleteStorageItem(REFRESH_TOKEN_KEY);
+      await deleteStorageItem(USER_STORAGE_KEY);
+      emitSessionExpired();
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+}
+
+// Interceptor para inyectar token de autorización Bearer
 apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   try {
+    const isAuthRoute = Boolean(config.url && config.url.includes('/auth/'));
+    // Si hay un refresco en curso y no es una ruta de auth, esperar a que culmine
+    if (refreshPromise && !isAuthRoute) {
+      const freshToken = await refreshPromise;
+      if (freshToken && config.headers) {
+        if (typeof (config.headers as any).set === 'function') {
+          (config.headers as any).set('Authorization', `Bearer ${freshToken}`);
+        }
+        config.headers.Authorization = `Bearer ${freshToken}`;
+        delete (config.headers as any)['authorization'];
+        return config;
+      }
+    }
+
     const token = await getStorageItem(ACCESS_TOKEN_KEY);
     if (token && config.headers) {
+      if (typeof (config.headers as any).set === 'function') {
+        (config.headers as any).set('Authorization', `Bearer ${token}`);
+      }
       config.headers.Authorization = `Bearer ${token}`;
+      delete (config.headers as any)['authorization'];
     }
   } catch (e) {}
   return config;
 });
-
-// Interceptor para manejo de renovación automática de tokens
-let refreshPromise: Promise<string | null> | null = null;
 
 apiClient.interceptors.response.use(
   (response) => {
@@ -187,36 +268,14 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !isAuthRoute) {
       originalRequest._retry = true;
 
-      if (!refreshPromise) {
-        refreshPromise = (async () => {
-          try {
-            const refreshToken = await getStorageItem(REFRESH_TOKEN_KEY);
-            if (!refreshToken) return null;
-
-            const res = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
-            if (res.data?.success && res.data?.data?.accessToken) {
-              const newAccessToken = res.data.data.accessToken;
-              await setStorageItem(ACCESS_TOKEN_KEY, newAccessToken);
-              if (res.data.data.refreshToken) {
-                await setStorageItem(REFRESH_TOKEN_KEY, res.data.data.refreshToken);
-              }
-              return newAccessToken;
-            }
-            return null;
-          } catch (refreshErr) {
-            await deleteStorageItem(ACCESS_TOKEN_KEY);
-            await deleteStorageItem(REFRESH_TOKEN_KEY);
-            return null;
-          } finally {
-            refreshPromise = null;
-          }
-        })();
-      }
-
-      const newAccessToken = await refreshPromise;
+      const newAccessToken = await refreshSessionTokens();
       if (newAccessToken) {
         if (originalRequest.headers) {
+          if (typeof (originalRequest.headers as any).set === 'function') {
+            (originalRequest.headers as any).set('Authorization', `Bearer ${newAccessToken}`);
+          }
           originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+          delete (originalRequest.headers as any)['authorization'];
         }
         return apiClient(originalRequest);
       }

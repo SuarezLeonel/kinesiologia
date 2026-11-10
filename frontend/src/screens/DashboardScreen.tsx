@@ -116,7 +116,7 @@ export const DashboardScreen = () => {
         />
       }
     >
-      <View style={[styles.innerWrapper, { maxWidth: contentMaxWidth }]}>
+      <View style={styles.innerWrapper}>
         <ScreenHeader
           title={`Hola, ${user?.name || 'Profesional'}`}
           subtitle="Resumen del día"

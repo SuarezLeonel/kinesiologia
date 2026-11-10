@@ -23,9 +23,8 @@ export const SettingsScreen = () => {
         styles.container,
         {
           backgroundColor: theme.background,
-          maxWidth: contentMaxWidth,
           width: '100%',
-          alignSelf: 'center',
+          flex: 1,
           paddingHorizontal: isSmallPhone ? spacing.sm : isPhone ? spacing.md : spacing.xl
         }
       ]}

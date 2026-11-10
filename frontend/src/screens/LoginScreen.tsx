@@ -66,7 +66,14 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={styles.container}
+      style={[
+        styles.container,
+        Platform.OS === 'web' && ({
+          height: '100dvh',
+          minHeight: '100dvh',
+          overflowY: 'auto'
+        } as any)
+      ]}
     >
       {/* Siluetas orgánicas de hojas en el fondo para diseño botánico/médico */}
       <View style={styles.bgLeafTopRight} pointerEvents="none" />
@@ -74,6 +81,7 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
       <View style={styles.bgLeafTopLeft} pointerEvents="none" />
 
       <ScrollView
+        style={styles.scrollView}
         contentContainerStyle={[
           styles.scrollContent,
           {
@@ -85,42 +93,27 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Cabecera con Logo Oficial y Nombre de la Marca */}
-        <View style={styles.brandContainer}>
-          <View style={styles.logoCard}>
-            <Image
-              source={require('../../assets/images/logoKinesio.webp')}
-              style={styles.logoImage}
-              resizeMode="contain"
-            />
-          </View>
-          <Text style={styles.brandTitle}>
-            Kinesio<Text style={styles.brandTitleAccent}>Gestión</Text>
-          </Text>
-          <Text style={styles.brandSubtitle}>
-            Consultorio de Kinesiología
-          </Text>
-        </View>
-
-        {/* Tarjeta de Autenticación Principal */}
-        <View style={styles.card}>
-          <Text style={[styles.cardTitle, { marginBottom: 16 }]}>Iniciar sesión</Text>
-
-          {serverError && (
-            <View style={[styles.errorBanner, Boolean(unverifiedEmail) && styles.unverifiedBanner]}>
-              <Text style={[styles.errorBannerText, Boolean(unverifiedEmail) && styles.unverifiedBannerText]}>{serverError}</Text>
-              {Boolean(unverifiedEmail) && (
-                <TouchableOpacity
-                  style={styles.verifyAccountButton}
-                  onPress={() => navigation?.navigate('VerifyEmail', { email: unverifiedEmail })}
-                  activeOpacity={0.8}
-                >
-                  <MaterialIcons name="mark-email-unread" size={16} color="#0D9488" style={{ marginRight: 6 }} />
-                  <Text style={styles.verifyAccountButtonText}>Revisar o reenviar verificación</Text>
-                </TouchableOpacity>
-              )}
+        <View style={styles.centerWrapper}>
+          {/* Cabecera con Logo Oficial y Nombre de la Marca */}
+          <View style={styles.brandContainer}>
+            <View style={styles.logoCard}>
+              <Image
+                source={require('../../assets/images/logoKinesio.webp')}
+                style={styles.logoImage}
+                resizeMode="contain"
+              />
             </View>
-          )}
+            <Text style={styles.brandTitle}>
+              Kinesio<Text style={styles.brandTitleAccent}>Gestión</Text>
+            </Text>
+            <Text style={styles.brandSubtitle}>
+              Consultorio de Kinesiología
+            </Text>
+          </View>
+
+          {/* Tarjeta de Autenticación Principal */}
+          <View style={styles.card}>
+          <Text style={[styles.cardTitle, { marginBottom: 16 }]}>Iniciar sesión</Text>
 
           {/* Campo Correo Electrónico */}
           <View style={styles.fieldGroup}>
@@ -256,6 +249,23 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             )}
           </TouchableOpacity>
 
+          {/* Mensajes de error generales o cuenta no verificada inmediatamente debajo del botón de acción */}
+          {serverError && (
+            <View style={[styles.errorBanner, Boolean(unverifiedEmail) && styles.unverifiedBanner, { marginTop: 12, marginBottom: 8 }]}>
+              <Text style={[styles.errorBannerText, Boolean(unverifiedEmail) && styles.unverifiedBannerText]}>{serverError}</Text>
+              {Boolean(unverifiedEmail) && (
+                <TouchableOpacity
+                  style={styles.verifyAccountButton}
+                  onPress={() => navigation?.navigate('VerifyEmail', { email: unverifiedEmail })}
+                  activeOpacity={0.8}
+                >
+                  <MaterialIcons name="mark-email-unread" size={16} color="#0D9488" style={{ marginRight: 6 }} />
+                  <Text style={styles.verifyAccountButtonText}>Revisar o reenviar verificación</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
           {/* Separador 1: Cuentas Externas */}
           <View style={styles.dividerRow}>
             <View style={styles.dividerLine} />
@@ -285,8 +295,9 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             <Text style={styles.patientPortalButtonText}>Crear cuenta de paciente</Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      </View>
+    </ScrollView>
+  </KeyboardAvoidingView>
   );
 };
 
@@ -296,6 +307,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#0C1813',
     position: 'relative',
     overflow: 'hidden'
+  },
+  scrollView: {
+    flex: 1,
+    width: '100%'
+  },
+  scrollContent: {
+    flexGrow: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  centerWrapper: {
+    width: '100%',
+    maxWidth: 460,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: Platform.OS === 'web' ? ('auto' as any) : undefined
   },
   /* Hojas orgánicas decorativas de fondo */
   bgLeafTopRight: {
@@ -339,10 +367,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#12281D',
     opacity: 0.4,
     transform: [{ rotate: '35deg' }]
-  },
-  scrollContent: {
-    flexGrow: 1,
-    alignItems: 'center'
   },
   brandContainer: {
     alignItems: 'center',

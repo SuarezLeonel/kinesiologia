@@ -5,7 +5,7 @@
  */
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import * as SecureStore from 'expo-secure-store';
-import { apiClient } from '../api/client';
+import { apiClient, refreshSessionTokens, subscribeToSessionExpired } from '../api/client';
 import { API_BASE_URL } from '../api/config';
 
 export type UserRole = 'admin' | 'kinesiologo' | 'recepcionista' | 'paciente';
@@ -148,29 +148,106 @@ const storage = {
   }
 };
 
+function isTokenExpired(token: string | null): boolean {
+  if (!token) return true;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return true;
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    let decoded = '';
+    if (typeof atob === 'function') {
+      decoded = atob(base64);
+    } else {
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+      const str = base64.replace(/=+$/, '');
+      let bs = 0;
+      let bc = 0;
+      for (let idx = 0; idx < str.length; idx++) {
+        const buffer = chars.indexOf(str.charAt(idx));
+        if (buffer === -1) continue;
+        bs = bc % 4 ? bs * 64 + buffer : buffer;
+        if (bc++ % 4) {
+          decoded += String.fromCharCode(255 & (bs >> ((-2 * bc) & 6)));
+        }
+      }
+    }
+    const jsonPayload = decodeURIComponent(
+      decoded
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    const payload = JSON.parse(jsonPayload);
+    if (!payload.exp) return false;
+    // Si expira en menos de 30 segundos, se considera vencido para renovarlo preventivamente
+    return Date.now() >= payload.exp * 1000 - 30000;
+  } catch {
+    return true;
+  }
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
+    let mounted = true;
+
+    // Suscripción al cierre global de sesión cuando un refresh token expira definitivamente
+    const unsubscribeSession = subscribeToSessionExpired(() => {
+      if (mounted) {
+        setUser(null);
+      }
+    });
+
     (async () => {
       try {
         const savedUser = await storage.getItem(USER_STORAGE_KEY);
-        const token = await storage.getItem(ACCESS_TOKEN_KEY);
-        if (savedUser && token) {
-          const parsed = JSON.parse(savedUser);
-          const normalized: User = {
-            ...parsed,
-            role: normalizeRole(parsed.role || parsed.role_name),
-            lastName: parsed.lastName || parsed.last_name || ''
-          };
-          setUser(normalized);
+        let accessToken = await storage.getItem(ACCESS_TOKEN_KEY);
+        const refreshToken = await storage.getItem(REFRESH_TOKEN_KEY);
+
+        if (savedUser && (accessToken || refreshToken)) {
+          // Si el access token ya expiró o no existe, renovarlo antes de dar inicio a la interfaz
+          if (isTokenExpired(accessToken) && refreshToken) {
+            const renewedToken = await refreshSessionTokens();
+            if (renewedToken) {
+              accessToken = renewedToken;
+            } else {
+              // Si la renovación falló, limpiar sesión y mostrar login
+              await storage.deleteItem(USER_STORAGE_KEY);
+              await storage.deleteItem(ACCESS_TOKEN_KEY);
+              await storage.deleteItem(REFRESH_TOKEN_KEY);
+              if (mounted) {
+                setUser(null);
+                setIsLoading(false);
+              }
+              return;
+            }
+          }
+
+          if (accessToken && mounted) {
+            const parsed = JSON.parse(savedUser);
+            const normalized: User = {
+              ...parsed,
+              role: normalizeRole(parsed.role || parsed.role_name),
+              lastName: parsed.lastName || parsed.last_name || ''
+            };
+            setUser(normalized);
+          }
         }
       } catch (e) {
       } finally {
-        setIsLoading(false);
+        if (mounted) {
+          setIsLoading(false);
+        }
       }
     })();
+
+    return () => {
+      mounted = false;
+      unsubscribeSession();
+    };
   }, []);
 
   const login = async (email: string, password: string) => {

@@ -506,9 +506,8 @@ export const ExercisesScreen = () => {
         styles.container,
         {
           backgroundColor: theme.background,
-          maxWidth: contentMaxWidth,
           width: '100%',
-          alignSelf: 'center',
+          flex: 1,
           paddingHorizontal: isSmallPhone ? spacing.sm : isPhone ? spacing.md : spacing.xl
         }
       ]}
@@ -752,6 +751,9 @@ export const ExercisesScreen = () => {
 
       {/* Lista de ejercicios */}
       <FlatList
+        key={isDesktop ? 'exercises-grid-2' : 'exercises-list-1'}
+        numColumns={isDesktop ? 2 : 1}
+        columnWrapperStyle={isDesktop ? styles.columnWrapper : undefined}
         data={exercises}
         keyExtractor={(item) => item.id.toString()}
         refreshControl={
@@ -1134,6 +1136,7 @@ export const ExercisesScreen = () => {
         title={formMode === 'create' ? 'Nuevo Ejercicio' : 'Editar Ejercicio'}
         onClose={() => setFormModalVisible(false)}
         maxWidth={640}
+        errorMessage={formError}
         footer={
           <View style={styles.modalFooterActions}>
             <Button
@@ -1151,13 +1154,6 @@ export const ExercisesScreen = () => {
           </View>
         }
       >
-        {formError && (
-          <View style={[styles.formErrorBox, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
-            <MaterialIcons name="error-outline" size={18} color={theme.error} style={{ marginRight: spacing.xs }} />
-            <Text style={[styles.formErrorText, { color: theme.error }]}>{formError}</Text>
-          </View>
-        )}
-
         <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 520 }}>
           {/* Nombre */}
           <Controller
@@ -1586,7 +1582,11 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: spacing.xxl
   },
+  columnWrapper: {
+    gap: spacing.md
+  },
   exerciseCard: {
+    flex: 1,
     marginBottom: spacing.md
   },
   cardHeader: {

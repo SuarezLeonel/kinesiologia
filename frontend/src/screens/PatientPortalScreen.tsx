@@ -10,6 +10,7 @@ import {
   ScrollView,
   RefreshControl,
   TouchableOpacity,
+  Pressable,
   Platform,
   Linking,
   StatusBar as RNStatusBar
@@ -85,7 +86,7 @@ const buildFallbackSlots = (dateStr: string, durationMinutes = 45) => {
 export const PatientPortalScreen: React.FC = () => {
   const { user, logout } = useAuth();
   const { theme } = useAppTheme();
-  const { isPhone, isSmallPhone, isDesktop, contentMaxWidth } = useResponsive();
+  const { isPhone, isSmallPhone, isDesktop, showNavbarIconsOnly, contentMaxWidth } = useResponsive();
   const { scopeVersions } = useDataSync();
   const insets = useSafeAreaInsets();
 
@@ -214,7 +215,6 @@ export const PatientPortalScreen: React.FC = () => {
 
   useEffect(() => {
     if (!loading) {
-      loadData(true);
       if (activeTab === 'ejercicios' && selectedRoutineId) {
         fetchComplianceLogs(selectedRoutineId);
       }
@@ -548,109 +548,72 @@ export const PatientPortalScreen: React.FC = () => {
       </View>
 
       {/* Barra de pestañas principal con indicador claro de sección activa */}
-      <View style={[styles.tabsNav, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
-        <TouchableOpacity
-          accessibilityRole="tab"
-          accessibilityLabel="Inicio"
-          accessibilityState={{ selected: activeTab === 'inicio' }}
-          style={[
-            styles.tabItem,
-            activeTab === 'inicio' && {
-              borderBottomColor: theme.primary,
-              borderBottomWidth: 4,
-              backgroundColor: theme.primaryLight + '25'
-            }
-          ]}
-          onPress={() => setActiveTab('inicio')}
-        >
-          <MaterialIcons name="home" size={24} color={activeTab === 'inicio' ? theme.primary : theme.textMuted} />
-          <Text style={[styles.tabLabel, { color: activeTab === 'inicio' ? theme.primary : theme.textSecondary }]}>
-            Inicio
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          accessibilityRole="tab"
-          accessibilityLabel="Mis turnos"
-          accessibilityState={{ selected: activeTab === 'turnos' }}
-          style={[
-            styles.tabItem,
-            activeTab === 'turnos' && {
-              borderBottomColor: theme.primary,
-              borderBottomWidth: 4,
-              backgroundColor: theme.primaryLight + '25'
-            }
-          ]}
-          onPress={() => setActiveTab('turnos')}
-        >
-          <MaterialIcons name="event" size={24} color={activeTab === 'turnos' ? theme.primary : theme.textMuted} />
-          <Text style={[styles.tabLabel, { color: activeTab === 'turnos' ? theme.primary : theme.textSecondary }]}>
-            Mis turnos
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          accessibilityRole="tab"
-          accessibilityLabel="Mis ejercicios"
-          accessibilityState={{ selected: activeTab === 'ejercicios' }}
-          style={[
-            styles.tabItem,
-            activeTab === 'ejercicios' && {
-              borderBottomColor: theme.primary,
-              borderBottomWidth: 4,
-              backgroundColor: theme.primaryLight + '25'
-            }
-          ]}
-          onPress={() => {
-            setActiveTab('ejercicios');
-            if (selectedRoutineId) fetchComplianceLogs(selectedRoutineId);
-          }}
-        >
-          <MaterialIcons name="fitness-center" size={24} color={activeTab === 'ejercicios' ? theme.primary : theme.textMuted} />
-          <Text style={[styles.tabLabel, { color: activeTab === 'ejercicios' ? theme.primary : theme.textSecondary }]}>
-            Ejercicios
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          accessibilityRole="tab"
-          accessibilityLabel="Profesionales y servicios"
-          accessibilityState={{ selected: activeTab === 'servicios' }}
-          style={[
-            styles.tabItem,
-            activeTab === 'servicios' && {
-              borderBottomColor: theme.primary,
-              borderBottomWidth: 4,
-              backgroundColor: theme.primaryLight + '25'
-            }
-          ]}
-          onPress={() => setActiveTab('servicios')}
-        >
-          <MaterialIcons name="local-hospital" size={24} color={activeTab === 'servicios' ? theme.primary : theme.textMuted} />
-          <Text style={[styles.tabLabel, { color: activeTab === 'servicios' ? theme.primary : theme.textSecondary }]}>
-            Profesionales
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          accessibilityRole="tab"
-          accessibilityLabel="Mi perfil"
-          accessibilityState={{ selected: activeTab === 'perfil' }}
-          style={[
-            styles.tabItem,
-            activeTab === 'perfil' && {
-              borderBottomColor: theme.primary,
-              borderBottomWidth: 4,
-              backgroundColor: theme.primaryLight + '25'
-            }
-          ]}
-          onPress={() => setActiveTab('perfil')}
-        >
-          <MaterialIcons name="person-outline" size={24} color={activeTab === 'perfil' ? theme.primary : theme.textMuted} />
-          <Text style={[styles.tabLabel, { color: activeTab === 'perfil' ? theme.primary : theme.textSecondary }]}>
-            Mi perfil
-          </Text>
-        </TouchableOpacity>
+      {/* En tablets (768px - 1199px) muestra únicamente iconos centrados; en móvil y desktop muestra icono y texto */}
+      <View
+        style={[
+          styles.tabsNav,
+          { backgroundColor: theme.surface, borderBottomColor: theme.border },
+          showNavbarIconsOnly && styles.tabletTabsNav
+        ]}
+        accessibilityRole="tablist"
+      >
+        {[
+          { key: 'inicio' as PortalTab, label: 'Inicio', icon: 'home' as const },
+          { key: 'turnos' as PortalTab, label: 'Mis turnos', icon: 'event' as const },
+          { key: 'ejercicios' as PortalTab, label: 'Ejercicios', icon: 'fitness-center' as const },
+          { key: 'servicios' as PortalTab, label: 'Profesionales', icon: 'local-hospital' as const },
+          { key: 'perfil' as PortalTab, label: 'Mi perfil', icon: 'person-outline' as const }
+        ].map((tab) => {
+          const isSelected = activeTab === tab.key;
+          return (
+            <Pressable
+              key={tab.key}
+              accessibilityRole="tab"
+              accessibilityLabel={tab.label}
+              accessibilityState={{ selected: isSelected }}
+              accessibilityHint={`Ver ${tab.label}`}
+              // @ts-ignore web attribute
+              title={tab.label}
+              style={({ hovered }: any) => [
+                styles.tabItem,
+                showNavbarIconsOnly && styles.tabletTabItem,
+                isSelected && {
+                  borderBottomColor: theme.primary,
+                  borderBottomWidth: 4,
+                  backgroundColor: theme.primaryLight + '25'
+                },
+                hovered && !isSelected && {
+                  backgroundColor: theme.surfaceSubtle || '#F1F5F9'
+                }
+              ]}
+              onPress={() => {
+                setActiveTab(tab.key);
+                if (tab.key === 'ejercicios' && selectedRoutineId) {
+                  fetchComplianceLogs(selectedRoutineId);
+                }
+              }}
+            >
+              <MaterialIcons
+                name={tab.icon}
+                size={showNavbarIconsOnly ? 24 : 22}
+                color={isSelected ? theme.primary : theme.textMuted}
+              />
+              {!showNavbarIconsOnly && (
+                <Text
+                  style={[
+                    styles.tabLabel,
+                    {
+                      color: isSelected ? theme.primary : theme.textSecondary,
+                      fontWeight: isSelected ? typography.fontWeight.bold : typography.fontWeight.medium
+                    }
+                  ]}
+                >
+                  {tab.label}
+                </Text>
+              )}
+            </Pressable>
+          );
+        })}
       </View>
 
       {/* Contenido principal según pestaña */}
@@ -1487,18 +1450,6 @@ export const PatientPortalScreen: React.FC = () => {
               subtitle="Tus datos personales y de contacto."
             />
 
-            {profileError && (
-              <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error }]}>
-                <Text style={[styles.modalBannerText, { color: theme.error }]}>{profileError}</Text>
-              </View>
-            )}
-
-            {profileSuccess && (
-              <View style={[styles.successBanner, { backgroundColor: theme.successBg, borderColor: theme.success }]}>
-                <Text style={[styles.successBannerText, { color: theme.success }]}>{profileSuccess}</Text>
-              </View>
-            )}
-
             <Card elevated style={styles.profileCard} padding="lg">
               <Text style={[styles.cardTitle, { color: theme.text, marginBottom: spacing.sm }]}>Datos personales</Text>
 
@@ -1551,22 +1502,23 @@ export const PatientPortalScreen: React.FC = () => {
                 onPress={handleSaveProfile}
                 style={{ marginTop: spacing.sm }}
               />
+
+              {/* Mensajes de error o éxito inmediatamente debajo del botón de acción */}
+              {profileError && (
+                <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error, marginTop: spacing.sm }]}>
+                  <Text style={[styles.modalBannerText, { color: theme.error }]}>{profileError}</Text>
+                </View>
+              )}
+
+              {profileSuccess && (
+                <View style={[styles.successBanner, { backgroundColor: theme.successBg, borderColor: theme.success, marginTop: spacing.sm }]}>
+                  <Text style={[styles.successBannerText, { color: theme.success }]}>{profileSuccess}</Text>
+                </View>
+              )}
             </Card>
 
             <Card elevated style={[styles.profileCard, { marginTop: spacing.lg }]} padding="lg">
               <Text style={[styles.cardTitle, { color: theme.text, marginBottom: spacing.sm }]}>Cambiar contraseña</Text>
-
-              {passwordError && (
-                <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error }]}>
-                  <Text style={[styles.modalBannerText, { color: theme.error }]}>{passwordError}</Text>
-                </View>
-              )}
-
-              {passwordSuccess && (
-                <View style={[styles.successBanner, { backgroundColor: theme.successBg, borderColor: theme.success }]}>
-                  <Text style={[styles.successBannerText, { color: theme.success }]}>{passwordSuccess}</Text>
-                </View>
-              )}
 
               <Input
                 label="Contraseña actual"
@@ -1602,6 +1554,19 @@ export const PatientPortalScreen: React.FC = () => {
                 onPress={handleChangePassword}
                 style={{ marginTop: spacing.sm }}
               />
+
+              {/* Mensajes de error o éxito inmediatamente debajo del botón de acción */}
+              {passwordError && (
+                <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error, marginTop: spacing.sm }]}>
+                  <Text style={[styles.modalBannerText, { color: theme.error }]}>{passwordError}</Text>
+                </View>
+              )}
+
+              {passwordSuccess && (
+                <View style={[styles.successBanner, { backgroundColor: theme.successBg, borderColor: theme.success, marginTop: spacing.sm }]}>
+                  <Text style={[styles.successBannerText, { color: theme.success }]}>{passwordSuccess}</Text>
+                </View>
+              )}
             </Card>
 
             {/* Selector de Apariencia para el Paciente */}
@@ -1648,6 +1613,7 @@ export const PatientPortalScreen: React.FC = () => {
             ? 'Tu turno quedó agendado correctamente.'
             : `Paso ${bookingStep} de 6: ${BOOKING_STEPS[bookingStep - 1]?.title}`
         }
+        errorMessage={bookingError}
         footer={
           bookingConfirmedData ? (
             <>
@@ -1710,12 +1676,6 @@ export const PatientPortalScreen: React.FC = () => {
           )
         }
       >
-        {bookingError && (
-          <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error }]}>
-            <Text style={[styles.modalBannerText, { color: theme.error }]}>{bookingError}</Text>
-          </View>
-        )}
-
         {bookingConfirmedData ? (
           <View style={{ gap: spacing.md, alignItems: 'center', paddingVertical: spacing.sm }}>
             <View style={[styles.confirmedIconCircle, { backgroundColor: theme.successBg }]}>
@@ -2081,6 +2041,7 @@ export const PatientPortalScreen: React.FC = () => {
         visible={cancelModalVisible}
         onClose={() => setCancelModalVisible(false)}
         title="Confirmar cancelación de turno"
+        errorMessage={cancelError}
         footer={
           <>
             <Button title="Volver atrás" variant="secondary" size="md" onPress={() => setCancelModalVisible(false)} />
@@ -2094,12 +2055,6 @@ export const PatientPortalScreen: React.FC = () => {
           </>
         }
       >
-        {cancelError && (
-          <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error }]}>
-            <Text style={[styles.modalBannerText, { color: theme.error }]}>{cancelError}</Text>
-          </View>
-        )}
-
         <Text style={[styles.modalBodyText, { color: theme.text }]}>
           ¿Estás seguro de que querés cancelar este turno?
         </Text>
@@ -2137,6 +2092,8 @@ export const PatientPortalScreen: React.FC = () => {
         onClose={() => setLogModalVisible(false)}
         title="Registrar ejercicio realizado"
         subtitle={exerciseToLog ? `${exerciseToLog.name} (Ejercicio #${exerciseToLog.execution_order})` : ''}
+        errorMessage={logError}
+        successMessage={logSuccess}
         footer={
           <>
             <Button title="Cancelar" variant="secondary" size="md" onPress={() => setLogModalVisible(false)} />
@@ -2149,18 +2106,6 @@ export const PatientPortalScreen: React.FC = () => {
           </>
         }
       >
-        {logError && (
-          <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error }]}>
-            <Text style={[styles.modalBannerText, { color: theme.error }]}>{logError}</Text>
-          </View>
-        )}
-
-        {logSuccess && (
-          <View style={[styles.modalBanner, { backgroundColor: theme.successBg, borderColor: theme.success }]}>
-            <Text style={[styles.modalBannerText, { color: theme.success }]}>{logSuccess}</Text>
-          </View>
-        )}
-
         <View style={{ flexDirection: 'row', gap: spacing.md, flexWrap: 'wrap' }}>
           <View style={{ flex: 1, minWidth: 140 }}>
             <Input
@@ -2285,6 +2230,12 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     borderBottomWidth: 1.5
   },
+  tabletTabsNav: {
+    flexWrap: 'nowrap',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 2
+  },
   tabItem: {
     flex: 1,
     minWidth: 58,
@@ -2295,14 +2246,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 2
   },
+  tabletTabItem: {
+    minWidth: 44,
+    minHeight: 48,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flex: 1
+  },
   tabLabel: {
     fontSize: 12,
     fontWeight: typography.fontWeight.bold
   },
   scrollContent: {
     padding: spacing.md,
-    maxWidth: 960,
-    alignSelf: 'center',
+    paddingHorizontal: spacing.lg,
     width: '100%'
   },
   sectionContainer: {

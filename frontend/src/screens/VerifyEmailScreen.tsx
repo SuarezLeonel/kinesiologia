@@ -117,12 +117,23 @@ export const VerifyEmailScreen: React.FC<VerifyEmailScreenProps> = ({ navigation
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View
+      style={[
+        styles.container,
+        { backgroundColor: theme.background },
+        Platform.OS === 'web' && ({
+          height: '100dvh',
+          minHeight: '100dvh',
+          overflowY: 'auto'
+        } as any)
+      ]}
+    >
       {/* Siluetas orgánicas botánicas de fondo */}
       <View style={styles.bgLeafTopRight} pointerEvents="none" />
       <View style={styles.bgLeafTopLeft} pointerEvents="none" />
 
       <ScrollView
+        style={styles.scrollView}
         contentContainerStyle={[
           styles.scrollContent,
           {
@@ -133,8 +144,9 @@ export const VerifyEmailScreen: React.FC<VerifyEmailScreenProps> = ({ navigation
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Cabecera con Logo Oficial */}
-        <View style={styles.brandContainer}>
+        <View style={styles.centerWrapper}>
+          {/* Cabecera con Logo Oficial */}
+          <View style={styles.brandContainer}>
           <View style={styles.logoCard}>
             <Image
               source={require('../../assets/images/logoKinesio.webp')}
@@ -207,31 +219,6 @@ export const VerifyEmailScreen: React.FC<VerifyEmailScreenProps> = ({ navigation
                 </Text>
               </View>
 
-              {/* Mensajes inline de feedback (sin alert) */}
-              {feedback && (
-                <View
-                  style={[
-                    styles.feedbackBanner,
-                    feedback.type === 'success' ? styles.feedbackSuccess : styles.feedbackError
-                  ]}
-                >
-                  <MaterialIcons
-                    name={feedback.type === 'success' ? 'check-circle' : 'error-outline'}
-                    size={18}
-                    color={feedback.type === 'success' ? '#0F766E' : '#B91C1C'}
-                    style={{ marginRight: 8 }}
-                  />
-                  <Text
-                    style={[
-                      styles.feedbackText,
-                      { color: feedback.type === 'success' ? '#0F766E' : '#B91C1C' }
-                    ]}
-                  >
-                    {feedback.message}
-                  </Text>
-                </View>
-              )}
-
               {/* Botón Reenviar Correo con Cooldown */}
               <TouchableOpacity
                 style={[
@@ -266,6 +253,32 @@ export const VerifyEmailScreen: React.FC<VerifyEmailScreenProps> = ({ navigation
                 )}
               </TouchableOpacity>
 
+              {/* Mensajes inline de feedback inmediatamente debajo del botón de acción */}
+              {feedback && (
+                <View
+                  style={[
+                    styles.feedbackBanner,
+                    feedback.type === 'success' ? styles.feedbackSuccess : styles.feedbackError,
+                    { marginTop: 12, marginBottom: 8 }
+                  ]}
+                >
+                  <MaterialIcons
+                    name={feedback.type === 'success' ? 'check-circle' : 'error-outline'}
+                    size={18}
+                    color={feedback.type === 'success' ? '#0F766E' : '#B91C1C'}
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text
+                    style={[
+                      styles.feedbackText,
+                      { color: feedback.type === 'success' ? '#0F766E' : '#B91C1C' }
+                    ]}
+                  >
+                    {feedback.message}
+                  </Text>
+                </View>
+              )}
+
               {/* Enlace para volver a Iniciar Sesión */}
               <TouchableOpacity
                 style={styles.backButton}
@@ -280,8 +293,9 @@ export const VerifyEmailScreen: React.FC<VerifyEmailScreenProps> = ({ navigation
             </View>
           )}
         </View>
-      </ScrollView>
-    </View>
+      </View>
+    </ScrollView>
+  </View>
   );
 };
 
@@ -289,10 +303,22 @@ const styles = StyleSheet.create({
   container: {
     flex: 1
   },
+  scrollView: {
+    flex: 1,
+    width: '100%'
+  },
   scrollContent: {
     flexGrow: 1,
+    width: '100%',
     alignItems: 'center',
     justifyContent: 'center'
+  },
+  centerWrapper: {
+    width: '100%',
+    maxWidth: 500,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: Platform.OS === 'web' ? ('auto' as any) : undefined
   },
   bgLeafTopRight: {
     position: 'absolute',

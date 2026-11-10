@@ -408,9 +408,8 @@ export const PaymentsScreen = () => {
         styles.container,
         {
           backgroundColor: theme.background,
-          maxWidth: contentMaxWidth,
           width: '100%',
-          alignSelf: 'center',
+          flex: 1,
           paddingHorizontal: isSmallPhone ? spacing.sm : isPhone ? spacing.md : spacing.xl
         }
       ]}
@@ -444,6 +443,9 @@ export const PaymentsScreen = () => {
       />
 
       <FlatList
+        key={isDesktop ? 'pay-grid-2' : 'pay-list-1'}
+        numColumns={isDesktop ? 2 : 1}
+        columnWrapperStyle={isDesktop ? styles.columnWrapper : undefined}
         data={payments}
         keyExtractor={(item) => item.id.toString()}
         refreshControl={
@@ -681,6 +683,7 @@ export const PaymentsScreen = () => {
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
         title="Registrar Cobro"
+        errorMessage={formError}
         footer={
           <>
             <Button
@@ -699,12 +702,6 @@ export const PaymentsScreen = () => {
           </>
         }
       >
-        {formError && (
-          <View style={[styles.modalError, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
-            <Text style={[styles.modalErrorText, { color: theme.error }]}>{formError}</Text>
-          </View>
-        )}
-
         {/* PASO 1: SELECCIÓN DEL PACIENTE */}
         <View style={styles.fieldContainer}>
           <Text style={[styles.fieldLabel, { color: theme.text }]}>
@@ -1198,7 +1195,11 @@ const styles = StyleSheet.create({
   sectionNoticeText: {
     fontSize: typography.fontSize.xs
   },
+  columnWrapper: {
+    gap: spacing.md
+  },
   paymentCard: {
+    flex: 1,
     marginBottom: spacing.md
   },
   cardHeader: {

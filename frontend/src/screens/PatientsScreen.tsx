@@ -546,9 +546,8 @@ export const PatientsScreen = () => {
         {
           backgroundColor: theme.background,
           paddingHorizontal: isSmallPhone ? spacing.sm : isPhone ? spacing.md : spacing.xl,
-          maxWidth: contentMaxWidth,
           width: '100%',
-          alignSelf: 'center'
+          flex: 1
         }
       ]}
     >
@@ -637,6 +636,9 @@ export const PatientsScreen = () => {
       </View>
 
       <FlatList
+        key={isDesktop ? 'grid-2' : 'list-1'}
+        numColumns={isDesktop ? 2 : 1}
+        columnWrapperStyle={isDesktop ? styles.columnWrapper : undefined}
         data={displayedList}
         keyExtractor={(item) => `${item._personType || 'pat'}-${item.id}`}
         contentContainerStyle={styles.listContent}
@@ -795,6 +797,7 @@ export const PatientsScreen = () => {
               : 'Registrar kinesiólogo'
             : 'Registrar paciente'
         }
+        errorMessage={formError}
         footer={
           createdPersonSuccess ? (
             <Button
@@ -862,12 +865,6 @@ export const PatientsScreen = () => {
                 );
               })}
             </View>
-          </View>
-        )}
-
-        {formError && (
-          <View style={[styles.modalError, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
-            <Text style={[styles.modalErrorText, { color: theme.error }]}>{formError}</Text>
           </View>
         )}
 
@@ -1298,6 +1295,8 @@ export const PatientsScreen = () => {
         onClose={() => setBookingModalVisible(false)}
         title="Reservar turno"
         subtitle={`${targetPatient?.last_name || targetPatient?.lastName || ''}, ${targetPatient?.first_name || targetPatient?.firstName || ''} (DNI ${targetPatient?.dni || ''})`}
+        errorMessage={bookingError}
+        successMessage={bookingSuccess}
         footer={
           <>
             <Button
@@ -1315,18 +1314,6 @@ export const PatientsScreen = () => {
           </>
         }
       >
-        {bookingError && (
-          <View style={[styles.modalError, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
-            <Text style={[styles.modalErrorText, { color: theme.error }]}>{bookingError}</Text>
-          </View>
-        )}
-
-        {bookingSuccess && (
-          <View style={[styles.modalSuccess, { backgroundColor: theme.successBg, borderColor: theme.success + '40' }]}>
-            <Text style={[styles.modalSuccessText, { color: theme.success }]}>{bookingSuccess}</Text>
-          </View>
-        )}
-
         <Text style={[styles.inputLabel, { color: theme.text }]}>1. Elegí un servicio</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.md }}>
           {servicesList.map((s) => (
@@ -1499,7 +1486,11 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: spacing.xxl
   },
+  columnWrapper: {
+    gap: spacing.md
+  },
   patientCard: {
+    flex: 1,
     marginBottom: spacing.md
   },
   cardHeader: {

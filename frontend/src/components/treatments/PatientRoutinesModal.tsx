@@ -1006,6 +1006,8 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
       onClose={onClose}
       maxWidth={780}
       subHeader={subNavNode}
+      errorMessage={errorMsg}
+      successMessage={successMsg}
       footer={
         <View style={styles.footerRow}>
           {viewMode === 'view_plan' ? (
@@ -1086,27 +1088,6 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
         </View>
       }
     >
-      {/* Banners de estado */}
-      {errorMsg && (
-        <View style={[styles.feedbackBanner, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
-          <MaterialIcons name="error-outline" size={18} color={theme.error} style={{ marginRight: spacing.xs }} />
-          <Text style={[styles.feedbackText, { color: theme.error }]}>{errorMsg}</Text>
-          <TouchableOpacity onPress={() => setErrorMsg(null)}>
-            <MaterialIcons name="close" size={16} color={theme.error} />
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {successMsg && (
-        <View style={[styles.feedbackBanner, { backgroundColor: theme.successBg, borderColor: theme.success + '40' }]}>
-          <MaterialIcons name="check-circle" size={18} color={theme.success} style={{ marginRight: spacing.xs }} />
-          <Text style={[styles.feedbackText, { color: theme.success }]}>{successMsg}</Text>
-          <TouchableOpacity onPress={() => setSuccessMsg(null)}>
-            <MaterialIcons name="close" size={16} color={theme.success} />
-          </TouchableOpacity>
-        </View>
-      )}
-
       {loading ? (
         <LoadingState message="Cargando..." />
       ) : viewMode === 'create_plan' ? (

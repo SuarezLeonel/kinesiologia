@@ -11,12 +11,17 @@ export interface ResponsiveInfo {
   width: number;
   height: number;
   // Categorías de dispositivo
-  isSmallPhone: boolean;  // <= 360px (celulares compactos y pequeños como iPhone SE o Galaxy A)
-  isPhone: boolean;       // < 768px (todos los celulares)
-  isTablet: boolean;      // >= 768px && < 1024px (tablets verticales y horizontales)
-  isDesktop: boolean;     // >= 1024px (laptops, notebooks y monitores)
-  isLargeDesktop: boolean;// >= 1440px (monitores anchos de escritorio)
+  isSmallPhone: boolean;       // <= 360px (celulares compactos y pequeños como iPhone SE o Galaxy A)
+  isPhone: boolean;            // < 768px (todos los celulares)
+  isTablet: boolean;           // >= 768px && < 1200px (tablets tanto verticales como horizontales, iPads)
+  isTabletPortrait: boolean;   // >= 768px && < 1024px (tablets en orientación vertical)
+  isTabletLandscape: boolean;  // >= 1024px && < 1200px (tablets en orientación horizontal / iPads en apaisado)
+  isDesktop: boolean;          // >= 1200px (laptops, notebooks y monitores)
+  isLargeDesktop: boolean;     // >= 1440px (monitores anchos de escritorio)
   
+  // Navbar específico para tablets
+  showNavbarIconsOnly: boolean;// >= 768px && < 1200px (oculta nombres y muestra sólo iconos en navbar)
+
   // Clave exacta de breakpoint
   breakpoint: BreakpointKey;
 
@@ -44,9 +49,9 @@ export const useResponsive = (): ResponsiveInfo => {
   // Breakpoints oficiales del proyecto
   // xs: < 390px (320px - 389px)
   // sm: 390px - 767px (celulares estándar y grandes)
-  // md: 768px - 1023px (tablets)
-  // lg: 1024px - 1279px (notebooks y pantallas medianas)
-  // xl: 1280px - 1439px (monitores estándar)
+  // md: 768px - 1023px (tablets portrait / iPad vertical)
+  // lg: 1024px - 1199px (tablets landscape / iPad horizontal)
+  // xl: 1200px - 1439px (notebooks y escritorios estándar)
   // xxl: >= 1440px (monitores grandes)
   let breakpoint: BreakpointKey = 'sm';
   if (width < 390) {
@@ -55,7 +60,7 @@ export const useResponsive = (): ResponsiveInfo => {
     breakpoint = 'sm';
   } else if (width < 1024) {
     breakpoint = 'md';
-  } else if (width < 1280) {
+  } else if (width < 1200) {
     breakpoint = 'lg';
   } else if (width < 1440) {
     breakpoint = 'xl';
@@ -65,18 +70,18 @@ export const useResponsive = (): ResponsiveInfo => {
 
   const isSmallPhone = width <= 360;
   const isPhone = width < 768;
-  const isTablet = width >= 768 && width < 1024;
-  const isDesktop = width >= 1024;
+  const isTablet = width >= 768 && width < 1200;
+  const isTabletPortrait = width >= 768 && width < 1024;
+  const isTabletLandscape = width >= 1024 && width < 1200;
+  const isDesktop = width >= 1200;
   const isLargeDesktop = width >= 1440;
   const isLandscape = width > height;
 
-  // Ancho máximo contenido centralizado para pantallas grandes (evita estiramiento excesivo)
-  let contentMaxWidth = width;
-  if (width >= 1440) {
-    contentMaxWidth = 1380;
-  } else if (width >= 1024) {
-    contentMaxWidth = 1140;
-  }
+  // Modo sólo iconos en navbar para tablets (tanto vertical como horizontal)
+  const showNavbarIconsOnly = width >= 768 && width < 1200;
+
+  // Ancho máximo fluido: 100% del ancho disponible sin restricciones arbitrarias ni bandas negras
+  const contentMaxWidth: number = width;
 
   const select = <T,>(values: {
     xs: T;
@@ -110,8 +115,11 @@ export const useResponsive = (): ResponsiveInfo => {
     isSmallPhone,
     isPhone,
     isTablet,
+    isTabletPortrait,
+    isTabletLandscape,
     isDesktop,
     isLargeDesktop,
+    showNavbarIconsOnly,
     breakpoint,
     isLandscape,
     contentMaxWidth,

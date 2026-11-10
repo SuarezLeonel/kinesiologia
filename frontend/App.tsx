@@ -24,7 +24,7 @@ const AppContent = () => {
   const { isDark } = useAppTheme();
 
   useEffect(() => {
-    // Inyección de la fuente oficial de Google Fonts MaterialIcons para entorno Web
+    // Inyección de fuentes y estilos de viewport 100dvh para entorno Web
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
       const fontId = 'google-material-icons-font';
       if (!document.getElementById(fontId)) {
@@ -33,6 +33,20 @@ const AppContent = () => {
         link.rel = 'stylesheet';
         link.href = 'https://fonts.googleapis.com/icon?family=Material+Icons';
         document.head.appendChild(link);
+      }
+
+      const viewportStyleId = 'kinesio-viewport-height-reset';
+      if (!document.getElementById(viewportStyleId)) {
+        const style = document.createElement('style');
+        style.id = viewportStyleId;
+        style.textContent = `
+          html, body, #root {
+            min-height: 100dvh;
+            min-height: -webkit-fill-available;
+            height: 100%;
+          }
+        `;
+        document.head.appendChild(style);
       }
     }
   }, []);

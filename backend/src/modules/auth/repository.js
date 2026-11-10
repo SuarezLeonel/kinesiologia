@@ -48,11 +48,11 @@ export class AuthRepository {
     return rows[0] || null;
   }
 
-  async createUser({ name, lastName, email, passwordHash, phone, roleId, dni = null, licenseNumber = null, specialty = null, isActive = true }) {
+  async createUser({ name, lastName, email, passwordHash, phone, roleId, dni = null, licenseNumber = null, specialty = null, isActive = true, emailVerifiedAt = new Date() }) {
     const result = await query(`
-      INSERT INTO users (role_id, name, last_name, dni, email, password_hash, phone, license_number, specialty, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [roleId, name, lastName, dni || null, email, passwordHash, phone || null, licenseNumber || null, specialty || null, isActive ? 1 : 0]);
+      INSERT INTO users (role_id, name, last_name, dni, email, password_hash, phone, license_number, specialty, is_active, email_verified_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [roleId, name, lastName, dni || null, email, passwordHash, phone || null, licenseNumber || null, specialty || null, isActive ? 1 : 0, emailVerifiedAt]);
     return result.insertId;
   }
 

@@ -361,7 +361,7 @@ export const VacationsScreen = () => {
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { maxWidth: contentMaxWidth, alignSelf: 'center', width: '100%' }]}
+        contentContainerStyle={[styles.scrollContent, { width: '100%', paddingHorizontal: isPhone ? spacing.md : spacing.xl }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />}
       >
         <ScreenHeader
@@ -639,33 +639,6 @@ export const VacationsScreen = () => {
             numberOfLines={2}
           />
 
-          {/* Feedback de error o éxito */}
-          {formFeedback && (
-            <View
-              style={[
-                styles.feedbackBox,
-                {
-                  backgroundColor: formFeedback.type === 'error' ? (theme.error || '#EF4444') + '15' : (theme.success || '#10B981') + '15',
-                  borderColor: formFeedback.type === 'error' ? theme.error : theme.success
-                }
-              ]}
-            >
-              <MaterialIcons
-                name={formFeedback.type === 'error' ? 'error-outline' : 'check-circle-outline'}
-                size={20}
-                color={formFeedback.type === 'error' ? theme.error : theme.success}
-              />
-              <Text
-                style={[
-                  styles.feedbackText,
-                  { color: formFeedback.type === 'error' ? theme.error : theme.success }
-                ]}
-              >
-                {formFeedback.message}
-              </Text>
-            </View>
-          )}
-
           {/* Botón de Previsualización */}
           <View style={{ marginTop: spacing.lg, marginBottom: spacing.sm }}>
             <Button
@@ -747,6 +720,34 @@ export const VacationsScreen = () => {
               disabled={!startDate || !endDate}
             />
           </View>
+
+          {/* Feedback de error o éxito ubicado inmediatamente debajo de las acciones */}
+          {formFeedback && (
+            <View
+              style={[
+                styles.feedbackBox,
+                {
+                  backgroundColor: formFeedback.type === 'error' ? (theme.error || '#EF4444') + '15' : (theme.success || '#10B981') + '15',
+                  borderColor: formFeedback.type === 'error' ? theme.error : theme.success,
+                  marginTop: spacing.md
+                }
+              ]}
+            >
+              <MaterialIcons
+                name={formFeedback.type === 'error' ? 'error-outline' : 'check-circle-outline'}
+                size={20}
+                color={formFeedback.type === 'error' ? theme.error : theme.success}
+              />
+              <Text
+                style={[
+                  styles.feedbackText,
+                  { color: formFeedback.type === 'error' ? theme.error : theme.success }
+                ]}
+              >
+                {formFeedback.message}
+              </Text>
+            </View>
+          )}
         </ScrollView>
       </ModalWrapper>
 
@@ -910,13 +911,6 @@ export const VacationsScreen = () => {
             </View>
           )}
 
-          {reassignError && (
-            <View style={[styles.errorBanner, { backgroundColor: (theme.error || '#EF4444') + '15', borderColor: theme.error }]}>
-              <MaterialIcons name="error-outline" size={18} color={theme.error} />
-              <Text style={[styles.errorBannerText, { color: theme.error }]}>{reassignError}</Text>
-            </View>
-          )}
-
           {/* Selector de Nuevo Profesional */}
           <Text style={[styles.inputLabel, { color: theme.text }]}>Nuevo Profesional Asignado:</Text>
           <View style={styles.profSelectorWrap}>
@@ -1031,6 +1025,13 @@ export const VacationsScreen = () => {
               loading={reassignSubmitting}
             />
           </View>
+
+          {reassignError && (
+            <View style={[styles.errorBanner, { backgroundColor: (theme.error || '#EF4444') + '15', borderColor: theme.error, marginTop: spacing.md }]}>
+              <MaterialIcons name="error-outline" size={18} color={theme.error} />
+              <Text style={[styles.errorBannerText, { color: theme.error }]}>{reassignError}</Text>
+            </View>
+          )}
         </ScrollView>
       </ModalWrapper>
     </View>

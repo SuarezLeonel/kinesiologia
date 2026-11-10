@@ -113,7 +113,14 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={styles.container}
+      style={[
+        styles.container,
+        Platform.OS === 'web' && ({
+          height: '100dvh',
+          minHeight: '100dvh',
+          overflowY: 'auto'
+        } as any)
+      ]}
     >
       {/* Siluetas orgánicas de hojas en el fondo para diseño botánico/médico */}
       <View style={styles.bgLeafTopRight} pointerEvents="none" />
@@ -121,33 +128,35 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
       <View style={styles.bgLeafTopLeft} pointerEvents="none" />
 
       <ScrollView
+        style={styles.scrollView}
         contentContainerStyle={[
           styles.scrollContent,
           {
             paddingTop: Math.max(insets.top, 24) + spacing.md,
-            paddingBottom: Math.max(insets.bottom, 24) + spacing.xl,
+            paddingBottom: Math.max(insets.bottom, 24) + spacing.xxl,
             paddingHorizontal: Platform.OS === 'web' ? spacing.xl : spacing.md
           }
         ]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Cabecera con Logo Oficial y Título del Portal */}
-        <View style={styles.brandContainer}>
-          <View style={styles.logoCard}>
-            <Image
-              source={require('../../assets/images/logoKinesio.webp')}
-              style={styles.logoImage}
-              resizeMode="contain"
-            />
+        <View style={styles.centerWrapper}>
+          {/* Cabecera con Logo Oficial y Título del Portal */}
+          <View style={styles.brandContainer}>
+            <View style={styles.logoCard}>
+              <Image
+                source={require('../../assets/images/logoKinesio.webp')}
+                style={styles.logoImage}
+                resizeMode="contain"
+              />
+            </View>
+            <Text style={styles.brandTitle}>
+              Portal del <Text style={styles.brandTitleAccent}>Paciente</Text>
+            </Text>
           </View>
-          <Text style={styles.brandTitle}>
-            Portal del <Text style={styles.brandTitleAccent}>Paciente</Text>
-          </Text>
-        </View>
 
-        {/* Tarjeta de Registro Principal */}
-        <View style={styles.card}>
+          {/* Tarjeta de Registro Principal */}
+          <View style={styles.card}>
           <Text style={[styles.cardTitle, { marginBottom: 14 }]}>Crear cuenta</Text>
 
           {/* Banner Informativo de Vinculación Automática */}
@@ -162,18 +171,6 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
               Usá el mismo email o DNI con el que te atendiste en el consultorio para vincular tus turnos.
             </Text>
           </View>
-
-          {serverError && (
-            <View style={styles.errorBanner}>
-              <Text style={styles.errorBannerText}>{serverError}</Text>
-            </View>
-          )}
-
-          {successInfo && (
-            <View style={styles.successBanner}>
-              <Text style={styles.successBannerText}>{successInfo}</Text>
-            </View>
-          )}
 
           {/* Fila: Nombre y Apellido */}
           <View style={styles.row}>
@@ -535,6 +532,19 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
             )}
           </TouchableOpacity>
 
+          {/* Mensajes de error o éxito generales ubicados inmediatamente debajo del botón de acción */}
+          {serverError && (
+            <View style={[styles.errorBanner, { marginTop: 12, marginBottom: 8 }]}>
+              <Text style={styles.errorBannerText}>{serverError}</Text>
+            </View>
+          )}
+
+          {successInfo && (
+            <View style={[styles.successBanner, { marginTop: 12, marginBottom: 8 }]}>
+              <Text style={styles.successBannerText}>{successInfo}</Text>
+            </View>
+          )}
+
           {/* Separador: Cuentas Externas */}
           <View style={styles.dividerRow}>
             <View style={styles.dividerLine} />
@@ -571,8 +581,9 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
             </TouchableOpacity>
           </View>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      </View>
+    </ScrollView>
+  </KeyboardAvoidingView>
   );
 };
 
@@ -582,6 +593,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#0C1813',
     position: 'relative',
     overflow: 'hidden'
+  },
+  scrollView: {
+    flex: 1,
+    width: '100%'
+  },
+  scrollContent: {
+    flexGrow: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  centerWrapper: {
+    width: '100%',
+    maxWidth: 560,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: Platform.OS === 'web' ? ('auto' as any) : undefined
   },
   /* Hojas orgánicas decorativas de fondo */
   bgLeafTopRight: {
@@ -625,10 +653,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#12281D',
     opacity: 0.4,
     transform: [{ rotate: '35deg' }]
-  },
-  scrollContent: {
-    flexGrow: 1,
-    alignItems: 'center'
   },
   brandContainer: {
     alignItems: 'center',

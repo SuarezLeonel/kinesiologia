@@ -14,6 +14,7 @@ import {
   Platform,
   useWindowDimensions
 } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppTheme } from '../../theme/ThemeContext';
 import { spacing, radii, typography, shadows } from '../../theme/tokens';
@@ -29,6 +30,8 @@ interface ModalWrapperProps {
   maxWidth?: number;
   subHeader?: React.ReactNode;
   fullScreenOnMobile?: boolean;
+  errorMessage?: string | null;
+  successMessage?: string | null;
 }
 
 export const ModalWrapper: React.FC<ModalWrapperProps> = ({
@@ -40,7 +43,9 @@ export const ModalWrapper: React.FC<ModalWrapperProps> = ({
   footer,
   maxWidth = 540,
   subHeader,
-  fullScreenOnMobile = true
+  fullScreenOnMobile = true,
+  errorMessage,
+  successMessage
 }) => {
   const { theme } = useAppTheme();
   const { isPhone, isSmallPhone, width, height } = useResponsive();
@@ -165,16 +170,52 @@ export const ModalWrapper: React.FC<ModalWrapperProps> = ({
             {children}
           </ScrollView>
 
-          {/* Footer Responsivo */}
-          {footer && (
+          {/* Footer Responsivo con Botones de Acción y Mensajes Estratégicos debajo */}
+          {(footer || errorMessage || successMessage) && (
             <View
               style={[
-                styles.footer,
+                styles.footerContainer,
                 { borderTopColor: theme.borderSubtle },
-                isSmallPhone && { paddingHorizontal: spacing.sm, paddingVertical: spacing.sm, gap: spacing.xs }
+                isSmallPhone && { paddingHorizontal: spacing.sm, paddingVertical: spacing.sm }
               ]}
             >
-              {footer}
+              {footer && (
+                <View style={[styles.footerButtons, isSmallPhone && { gap: spacing.xs }]}>
+                  {footer}
+                </View>
+              )}
+              {errorMessage ? (
+                <View
+                  style={[
+                    styles.footerFeedbackBanner,
+                    {
+                      backgroundColor: theme.errorBg || 'rgba(239, 68, 68, 0.12)',
+                      borderColor: theme.error
+                    }
+                  ]}
+                >
+                  <MaterialIcons name="error-outline" size={18} color={theme.error} style={{ marginRight: 8 }} />
+                  <Text style={[styles.footerFeedbackText, { color: theme.error }]}>
+                    {errorMessage}
+                  </Text>
+                </View>
+              ) : null}
+              {successMessage ? (
+                <View
+                  style={[
+                    styles.footerFeedbackBanner,
+                    {
+                      backgroundColor: theme.successBg || 'rgba(16, 185, 129, 0.12)',
+                      borderColor: theme.success
+                    }
+                  ]}
+                >
+                  <MaterialIcons name="check-circle" size={18} color={theme.success} style={{ marginRight: 8 }} />
+                  <Text style={[styles.footerFeedbackText, { color: theme.success }]}>
+                    {successMessage}
+                  </Text>
+                </View>
+              ) : null}
             </View>
           )}
         </View>
@@ -244,13 +285,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: Platform.OS === 'web' ? spacing.xl : spacing.md,
     paddingVertical: spacing.md
   },
-  footer: {
+  footerContainer: {
     paddingHorizontal: Platform.OS === 'web' ? spacing.xl : spacing.md,
     paddingVertical: spacing.md,
     borderTopWidth: 1,
+    gap: spacing.sm
+  },
+  footerButtons: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: spacing.sm,
     flexWrap: 'wrap'
+  },
+  footerFeedbackBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.sm + 2,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    width: '100%'
+  },
+  footerFeedbackText: {
+    flex: 1,
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.semibold,
+    lineHeight: 18
   }
 });

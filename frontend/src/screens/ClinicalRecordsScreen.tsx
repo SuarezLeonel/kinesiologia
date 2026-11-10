@@ -306,9 +306,8 @@ export const ClinicalRecordsScreen = () => {
         styles.container,
         {
           backgroundColor: theme.background,
-          maxWidth: contentMaxWidth,
           width: '100%',
-          alignSelf: 'center',
+          flex: 1,
           paddingHorizontal: isSmallPhone ? spacing.sm : isPhone ? spacing.md : spacing.xl
         }
       ]}
@@ -370,6 +369,9 @@ export const ClinicalRecordsScreen = () => {
       )}
 
       <FlatList
+        key={isDesktop ? 'clinical-grid-2' : 'clinical-list-1'}
+        numColumns={isDesktop ? 2 : 1}
+        columnWrapperStyle={isDesktop ? styles.columnWrapper : undefined}
         data={records}
         keyExtractor={(item) => item.id.toString()}
         refreshControl={
@@ -505,6 +507,7 @@ export const ClinicalRecordsScreen = () => {
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
         title="Nueva Historia Clínica"
+        errorMessage={formError}
         footer={
           <>
             <Button
@@ -522,12 +525,6 @@ export const ClinicalRecordsScreen = () => {
           </>
         }
       >
-        {formError && (
-          <View style={[styles.modalError, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
-            <Text style={[styles.modalErrorText, { color: theme.error }]}>{formError}</Text>
-          </View>
-        )}
-
         {/* SELECTOR DE PACIENTE */}
         <View style={styles.fieldContainer}>
           <Text style={[styles.fieldLabel, { color: theme.text }]}>
@@ -797,7 +794,11 @@ const styles = StyleSheet.create({
   searchInputContainer: {
     flex: 1
   },
+  columnWrapper: {
+    gap: spacing.md
+  },
   recordCard: {
+    flex: 1,
     marginBottom: spacing.md
   },
   cardHeader: {

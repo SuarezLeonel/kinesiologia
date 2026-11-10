@@ -163,9 +163,18 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={[styles.container, { backgroundColor: theme.background }]}
+      style={[
+        styles.container,
+        { backgroundColor: theme.background },
+        Platform.OS === 'web' && ({
+          height: '100dvh',
+          minHeight: '100dvh',
+          overflowY: 'auto'
+        } as any)
+      ]}
     >
       <ScrollView
+        style={styles.scrollView}
         contentContainerStyle={[
           styles.scrollContent,
           {
@@ -176,19 +185,20 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
         ]}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.brandContainer}>
-          <View
-            style={[
-              styles.brandMark,
-              { backgroundColor: theme.primaryLight, borderColor: theme.primary + '30' }
-            ]}
-          >
-            <MaterialIcons name="lock-reset" size={24} color={theme.primary} />
+        <View style={styles.centerWrapper}>
+          <View style={styles.brandContainer}>
+            <View
+              style={[
+                styles.brandMark,
+                { backgroundColor: theme.primaryLight, borderColor: theme.primary + '30' }
+              ]}
+            >
+              <MaterialIcons name="lock-reset" size={24} color={theme.primary} />
+            </View>
+            <Text style={[styles.brandTitle, { color: theme.text }]}>Recuperar contraseña</Text>
           </View>
-          <Text style={[styles.brandTitle, { color: theme.text }]}>Recuperar contraseña</Text>
-        </View>
 
-        <Card elevated style={styles.card} padding={Platform.OS === 'web' ? 'xl' : 'lg'}>
+          <Card elevated style={styles.card} padding={Platform.OS === 'web' ? 'xl' : 'lg'}>
           {step === 'success' ? (
             <View style={styles.successContainer}>
               <View
@@ -271,40 +281,6 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                   </Text>
                 </TouchableOpacity>
               </View>
-
-              {serverError && (
-                <View
-                  style={[
-                    styles.banner,
-                    { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }
-                  ]}
-                >
-                  <MaterialIcons
-                    name="error-outline"
-                    size={18}
-                    color={theme.error}
-                    style={{ marginRight: spacing.xs }}
-                  />
-                  <Text style={[styles.bannerText, { color: theme.error }]}>{serverError}</Text>
-                </View>
-              )}
-
-              {serverMessage && (
-                <View
-                  style={[
-                    styles.banner,
-                    { backgroundColor: theme.primaryLight, borderColor: theme.primary + '40' }
-                  ]}
-                >
-                  <MaterialIcons
-                    name="mark-email-read"
-                    size={20}
-                    color={theme.primary}
-                    style={{ marginRight: spacing.xs }}
-                  />
-                  <Text style={[styles.bannerText, { color: theme.primary }]}>{serverMessage}</Text>
-                </View>
-              )}
 
               {previewEmailUrl && step === 'reset' && (
                 <TouchableOpacity
@@ -389,6 +365,40 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                     size="lg"
                     style={{ marginTop: spacing.md }}
                   />
+
+                  {serverError && (
+                    <View
+                      style={[
+                        styles.banner,
+                        { backgroundColor: theme.errorBg, borderColor: theme.error + '40', marginTop: spacing.md }
+                      ]}
+                    >
+                      <MaterialIcons
+                        name="error-outline"
+                        size={18}
+                        color={theme.error}
+                        style={{ marginRight: spacing.xs }}
+                      />
+                      <Text style={[styles.bannerText, { color: theme.error }]}>{serverError}</Text>
+                    </View>
+                  )}
+
+                  {serverMessage && (
+                    <View
+                      style={[
+                        styles.banner,
+                        { backgroundColor: theme.primaryLight, borderColor: theme.primary + '40', marginTop: spacing.md }
+                      ]}
+                    >
+                      <MaterialIcons
+                        name="mark-email-read"
+                        size={20}
+                        color={theme.primary}
+                        style={{ marginRight: spacing.xs }}
+                      />
+                      <Text style={[styles.bannerText, { color: theme.primary }]}>{serverMessage}</Text>
+                    </View>
+                  )}
                 </View>
               ) : (
                 /* PASO 2: Ingreso de código de 6 dígitos y nueva contraseña */
@@ -464,6 +474,40 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                     size="lg"
                     style={{ marginTop: spacing.md }}
                   />
+
+                  {serverError && (
+                    <View
+                      style={[
+                        styles.banner,
+                        { backgroundColor: theme.errorBg, borderColor: theme.error + '40', marginTop: spacing.md }
+                      ]}
+                    >
+                      <MaterialIcons
+                        name="error-outline"
+                        size={18}
+                        color={theme.error}
+                        style={{ marginRight: spacing.xs }}
+                      />
+                      <Text style={[styles.bannerText, { color: theme.error }]}>{serverError}</Text>
+                    </View>
+                  )}
+
+                  {serverMessage && (
+                    <View
+                      style={[
+                        styles.banner,
+                        { backgroundColor: theme.primaryLight, borderColor: theme.primary + '40', marginTop: spacing.md }
+                      ]}
+                    >
+                      <MaterialIcons
+                        name="mark-email-read"
+                        size={20}
+                        color={theme.primary}
+                        style={{ marginRight: spacing.xs }}
+                      />
+                      <Text style={[styles.bannerText, { color: theme.primary }]}>{serverMessage}</Text>
+                    </View>
+                  )}
                 </View>
               )}
             </>
@@ -488,8 +532,9 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
             </TouchableOpacity>
           </View>
         </Card>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      </View>
+    </ScrollView>
+  </KeyboardAvoidingView>
   );
 };
 
@@ -497,9 +542,22 @@ const styles = StyleSheet.create({
   container: {
     flex: 1
   },
+  scrollView: {
+    flex: 1,
+    width: '100%'
+  },
   scrollContent: {
     flexGrow: 1,
-    alignItems: 'center'
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  centerWrapper: {
+    width: '100%',
+    maxWidth: 480,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: Platform.OS === 'web' ? ('auto' as any) : undefined
   },
   brandContainer: {
     alignItems: 'center',
