@@ -69,6 +69,24 @@ export class VacationsController {
       next(error);
     }
   }
+
+  async getCancellationNotifications(req, res, next) {
+    try {
+      const data = await vacationsService.getCancellationNotifications(req.body, req.user);
+      return sendSuccess(res, data);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async markCancellationNotificationSent(req, res, next) {
+    try {
+      const updated = await vacationsService.markCancellationNotificationSent(req.body.id, req.user);
+      return sendSuccess(res, updated, 'Notificación marcada como enviada al paciente');
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const vacationsController = new VacationsController();

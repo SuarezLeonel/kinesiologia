@@ -485,7 +485,7 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
           </View>
 
           {/* Número de afiliado / credencial si no es Particular */}
-          {watchedInsuranceProvider && watchedInsuranceProvider !== 'Particular' && (
+          {Boolean(watchedInsuranceProvider && watchedInsuranceProvider !== 'Particular') && (
             <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>N° de afiliado / Credencial (opcional)</Text>
               <Controller
@@ -533,13 +533,13 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
           </TouchableOpacity>
 
           {/* Mensajes de error o éxito generales ubicados inmediatamente debajo del botón de acción */}
-          {serverError && (
+          {Boolean(serverError) && (
             <View style={[styles.errorBanner, { marginTop: 12, marginBottom: 8 }]}>
               <Text style={styles.errorBannerText}>{serverError}</Text>
             </View>
           )}
 
-          {successInfo && (
+          {Boolean(successInfo) && (
             <View style={[styles.successBanner, { marginTop: 12, marginBottom: 8 }]}>
               <Text style={styles.successBannerText}>{successInfo}</Text>
             </View>

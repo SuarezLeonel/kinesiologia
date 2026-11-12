@@ -79,7 +79,7 @@ function getRouteDescription(routeName: string): string {
     case 'Payments':
       return 'Caja diaria, cobranzas y medios de pago';
     case 'Vacations':
-      return 'Períodos de licencia, vacaciones y reorganización de turnos';
+      return 'Gestión de vacaciones de kinesiólogos, períodos registrados y turnos afectados';
     case 'Settings':
       return 'Tema visual, cuenta y configuración';
     default:
@@ -629,7 +629,11 @@ const MainTabs = () => {
         {!isKinesiologist && (
           <Tab.Screen name="Payments" component={PaymentsScreen} options={{ title: 'Pagos' }} />
         )}
-        <Tab.Screen name="Vacations" component={VacationsScreen} options={{ title: 'Vacaciones' }} />
+        <Tab.Screen
+          name="Vacations"
+          component={VacationsScreen}
+          options={{ title: isAdmin ? 'Gestión de vacaciones' : 'Vacaciones' }}
+        />
         <Tab.Screen name="Settings" component={SettingsScreen} options={{ title: 'Ajustes' }} />
       </Tab.Navigator>
     </View>
@@ -732,6 +736,9 @@ const styles = StyleSheet.create({
   desktopTabsRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    flexShrink: 1,
     gap: spacing.xs
   },
   desktopTabItem: {

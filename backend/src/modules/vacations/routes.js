@@ -15,7 +15,9 @@ import {
   vacationCreateSchema,
   vacationCancelSchema,
   vacationAffectedAppointmentsSchema,
-  vacationReassignAppointmentSchema
+  vacationReassignAppointmentSchema,
+  vacationCancellationNotificationsSearchSchema,
+  vacationMarkNotificationSentSchema
 } from './schema.js';
 
 export const vacationsRouter = Router();
@@ -32,3 +34,15 @@ vacationsRouter.post('/affected-appointments', validate(vacationAffectedAppointm
 vacationsRouter.post('/reassign-appointment', validate(vacationReassignAppointmentSchema), asyncHandler((req, res, next) => vacationsController.reassignAppointment(req, res, next)));
 vacationsRouter.post('/active-alerts', asyncHandler((req, res, next) => vacationsController.getActiveAlerts(req, res, next)));
 vacationsRouter.post('/alerts', asyncHandler((req, res, next) => vacationsController.getActiveAlerts(req, res, next)));
+vacationsRouter.post(
+  '/cancellation-notifications',
+  authorizeRoles('admin', 'receptionist'),
+  validate(vacationCancellationNotificationsSearchSchema),
+  asyncHandler((req, res, next) => vacationsController.getCancellationNotifications(req, res, next))
+);
+vacationsRouter.post(
+  '/mark-notification-sent',
+  authorizeRoles('admin', 'receptionist'),
+  validate(vacationMarkNotificationSentSchema),
+  asyncHandler((req, res, next) => vacationsController.markCancellationNotificationSent(req, res, next))
+);

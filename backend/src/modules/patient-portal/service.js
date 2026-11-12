@@ -118,7 +118,8 @@ export class PatientPortalService {
     }
 
     const sql = `
-      SELECT a.id, a.patient_id, a.start_time, a.end_time, a.status, a.notes, a.agreed_price, a.currency,
+      SELECT a.id, a.patient_id, a.start_time, a.end_time, a.status, a.notes,
+             a.cancellation_reason, a.cancelled_by_vacation_id, a.agreed_price, a.currency,
              s.name as service_name, s.duration_minutes,
              u.name as kinesiologist_name, u.last_name as kinesiologist_last_name
       FROM appointments a

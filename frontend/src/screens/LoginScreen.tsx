@@ -250,7 +250,7 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           </TouchableOpacity>
 
           {/* Mensajes de error generales o cuenta no verificada inmediatamente debajo del botón de acción */}
-          {serverError && (
+          {Boolean(serverError) && (
             <View style={[styles.errorBanner, Boolean(unverifiedEmail) && styles.unverifiedBanner, { marginTop: 12, marginBottom: 8 }]}>
               <Text style={[styles.errorBannerText, Boolean(unverifiedEmail) && styles.unverifiedBannerText]}>{serverError}</Text>
               {Boolean(unverifiedEmail) && (

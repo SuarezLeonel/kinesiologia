@@ -65,7 +65,7 @@ export const Input: React.FC<InputProps> = ({
 
   return (
     <View style={[styles.container, containerStyle]}>
-      {label && (
+      {Boolean(label) && (
         <View style={styles.labelRow}>
           <Text style={[styles.label, { color: theme.text }]}>
             {label}
@@ -121,7 +121,7 @@ export const Input: React.FC<InputProps> = ({
           </TouchableOpacity>
         )}
 
-        {rightAction && <View style={styles.iconButton}>{rightAction}</View>}
+        {Boolean(rightAction) && <View style={styles.iconButton}>{rightAction}</View>}
       </View>
 
       {error ? (

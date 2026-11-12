@@ -24,8 +24,8 @@ export const vacationSearchSchema = z.object({
 
 export const vacationPreviewSchema = z.object({
   body: z.object({
-    kinesiologistId: z.number().int().positive().optional(),
-    kinesiologist_id: z.number().int().positive().optional(),
+    kinesiologistId: z.number().int().positive().nullish(),
+    kinesiologist_id: z.number().int().positive().nullish(),
     startDate: z.string().regex(dateRegex, 'Fecha de inicio requerida en formato AAAA-MM-DD'),
     endDate: z.string().regex(dateRegex, 'Fecha de finalización requerida en formato AAAA-MM-DD')
   }).transform((val) => ({
@@ -39,11 +39,11 @@ export const vacationPreviewSchema = z.object({
 
 export const vacationCreateSchema = z.object({
   body: z.object({
-    kinesiologistId: z.number().int().positive().optional(),
-    kinesiologist_id: z.number().int().positive().optional(),
+    kinesiologistId: z.number().int().positive().nullish(),
+    kinesiologist_id: z.number().int().positive().nullish(),
     startDate: z.string().regex(dateRegex, 'Fecha de inicio requerida en formato AAAA-MM-DD'),
     endDate: z.string().regex(dateRegex, 'Fecha de finalización requerida en formato AAAA-MM-DD'),
-    notes: z.string().max(255, 'Máximo 255 caracteres').optional()
+    notes: z.string().max(255, 'Máximo 255 caracteres').nullish()
   }).transform((val) => ({
     ...val,
     kinesiologistId: val.kinesiologistId !== undefined ? val.kinesiologistId : val.kinesiologist_id
@@ -57,10 +57,11 @@ export const vacationCancelSchema = z.object({
   body: z.object({
     id: z.number().int().positive().optional(),
     vacationId: z.number().int().positive().optional(),
-    reason: z.string().max(255).optional()
+    reason: z.string().max(255, 'Máximo 255 caracteres').nullish()
   }).transform((val) => ({
     ...val,
-    id: val.id !== undefined ? val.id : val.vacationId
+    id: val.id !== undefined ? val.id : val.vacationId,
+    reason: typeof val.reason === 'string' ? val.reason.trim() || null : null
   })).refine((val) => val.id !== undefined, {
     message: 'ID de período de vacaciones requerido',
     path: ['id']
@@ -97,5 +98,28 @@ export const vacationReassignAppointmentSchema = z.object({
       ...val,
       targetKinesiologistId: target
     };
+  })
+});
+
+export const vacationCancellationNotificationsSearchSchema = z.object({
+  body: z.object({
+    trackingStatus: z.enum(['all', 'pending_notification', 'notified']).optional().default('all'),
+    vacationId: z.number().int().positive().optional(),
+    kinesiologistId: z.number().int().positive().optional(),
+    page: z.number().int().positive().default(1),
+    limit: z.number().int().positive().max(100).default(100)
+  }).default({})
+});
+
+export const vacationMarkNotificationSentSchema = z.object({
+  body: z.object({
+    id: z.number().int().positive().optional(),
+    notificationId: z.number().int().positive().optional()
+  }).transform((val) => ({
+    ...val,
+    id: val.id !== undefined ? val.id : val.notificationId
+  })).refine((val) => val.id !== undefined, {
+    message: 'ID de notificación requerido',
+    path: ['id']
   })
 });

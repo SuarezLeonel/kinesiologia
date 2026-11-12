@@ -3,7 +3,7 @@
  * @description Pantalla de caja y cobros: registro de pagos con precios de catálogo no modificables,
  * selección de consultas atendidas y arqueo diario (exclusivo Admin/Recepción).
  */
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { MaterialIcons } from '@expo/vector-icons';
 import { apiClient } from '../api/client';
+import { cachedPost, isRequestCanceled } from '../api/queryCache';
 import { useDataSync } from '../context/DataSyncContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -131,11 +132,19 @@ export const PaymentsScreen = () => {
     });
   }, [basePatients, patients, patientSearch]);
 
-  const fetchCajaSummary = async () => {
+  const paymentsAbortRef = useRef<AbortController | null>(null);
+  const isFocusedRef = useRef(false);
+  const hasLoadedRef = useRef(false);
+  const needsRefreshRef = useRef(false);
+  const viewFilterRef = useRef<'today' | 'all'>(viewFilter);
+  viewFilterRef.current = viewFilter;
+
+  const fetchCajaSummary = async (forceRefresh = false, signal?: AbortSignal) => {
     if (isKinesiologist) return;
     try {
       // REGLA HTTP ESTRICTA: POST para consultas de métricas
-      const res = await apiClient.post('/payments/caja-summary', {});
+      const res = await cachedPost('/payments/caja-summary', {}, { forceRefresh, signal });
+      if (signal?.aborted) return;
       if (res.data?.success) {
         setCajaSummary(res.data.data);
       }
@@ -144,23 +153,34 @@ export const PaymentsScreen = () => {
     }
   };
 
-  const fetchPayments = async (filterMode: 'today' | 'all' = viewFilter, silent = false) => {
+  const fetchPayments = async (
+    filterMode: 'today' | 'all' = viewFilterRef.current,
+    silent = false,
+    forceRefresh = false,
+    signal?: AbortSignal
+  ) => {
     if (isKinesiologist) return;
     try {
       if (!silent) {
         setError(null);
       }
       // REGLA HTTP ESTRICTA: POST para consultas con payload
-      const res = await apiClient.post('/payments/search', {
-        todayOnly: filterMode === 'today',
-        page: 1,
-        limit: 50
-      });
+      const res = await cachedPost(
+        '/payments/search',
+        {
+          todayOnly: filterMode === 'today',
+          page: 1,
+          limit: 50
+        },
+        { forceRefresh, signal }
+      );
+      if (signal?.aborted) return;
       if (res.data?.success) {
         setPayments(res.data.data);
         setError(null);
       }
     } catch (err: any) {
+      if (isRequestCanceled(err) || signal?.aborted) return;
       if (!silent || (payments.length === 0 && !cajaSummary)) {
         setError(err.response?.data?.error?.message || 'Error al obtener transacciones de cobros');
       }
@@ -170,17 +190,21 @@ export const PaymentsScreen = () => {
     }
   };
 
-  const fetchPatientsList = async (searchQuery?: string) => {
+  const fetchPatientsList = async (searchQuery?: string, forceRefresh = false) => {
     try {
       if (searchQuery) {
         setIsSearchingPatients(true);
       }
       // REGLA HTTP ESTRICTA: POST para consultas con filtros
-      const res = await apiClient.post('/patients/search', {
-        search: searchQuery?.trim() || undefined,
-        page: 1,
-        limit: 300
-      });
+      const res = await cachedPost(
+        '/patients/search',
+        {
+          search: searchQuery?.trim() || undefined,
+          page: 1,
+          limit: 300
+        },
+        { staleTimeMs: searchQuery ? 10_000 : 30_000, forceRefresh }
+      );
       if (res.data?.success) {
         const list = res.data.data || [];
         if (!searchQuery) {
@@ -254,15 +278,32 @@ export const PaymentsScreen = () => {
     return () => clearTimeout(timer);
   }, [patientSearch]);
 
-  const loadAll = async (mode: 'today' | 'all' = viewFilter, silent = false) => {
-    await Promise.all([fetchPayments(mode, silent), fetchCajaSummary(), fetchPatientsList()]);
-  };
-
-  useEffect(() => {
-    if (!isKinesiologist) {
-      loadAll(viewFilter, false);
+  const loadAll = async (
+    mode: 'today' | 'all' = viewFilterRef.current,
+    silent = false,
+    forceRefresh = false
+  ) => {
+    if (paymentsAbortRef.current) {
+      paymentsAbortRef.current.abort();
     }
-  }, [isKinesiologist]);
+    const controller = new AbortController();
+    paymentsAbortRef.current = controller;
+
+    try {
+      await Promise.all([
+        fetchPayments(mode, silent, forceRefresh, controller.signal),
+        fetchCajaSummary(forceRefresh, controller.signal),
+        fetchPatientsList(undefined, forceRefresh)
+      ]);
+      if (!controller.signal.aborted) {
+        hasLoadedRef.current = true;
+      }
+    } finally {
+      if (paymentsAbortRef.current === controller) {
+        paymentsAbortRef.current = null;
+      }
+    }
+  };
 
   useEffect(() => {
     if (isKinesiologist) return;
@@ -272,7 +313,11 @@ export const PaymentsScreen = () => {
       scopeVersions.patients > 0 ||
       scopeVersions.services > 0
     ) {
-      loadAll(viewFilter, true);
+      if (!isFocusedRef.current) {
+        needsRefreshRef.current = true;
+        return;
+      }
+      loadAll(viewFilterRef.current, true, true);
       if (modalVisible && selectedPatientId && Number(selectedPatientId) > 0) {
         fetchPatientAppointments(Number(selectedPatientId));
       }
@@ -287,15 +332,29 @@ export const PaymentsScreen = () => {
 
   useFocusEffect(
     useCallback(() => {
-      if (!isKinesiologist) {
-        loadAll(viewFilter, true);
+      if (isKinesiologist) return;
+      isFocusedRef.current = true;
+      if (!hasLoadedRef.current || needsRefreshRef.current) {
+        const shouldForce = needsRefreshRef.current;
+        needsRefreshRef.current = false;
+        loadAll(viewFilterRef.current, hasLoadedRef.current, shouldForce);
+      } else {
+        loadAll(viewFilterRef.current, true, false);
       }
-    }, [viewFilter, isKinesiologist])
+
+      return () => {
+        isFocusedRef.current = false;
+        if (paymentsAbortRef.current) {
+          paymentsAbortRef.current.abort();
+          paymentsAbortRef.current = null;
+        }
+      };
+    }, [isKinesiologist])
   );
 
   const handleFilterChange = (mode: 'today' | 'all') => {
     setViewFilter(mode);
-    fetchPayments(mode, true);
+    fetchPayments(mode, true, false);
   };
 
   const onCreatePayment = async (data: PaymentFormData) => {
@@ -453,7 +512,7 @@ export const PaymentsScreen = () => {
             refreshing={refreshing}
             onRefresh={() => {
               setRefreshing(true);
-              loadAll(viewFilter);
+              loadAll(viewFilter, true, true);
             }}
             tintColor={theme.primary}
           />
@@ -965,7 +1024,7 @@ export const PaymentsScreen = () => {
         </View>
 
         {/* PASO 3 Y 4: IDENTIFICACIÓN AUTOMÁTICA Y PRECIO FIJADO (NO EDITABLE) */}
-        {selectedAppointmentObj && (
+        {Boolean(selectedAppointmentObj) && (
           <View style={[styles.priceBox, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
             <View style={styles.priceBoxHeader}>
               <View style={{ flex: 1 }}>

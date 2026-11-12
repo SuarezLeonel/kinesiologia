@@ -1,16 +1,14 @@
 /**
  * @file service.js
  * @module vacations
- * @description Lógica de negocio para las vacaciones de los kinesiólogos, detección de turnos
- * afectados, bloqueo de disponibilidad y reasignación por parte de recepción.
+ * @description Lógica de negocio para las vacaciones de los kinesiólogos, cancelación automática de turnos
+ * afectados, bloqueo de disponibilidad y notificaciones de seguimiento para recepción.
  */
 import { vacationsRepository } from './repository.js';
 import { usersRepository } from '../users/repository.js';
-import { appointmentsRepository } from '../appointments/repository.js';
-import { patientsRepository } from '../patients/repository.js';
 import { notificationsService } from '../notifications/service.js';
 import { query } from '../../config/database.js';
-import { getClinicDateString } from '../../utils/date.js';
+import { getClinicDateString, getClinicDateTimeString, addCalendarDays } from '../../utils/date.js';
 import { NotFoundError, BadRequestError, ConflictError, ForbiddenError } from '../../utils/errors.js';
 import { logAudit } from '../../utils/auditLogger.js';
 
@@ -31,28 +29,62 @@ export class VacationsService {
       }
     }
 
-    const vacations = await vacationsRepository.search(filters);
     const today = this._getTodayStr();
+    // Sincronizar estados del ciclo de vida (scheduled -> active -> completed) antes de filtrar
+    await vacationsRepository.syncLifecycleStatuses(today);
 
-    // Actualización de estado dinámica (scheduled -> active -> completed)
-    for (const v of vacations) {
-      if (v.status === 'scheduled' && v.start_date <= today && v.end_date >= today) {
-        await vacationsRepository.updateStatus(v.id, 'active');
-        v.status = 'active';
-      } else if ((v.status === 'scheduled' || v.status === 'active') && v.end_date < today) {
-        await vacationsRepository.updateStatus(v.id, 'completed');
-        v.status = 'completed';
+    return await vacationsRepository.search(filters);
+  }
+
+  /**
+   * Resuelve y autoriza el kinesiólogo destino según el rol del usuario autenticado.
+   * El administrador debe indicar un kinesiólogo activo (nunca a sí mismo ni a otros roles);
+   * el kinesiólogo solo puede operar sobre sus propios períodos.
+   */
+  async _resolveTargetKinesiologist(rawKinesiologistId, currentUser) {
+    const role = currentUser?.role || currentUser?.role_name;
+
+    if (role === 'kinesiologist' || role === 'kinesiologo') {
+      if (
+        rawKinesiologistId !== undefined &&
+        rawKinesiologistId !== null &&
+        Number(rawKinesiologistId) !== Number(currentUser.id)
+      ) {
+        throw new ForbiddenError('No puede registrar ni consultar vacaciones de otro profesional');
       }
+      const selfUser = await usersRepository.findById(currentUser.id);
+      if (!selfUser || !selfUser.is_active) {
+        throw new ForbiddenError('Su usuario profesional no se encuentra activo');
+      }
+      return selfUser;
     }
 
-    return vacations;
+    if (role === 'admin') {
+      if (!rawKinesiologistId) {
+        throw new BadRequestError('Debe seleccionar un kinesiólogo para gestionar sus vacaciones');
+      }
+      if (Number(rawKinesiologistId) === Number(currentUser.id)) {
+        throw new BadRequestError('El administrador no registra vacaciones propias; seleccione un kinesiólogo');
+      }
+      const targetUser = await usersRepository.findById(Number(rawKinesiologistId));
+      if (!targetUser) {
+        throw new NotFoundError('Kinesiólogo seleccionado no encontrado');
+      }
+      if (targetUser.role_name !== 'kinesiologist' && targetUser.role_name !== 'kinesiologo') {
+        throw new BadRequestError('Solo se pueden registrar vacaciones para profesionales con rol kinesiólogo');
+      }
+      if (!targetUser.is_active) {
+        throw new BadRequestError('El kinesiólogo seleccionado no se encuentra activo');
+      }
+      return targetUser;
+    }
+
+    throw new ForbiddenError('No posee permisos para registrar períodos de vacaciones');
   }
 
   async preview({ kinesiologistId, startDate, endDate }, currentUser) {
-    const role = currentUser?.role || currentUser?.role_name;
-    const targetKineId = (role === 'kinesiologist' || role === 'kinesiologo')
-      ? currentUser.id
-      : (kinesiologistId || currentUser.id);
+    const targetKine = await this._resolveTargetKinesiologist(kinesiologistId, currentUser);
+    const targetKineId = targetKine.id;
 
     const today = this._getTodayStr();
     if (startDate < today) {
@@ -68,9 +100,12 @@ export class VacationsService {
     }
 
     const affected = await vacationsRepository.findAffectedAppointments(targetKineId, startDate, endDate);
+    const kinesiologistFullName = `${targetKine.name} ${targetKine.last_name}`.trim();
 
     return {
       kinesiologistId: targetKineId,
+      kinesiologistName: kinesiologistFullName,
+      kinesiologistDisplayName: `Lic. ${targetKine.last_name}, ${targetKine.name}`,
       startDate,
       endDate,
       affectedCount: affected.length,
@@ -81,14 +116,8 @@ export class VacationsService {
 
   async create(data, currentUser) {
     const role = currentUser?.role || currentUser?.role_name;
-    const targetKineId = (role === 'kinesiologist' || role === 'kinesiologo')
-      ? currentUser.id
-      : (data.kinesiologistId || currentUser.id);
-
-    // Solo kinesiólogos para sí mismos o administradores pueden registrar vacaciones
-    if (role !== 'admin' && role !== 'kinesiologist' && role !== 'kinesiologo') {
-      throw new ForbiddenError('No posee permisos para registrar períodos de vacaciones');
-    }
+    const kine = await this._resolveTargetKinesiologist(data.kinesiologistId, currentUser);
+    const targetKineId = kine.id;
 
     const today = this._getTodayStr();
     if (data.startDate < today) {
@@ -103,25 +132,24 @@ export class VacationsService {
       throw new ConflictError('Ya existe un período de vacaciones registrado que se superpone con las fechas seleccionadas');
     }
 
-    // Identificar turnos afectados sin eliminarlos ni cancelarlos
-    const affected = await vacationsRepository.findAffectedAppointments(targetKineId, data.startDate, data.endDate);
     const initialStatus = data.startDate <= today ? 'active' : 'scheduled';
+    const kineFullName = `${kine.name} ${kine.last_name}`.trim();
+    const kineLabel = `Lic. ${kine.last_name}, ${kine.name}`;
+    const isCreatedByAdmin = role === 'admin';
 
-    const id = await vacationsRepository.create({
+    const { vacationId: id, cancelledAppointments } = await vacationsRepository.createWithAutoCancellations({
       kinesiologistId: targetKineId,
+      kineFullName,
       startDate: data.startDate,
       endDate: data.endDate,
       status: initialStatus,
       notes: data.notes || null,
-      affectedAppointmentsCount: affected.length,
-      createdBy: currentUser.id
+      createdBy: currentUser.id,
+      changedByUserId: currentUser.id
     });
 
-    const kine = await usersRepository.findById(targetKineId);
-    const kineName = kine ? `Lic. ${kine.last_name}, ${kine.name}` : `Kinesiólogo #${targetKineId}`;
-
-    // Si existen turnos asignados durante ese período, notificar a recepción y administración
-    if (affected.length > 0) {
+    // Si se cancelaron turnos automáticamente, registrar un aviso por integrante de recepción/admin
+    if (cancelledAppointments.length > 0) {
       const staffUsers = await query(`
         SELECT u.id, r.name as role_name
         FROM users u
@@ -129,21 +157,34 @@ export class VacationsService {
         WHERE r.name IN ('receptionist', 'admin') AND u.is_active = 1
       `);
 
-      const notificationMessage = `El kinesiólogo ${kineName} estará de vacaciones desde el ${data.startDate} hasta el ${data.endDate}. Tiene turnos asignados durante este período que necesitan ser reorganizados. Por favor, seleccioná nuevamente el horario y profesional correspondiente.`;
+      const countText = cancelledAppointments.length === 1
+        ? '1 turno asignado fue cancelado automáticamente'
+        : `${cancelledAppointments.length} turnos asignados fueron cancelados automáticamente`;
+
+      const notificationTitle = isCreatedByAdmin
+        ? `Turnos cancelados por vacaciones (Admin) — ${kineFullName}`
+        : `Turnos cancelados por vacaciones — ${kineFullName}`;
+      const notificationMessage =
+        `Se registraron vacaciones para ${kineFullName} (${data.startDate} al ${data.endDate}). ` +
+        `${countText}. Por favor, contactá a los pacientes afectados desde la sección de notificaciones.`;
 
       for (const staff of staffUsers) {
         await notificationsService.notify({
           userId: staff.id,
           type: 'KINESIOLOGIST_VACATION_AFFECTED_APPOINTMENTS',
-          title: 'Turnos afectados por vacaciones',
+          title: notificationTitle,
           message: notificationMessage,
           metadata: {
             vacationId: id,
             kinesiologistId: targetKineId,
-            kinesiologistName: kineName,
+            kinesiologistName: kineLabel,
+            kinesiologistFullName: kineFullName,
+            createdBy: currentUser.id,
+            createdByRole: role,
             startDate: data.startDate,
             endDate: data.endDate,
-            affectedAppointmentsCount: affected.length
+            cancelledAppointmentsCount: cancelledAppointments.length,
+            affectedAppointmentIds: cancelledAppointments.map((a) => a.id)
           }
         });
       }
@@ -156,52 +197,87 @@ export class VacationsService {
       entityId: id,
       details: {
         kinesiologistId: targetKineId,
+        createdByRole: role,
         startDate: data.startDate,
         endDate: data.endDate,
-        affectedAppointmentsCount: affected.length
+        affectedAppointmentsCount: cancelledAppointments.length,
+        cancelledAppointmentsCount: cancelledAppointments.length
       }
     });
 
-    return await vacationsRepository.findById(id);
+    const created = await vacationsRepository.findById(id);
+    return {
+      ...created,
+      cancelledAppointmentsCount: cancelledAppointments.length,
+      cancelledAppointments
+    };
   }
 
   async cancel(id, reason, currentUser) {
-    const vacation = await vacationsRepository.findById(id);
-    if (!vacation) {
-      throw new NotFoundError('Período de vacaciones no encontrado');
-    }
-
     const role = currentUser?.role || currentUser?.role_name;
-    if (role === 'kinesiologist' || role === 'kinesiologo') {
-      if (vacation.kinesiologist_id !== currentUser.id) {
-        throw new ForbiddenError('Solo puede cancelar sus propios períodos de vacaciones');
-      }
+    const isAdmin = role === 'admin';
+    const isKine = role === 'kinesiologist' || role === 'kinesiologo';
+
+    if (!isAdmin && !isKine) {
+      throw new ForbiddenError('No posee permisos para cancelar períodos de vacaciones');
     }
 
-    if (vacation.status === 'cancelled') {
-      throw new BadRequestError('El período de vacaciones ya se encuentra cancelado');
-    }
+    const now = new Date();
+    const today = getClinicDateString(now);
+    const previousDay = addCalendarDays(today, -1);
+    const cancelledAt = getClinicDateTimeString(now);
+    const cleanReason = typeof reason === 'string' && reason.trim() ? reason.trim() : null;
 
-    const today = this._getTodayStr();
-    if (vacation.end_date < today) {
-      throw new BadRequestError('No se pueden cancelar períodos de vacaciones pasados');
-    }
+    const { previousRecord, previousStatus, wasInProgress, effectiveEndDate } =
+      await vacationsRepository.cancelAtomic({
+        id,
+        cancelledBy: currentUser.id,
+        cancelledAt,
+        today,
+        previousDay,
+        reason: cleanReason,
+        authorize: (row) => {
+          if (isKine && Number(row.kinesiologist_id) !== Number(currentUser.id)) {
+            throw new ForbiddenError('Solo puede cancelar sus propios períodos de vacaciones');
+          }
+        }
+      });
 
-    await vacationsRepository.updateStatus(id, 'cancelled', reason || 'Cancelado por el usuario');
+    const freedFromDate = wasInProgress ? today : previousRecord.start_date;
 
     await logAudit({
       userId: currentUser.id,
       action: 'KINESIOLOGIST_VACATION_CANCELLED',
       entityType: 'kinesiologist_vacations',
       entityId: id,
-      details: { reason }
+      details: {
+        kinesiologistId: previousRecord.kinesiologist_id,
+        previousStatus,
+        wasInProgress,
+        originalStartDate: previousRecord.start_date,
+        originalEndDate: previousRecord.end_date,
+        effectiveEndDate,
+        freedFromDate,
+        cancelledAt,
+        cancelledBy: currentUser.id,
+        cancelledByRole: role,
+        reason: cleanReason
+      }
     });
 
+    const updated = await vacationsRepository.findById(id);
+
     return {
+      ...updated,
       id,
       status: 'cancelled',
+      wasInProgress,
+      previousStatus,
+      freedFromDate,
       success: true,
-      message: 'Período de vacaciones cancelado con éxito'
+      message: wasInProgress
+        ? 'Vacaciones en curso canceladas; la disponibilidad quedó restablecida a partir de hoy'
+        : 'Período de vacaciones cancelado con éxito'
     };
   }
 
@@ -221,8 +297,21 @@ export class VacationsService {
     }
 
     const role = currentUser?.role || currentUser?.role_name;
-    if ((role === 'kinesiologist' || role === 'kinesiologo') && kinesiologistId !== currentUser.id) {
+    if (
+      role !== 'admin' &&
+      role !== 'receptionist' &&
+      role !== 'recepcionista' &&
+      role !== 'kinesiologist' &&
+      role !== 'kinesiologo'
+    ) {
+      throw new ForbiddenError('No posee permisos para consultar turnos afectados');
+    }
+    if ((role === 'kinesiologist' || role === 'kinesiologo') && Number(kinesiologistId) !== Number(currentUser.id)) {
       throw new ForbiddenError('Solo puede consultar turnos de sus propias vacaciones');
+    }
+
+    if (vacationId) {
+      return await vacationsRepository.findCancelledByVacation(vacationId);
     }
 
     const cleanStart = String(startDate).slice(0, 10);
@@ -231,88 +320,61 @@ export class VacationsService {
     return await vacationsRepository.findAffectedAppointments(kinesiologistId, cleanStart, cleanEnd);
   }
 
-  async reassignAppointment({ appointmentId, targetKinesiologistId, newStartTime, notes, notifyPatient = true }, currentUser) {
-    const appointment = await appointmentsRepository.findById(appointmentId);
-    if (!appointment) {
-      throw new NotFoundError('Turno no encontrado');
-    }
-
+  async reassignAppointment(_params, currentUser) {
     const role = currentUser?.role || currentUser?.role_name;
     if (role !== 'admin' && role !== 'receptionist' && role !== 'recepcionista') {
-      throw new ForbiddenError('Solo el personal de recepción o administración puede reasignar turnos afectados');
+      throw new ForbiddenError('Solo el personal de recepción o administración puede gestionar turnos afectados');
     }
 
-    const targetDate = newStartTime ? String(newStartTime).slice(0, 10) : String(appointment.start_time).slice(0, 10);
+    throw new BadRequestError(
+      'Los turnos afectados por vacaciones se cancelan automáticamente y no se reprograman ni reasignan a otro profesional.'
+    );
+  }
 
-    // Validar que el nuevo profesional no esté de vacaciones en esa fecha
-    if (targetKinesiologistId) {
-      const kineOnVacation = await vacationsRepository.isKinesiologistOnVacation(targetKinesiologistId, targetDate);
-      if (kineOnVacation) {
-        throw new ConflictError('El profesional seleccionado se encuentra de vacaciones en la fecha requerida');
-      }
+  async getCancellationNotifications(filters, currentUser) {
+    const role = currentUser?.role || currentUser?.role_name;
+    if (role !== 'admin' && role !== 'receptionist' && role !== 'recepcionista') {
+      throw new ForbiddenError('No posee permisos para consultar notificaciones de turnos cancelados');
     }
 
-    const updateFields = {
-      notes: notes !== undefined ? notes : appointment.notes
-    };
+    const [items, summary] = await Promise.all([
+      vacationsRepository.findCancellationNotifications(filters || {}),
+      vacationsRepository.getCancellationNotificationsSummary({
+        vacationId: filters?.vacationId,
+        kinesiologistId: filters?.kinesiologistId
+      })
+    ]);
 
-    if (targetKinesiologistId !== undefined) {
-      updateFields.kinesiologistId = targetKinesiologistId;
+    return { items, summary };
+  }
+
+  async markCancellationNotificationSent(notificationId, currentUser) {
+    const role = currentUser?.role || currentUser?.role_name;
+    if (role !== 'admin' && role !== 'receptionist' && role !== 'recepcionista') {
+      throw new ForbiddenError('No posee permisos para marcar notificaciones de pacientes como enviadas');
     }
 
-    if (newStartTime) {
-      updateFields.startTime = newStartTime;
-      const startD = new Date(newStartTime.replace(' ', 'T'));
-      if (!isNaN(startD.getTime())) {
-        let durationMinutes = 45;
-        if (appointment.start_time && appointment.end_time) {
-          const origStart = new Date(appointment.start_time);
-          const origEnd = new Date(appointment.end_time);
-          const diffMinutes = Math.round((origEnd.getTime() - origStart.getTime()) / 60000);
-          if (diffMinutes > 0) durationMinutes = diffMinutes;
-        }
-        const endD = new Date(startD.getTime() + durationMinutes * 60000);
-        const pad = (n) => String(n).padStart(2, '0');
-        updateFields.endTime = `${endD.getFullYear()}-${pad(endD.getMonth() + 1)}-${pad(endD.getDate())} ${pad(endD.getHours())}:${pad(endD.getMinutes())}:${pad(endD.getSeconds())}`;
-      }
+    const existing = await vacationsRepository.findCancellationNotificationById(notificationId);
+    if (!existing) {
+      throw new NotFoundError('Notificación de turno cancelado no encontrada');
     }
 
-    await appointmentsRepository.updateWithHistory(appointmentId, updateFields, currentUser.id);
-
-    // Notificar al paciente si corresponde
-    if (notifyPatient && appointment.patient_id) {
-      const patient = await patientsRepository.findById(appointment.patient_id);
-      if (patient && patient.user_id) {
-        let profName = 'un nuevo profesional';
-        if (targetKinesiologistId) {
-          const kine = await usersRepository.findById(targetKinesiologistId);
-          if (kine) profName = `Lic. ${kine.last_name}, ${kine.name}`;
-        }
-
-        await notificationsService.notify({
-          userId: patient.user_id,
-          patientId: patient.id,
-          type: 'APPOINTMENT_REASSIGNED',
-          title: 'Turno reorganizado',
-          message: `Tu turno ha sido reorganizado para ser atendido por ${profName} el ${targetDate}.`,
-          metadata: { appointmentId, newStartTime: newStartTime || appointment.start_time, targetKinesiologistId }
-        });
-      }
-    }
+    const updated = await vacationsRepository.markCancellationNotificationAsSent(notificationId, currentUser.id);
 
     await logAudit({
       userId: currentUser.id,
-      action: 'VACATION_APPOINTMENT_REASSIGNED',
-      entityType: 'appointment',
-      entityId: appointmentId,
+      action: 'VACATION_CANCELLATION_NOTIFICATION_SENT',
+      entityType: 'vacation_cancellation_notifications',
+      entityId: notificationId,
       details: {
-        originalKinesiologistId: appointment.kinesiologist_id,
-        targetKinesiologistId,
-        newStartTime
+        vacationId: existing.vacation_id,
+        appointmentId: existing.appointment_id,
+        patientId: existing.patient_id,
+        alreadyNotified: existing.tracking_status === 'notified'
       }
     });
 
-    return await appointmentsRepository.findById(appointmentId);
+    return updated;
   }
 
   async getActiveAlerts(currentUser) {

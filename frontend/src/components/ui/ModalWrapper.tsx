@@ -123,7 +123,7 @@ export const ModalWrapper: React.FC<ModalWrapperProps> = ({
               >
                 {title}
               </Text>
-              {subtitle && (
+              {Boolean(subtitle) && (
                 <Text
                   style={[
                     styles.subtitle,
@@ -151,7 +151,7 @@ export const ModalWrapper: React.FC<ModalWrapperProps> = ({
           </View>
 
           {/* SubHeader opcional (pestañas o filtros fijos) */}
-          {subHeader && (
+          {Boolean(subHeader) && (
             <View style={[styles.subHeader, { borderBottomColor: theme.borderSubtle, backgroundColor: theme.surface }]}>
               {subHeader}
             </View>
@@ -171,7 +171,7 @@ export const ModalWrapper: React.FC<ModalWrapperProps> = ({
           </ScrollView>
 
           {/* Footer Responsivo con Botones de Acción y Mensajes Estratégicos debajo */}
-          {(footer || errorMessage || successMessage) && (
+          {Boolean(footer || errorMessage || successMessage) && (
             <View
               style={[
                 styles.footerContainer,
@@ -179,7 +179,7 @@ export const ModalWrapper: React.FC<ModalWrapperProps> = ({
                 isSmallPhone && { paddingHorizontal: spacing.sm, paddingVertical: spacing.sm }
               ]}
             >
-              {footer && (
+              {Boolean(footer) && (
                 <View style={[styles.footerButtons, isSmallPhone && { gap: spacing.xs }]}>
                   {footer}
                 </View>

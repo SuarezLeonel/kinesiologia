@@ -390,7 +390,7 @@ export const DateInput: React.FC<DateInputProps> = ({
             </View>
           )}
 
-          {disabledFeedback && (
+          {Boolean(disabledFeedback) && (
             <View style={[styles.feedbackBanner, { backgroundColor: theme.errorBg, borderColor: theme.error }]}>
               <MaterialIcons name="event-busy" size={20} color={theme.error} />
               <Text style={[styles.feedbackText, { color: theme.error }]}>{disabledFeedback}</Text>
@@ -427,7 +427,7 @@ export const DateInput: React.FC<DateInputProps> = ({
   // RENDERIZADO INTERACTIVO CON CALENDARIO VISUAL ACCESIBLE (Móvil + Web)
   return (
     <View style={[styles.container, containerStyle]}>
-      {label && (
+      {Boolean(label) && (
         <View style={styles.labelRow}>
           <Text style={[styles.label, { color: theme.text }]}>
             {label}

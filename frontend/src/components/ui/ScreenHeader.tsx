@@ -26,13 +26,13 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
     <View style={[styles.container, style]}>
       <View style={styles.textContainer}>
         <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
-        {subtitle && (
+        {Boolean(subtitle) && (
           <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
             {subtitle}
           </Text>
         )}
       </View>
-      {action && <View style={styles.actionContainer}>{action}</View>}
+      {Boolean(action) && <View style={styles.actionContainer}>{action}</View>}
     </View>
   );
 };

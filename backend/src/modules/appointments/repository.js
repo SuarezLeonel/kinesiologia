@@ -42,6 +42,7 @@ export class AppointmentsRepository {
              a.kinesiologist_id, u.name as kinesiologist_name, u.last_name as kinesiologist_last_name,
              a.service_id, s.name as service_name, s.default_price as service_default_price,
              a.start_time, a.end_time, a.status, a.notes,
+             a.cancellation_reason, a.cancelled_by_vacation_id,
              a.agreed_price, a.currency, a.created_at,
              pay.id as payment_id,
              CASE WHEN pay.id IS NOT NULL THEN 1 ELSE 0 END as is_paid

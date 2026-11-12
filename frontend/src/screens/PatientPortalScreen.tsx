@@ -2,7 +2,7 @@
  * @file PatientPortalScreen.tsx
  * @description Pantalla del portal del paciente: ejercicios de Home Care y registro de cumplimiento con escala EVA.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { apiClient } from '../api/client';
+import { cachedPost, isRequestCanceled } from '../api/queryCache';
 import { useAuth } from '../context/AuthContext';
 import { useDataSync } from '../context/DataSyncContext';
 import { useAppTheme } from '../theme/ThemeContext';
@@ -158,19 +159,28 @@ export const PatientPortalScreen: React.FC = () => {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
 
-  const loadData = async (silent = false) => {
+  const portalAbortRef = useRef<AbortController | null>(null);
+
+  const loadData = async (silent = false, forceRefresh = false) => {
+    if (portalAbortRef.current) {
+      portalAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    portalAbortRef.current = controller;
+
     try {
       if (!silent) {
         setError(null);
       }
-      // REGLA HTTP ESTRICTA: Consultas de negocio por POST
+      // REGLA HTTP ESTRICTA: Consultas de negocio por POST (con caché y deduplicación in-flight)
       const [dashRes, apptsRes, catRes, profRes, routinesRes] = await Promise.all([
-        apiClient.post('/patient-portal/dashboard', {}),
-        apiClient.post('/patient-portal/my-appointments', {}),
-        apiClient.post('/patient-portal/catalog', {}),
-        apiClient.post('/patient-portal/my-profile', {}),
-        apiClient.post('/patient-portal/my-routines', {})
+        cachedPost('/patient-portal/dashboard', {}, { forceRefresh, signal: controller.signal }),
+        cachedPost('/patient-portal/my-appointments', {}, { forceRefresh, signal: controller.signal }),
+        cachedPost('/patient-portal/catalog', {}, { staleTimeMs: 60_000, forceRefresh, signal: controller.signal }),
+        cachedPost('/patient-portal/my-profile', {}, { staleTimeMs: 30_000, forceRefresh, signal: controller.signal }),
+        cachedPost('/patient-portal/my-routines', {}, { forceRefresh, signal: controller.signal })
       ]);
+      if (controller.signal.aborted) return;
 
       if (dashRes.data?.success) setDashboardData(dashRes.data.data);
       if (apptsRes.data?.success) setMyAppointments(apptsRes.data.data);
@@ -191,24 +201,33 @@ export const PatientPortalScreen: React.FC = () => {
       }
       setError(null);
     } catch (err: any) {
+      if (isRequestCanceled(err) || controller.signal.aborted) return;
       if (!silent || (!dashboardData && myAppointments.length === 0)) {
         setError(err.response?.data?.error?.message || 'Error al conectar con el portal de pacientes');
       }
     } finally {
+      if (portalAbortRef.current === controller) {
+        portalAbortRef.current = null;
+      }
       setLoading(false);
       setRefreshing(false);
     }
   };
 
   useEffect(() => {
-    loadData(false);
+    loadData(false, false);
+    return () => {
+      if (portalAbortRef.current) {
+        portalAbortRef.current.abort();
+      }
+    };
   }, []);
 
   useEffect(() => {
     if (scopeVersions.patientPortal > 0) {
-      loadData(true);
+      loadData(true, true);
       if (selectedRoutineId) {
-        fetchComplianceLogs(selectedRoutineId);
+        fetchComplianceLogs(selectedRoutineId, true);
       }
     }
   }, [scopeVersions.patientPortal]);
@@ -216,7 +235,7 @@ export const PatientPortalScreen: React.FC = () => {
   useEffect(() => {
     if (!loading) {
       if (activeTab === 'ejercicios' && selectedRoutineId) {
-        fetchComplianceLogs(selectedRoutineId);
+        fetchComplianceLogs(selectedRoutineId, false);
       }
     }
   }, [activeTab]);
@@ -439,11 +458,13 @@ export const PatientPortalScreen: React.FC = () => {
     }
   };
 
-  const fetchComplianceLogs = async (routineId?: number) => {
+  const fetchComplianceLogs = async (routineId?: number, forceRefresh = false) => {
     try {
-      const res = await apiClient.post('/patient-portal/my-exercise-logs', {
-        routineId: routineId || undefined
-      });
+      const res = await cachedPost(
+        '/patient-portal/my-exercise-logs',
+        { routineId: routineId || undefined },
+        { forceRefresh }
+      );
       if (res.data?.success) {
         setComplianceLogs(res.data.data || []);
       }
@@ -619,7 +640,7 @@ export const PatientPortalScreen: React.FC = () => {
       {/* Contenido principal según pestaña */}
       <ScrollView
         contentContainerStyle={[styles.scrollContent, isSmallPhone && { paddingHorizontal: spacing.sm }]}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} tintColor={theme.primary} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(true, true); }} tintColor={theme.primary} />}
       >
         {/* ========================================== */}
         {/* PESTAÑA 1: INICIO */}
@@ -708,7 +729,7 @@ export const PatientPortalScreen: React.FC = () => {
             <Card elevated style={styles.heroCard} padding="lg">
               <View style={styles.cardHeaderRow}>
                 <Text style={[styles.cardTitle, { color: theme.text }]}>Tu próximo turno</Text>
-                {nextAppt && (
+                {Boolean(nextAppt) && (
                   <Badge
                     label={nextAppt.status === 'confirmed' ? 'Confirmado' : 'Programado'}
                     variant={nextAppt.status === 'confirmed' ? 'success' : 'info'}
@@ -804,7 +825,7 @@ export const PatientPortalScreen: React.FC = () => {
                     </Text>
                   ) : null}
                 </View>
-                {dashboardData?.activeRoutine && (
+                {Boolean(dashboardData?.activeRoutine) && (
                   <Badge label="Vigente" variant="success" size="md" />
                 )}
               </View>
@@ -815,7 +836,7 @@ export const PatientPortalScreen: React.FC = () => {
                     <Text style={[styles.routineOverviewName, { color: theme.text }]}>
                       {dashboardData.activeRoutine.name}
                     </Text>
-                    {dashboardData.activeRoutine.valid_from && (
+                    {Boolean(dashboardData.activeRoutine.valid_from) && (
                       <Text style={[styles.routineValidityText, { color: theme.textSecondary }]}>
                         Desde el {new Date(dashboardData.activeRoutine.valid_from).toLocaleDateString('es-AR')}
                         {dashboardData.activeRoutine.valid_until ? ` hasta el ${new Date(dashboardData.activeRoutine.valid_until).toLocaleDateString('es-AR')}` : ''}
@@ -973,7 +994,7 @@ export const PatientPortalScreen: React.FC = () => {
                               Desde: {currentRoutine.valid_from ? new Date(currentRoutine.valid_from).toLocaleDateString('es-AR') : 'Inicio del tratamiento'}
                             </Text>
                           </View>
-                          {currentRoutine.valid_until && (
+                          {Boolean(currentRoutine.valid_until) && (
                             <View style={styles.routineDateItem}>
                               <MaterialIcons name="event-available" size={20} color={theme.textSecondary} />
                               <Text style={[styles.gridText, { color: theme.textSecondary }]}>
@@ -1019,9 +1040,9 @@ export const PatientPortalScreen: React.FC = () => {
                                 <View style={{ flex: 1 }}>
                                   <Text style={[styles.exerciseName, { color: theme.text }]}>{ex.name}</Text>
                                   <View style={styles.badgeRow}>
-                                    {ex.category && <Badge label={ex.category} variant="info" size="md" />}
-                                    {ex.body_zone && <Badge label={ex.body_zone} variant="default" size="md" />}
-                                    {ex.difficulty_level && <Badge label={ex.difficulty_level} variant="neutral" size="md" />}
+                                    {Boolean(ex.category) && <Badge label={ex.category} variant="info" size="md" />}
+                                    {Boolean(ex.body_zone) && <Badge label={ex.body_zone} variant="default" size="md" />}
+                                    {Boolean(ex.difficulty_level) && <Badge label={ex.difficulty_level} variant="neutral" size="md" />}
                                   </View>
                                 </View>
                                 {isDoneToday ? (
@@ -1430,6 +1451,15 @@ export const PatientPortalScreen: React.FC = () => {
                               ${Number(appt.agreed_price).toLocaleString('es-AR')} {appt.currency || 'ARS'}
                             </Text>
                           </View>
+
+                          {appt.status === 'cancelled' && appt.cancellation_reason ? (
+                            <View style={styles.apptGridItem}>
+                              <MaterialIcons name="info-outline" size={22} color={theme.error} />
+                              <Text style={[styles.gridText, { color: theme.error, fontWeight: '600' }]}>
+                                Motivo: {appt.cancellation_reason}
+                              </Text>
+                            </View>
+                          ) : null}
                         </View>
                       </Card>
                     ))}
@@ -1504,13 +1534,13 @@ export const PatientPortalScreen: React.FC = () => {
               />
 
               {/* Mensajes de error o éxito inmediatamente debajo del botón de acción */}
-              {profileError && (
+              {Boolean(profileError) && (
                 <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error, marginTop: spacing.sm }]}>
                   <Text style={[styles.modalBannerText, { color: theme.error }]}>{profileError}</Text>
                 </View>
               )}
 
-              {profileSuccess && (
+              {Boolean(profileSuccess) && (
                 <View style={[styles.successBanner, { backgroundColor: theme.successBg, borderColor: theme.success, marginTop: spacing.sm }]}>
                   <Text style={[styles.successBannerText, { color: theme.success }]}>{profileSuccess}</Text>
                 </View>
@@ -1556,13 +1586,13 @@ export const PatientPortalScreen: React.FC = () => {
               />
 
               {/* Mensajes de error o éxito inmediatamente debajo del botón de acción */}
-              {passwordError && (
+              {Boolean(passwordError) && (
                 <View style={[styles.modalBanner, { backgroundColor: theme.errorBg, borderColor: theme.error, marginTop: spacing.sm }]}>
                   <Text style={[styles.modalBannerText, { color: theme.error }]}>{passwordError}</Text>
                 </View>
               )}
 
-              {passwordSuccess && (
+              {Boolean(passwordSuccess) && (
                 <View style={[styles.successBanner, { backgroundColor: theme.successBg, borderColor: theme.success, marginTop: spacing.sm }]}>
                   <Text style={[styles.successBannerText, { color: theme.success }]}>{passwordSuccess}</Text>
                 </View>
@@ -2059,7 +2089,7 @@ export const PatientPortalScreen: React.FC = () => {
           ¿Estás seguro de que querés cancelar este turno?
         </Text>
 
-        {appointmentToCancel && (
+        {Boolean(appointmentToCancel) && (
           <View style={[styles.summaryBox, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border, marginTop: spacing.sm }]}>
             <Text style={[styles.summaryText, { color: theme.text, fontWeight: '700' }]}>
               {appointmentToCancel.service_name}

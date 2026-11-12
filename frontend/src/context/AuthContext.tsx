@@ -4,8 +4,17 @@
  * Administra el estado de sesión, tokens en SecureStore, login tradicional, login social y logout.
  */
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import * as SecureStore from 'expo-secure-store';
-import { apiClient, refreshSessionTokens, subscribeToSessionExpired } from '../api/client';
+import {
+  apiClient,
+  refreshSessionTokens,
+  subscribeToSessionExpired,
+  tokenStorage,
+  isTokenExpired,
+  ACCESS_TOKEN_KEY,
+  REFRESH_TOKEN_KEY,
+  USER_STORAGE_KEY
+} from '../api/client';
+import { clearQueryCache } from '../api/queryCache';
 import { API_BASE_URL } from '../api/config';
 
 export type UserRole = 'admin' | 'kinesiologo' | 'recepcionista' | 'paciente';
@@ -112,81 +121,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
-const USER_STORAGE_KEY = 'kine_current_user';
-const ACCESS_TOKEN_KEY = 'kine_access_token';
-const REFRESH_TOKEN_KEY = 'kine_refresh_token';
-
-// Helper compatible con Web y Móvil (SecureStore no soporta web por defecto)
-const storage = {
-  async getItem(key: string): Promise<string | null> {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        return window.localStorage.getItem(key);
-      }
-      return await SecureStore.getItemAsync(key);
-    } catch {
-      return null;
-    }
-  },
-  async setItem(key: string, value: string): Promise<void> {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem(key, value);
-        return;
-      }
-      await SecureStore.setItemAsync(key, value);
-    } catch {}
-  },
-  async deleteItem(key: string): Promise<void> {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.removeItem(key);
-        return;
-      }
-      await SecureStore.deleteItemAsync(key);
-    } catch {}
-  }
-};
-
-function isTokenExpired(token: string | null): boolean {
-  if (!token) return true;
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return true;
-    const base64Url = parts[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    let decoded = '';
-    if (typeof atob === 'function') {
-      decoded = atob(base64);
-    } else {
-      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
-      const str = base64.replace(/=+$/, '');
-      let bs = 0;
-      let bc = 0;
-      for (let idx = 0; idx < str.length; idx++) {
-        const buffer = chars.indexOf(str.charAt(idx));
-        if (buffer === -1) continue;
-        bs = bc % 4 ? bs * 64 + buffer : buffer;
-        if (bc++ % 4) {
-          decoded += String.fromCharCode(255 & (bs >> ((-2 * bc) & 6)));
-        }
-      }
-    }
-    const jsonPayload = decodeURIComponent(
-      decoded
-        .split('')
-        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-        .join('')
-    );
-    const payload = JSON.parse(jsonPayload);
-    if (!payload.exp) return false;
-    // Si expira en menos de 30 segundos, se considera vencido para renovarlo preventivamente
-    return Date.now() >= payload.exp * 1000 - 30000;
-  } catch {
-    return true;
-  }
-}
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -196,6 +130,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Suscripción al cierre global de sesión cuando un refresh token expira definitivamente
     const unsubscribeSession = subscribeToSessionExpired(() => {
+      clearQueryCache();
       if (mounted) {
         setUser(null);
       }
@@ -203,9 +138,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     (async () => {
       try {
-        const savedUser = await storage.getItem(USER_STORAGE_KEY);
-        let accessToken = await storage.getItem(ACCESS_TOKEN_KEY);
-        const refreshToken = await storage.getItem(REFRESH_TOKEN_KEY);
+        const savedUser = await tokenStorage.getItem(USER_STORAGE_KEY);
+        let accessToken = await tokenStorage.getItem(ACCESS_TOKEN_KEY);
+        const refreshToken = await tokenStorage.getItem(REFRESH_TOKEN_KEY);
 
         if (savedUser && (accessToken || refreshToken)) {
           // Si el access token ya expiró o no existe, renovarlo antes de dar inicio a la interfaz
@@ -214,15 +149,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (renewedToken) {
               accessToken = renewedToken;
             } else {
-              // Si la renovación falló, limpiar sesión y mostrar login
-              await storage.deleteItem(USER_STORAGE_KEY);
-              await storage.deleteItem(ACCESS_TOKEN_KEY);
-              await storage.deleteItem(REFRESH_TOKEN_KEY);
-              if (mounted) {
-                setUser(null);
-                setIsLoading(false);
+              // Solo si la sesión fue invalidada (tokens eliminados), limpiar usuario y mostrar login
+              const stillHasRefresh = await tokenStorage.getItem(REFRESH_TOKEN_KEY);
+              if (!stillHasRefresh) {
+                await tokenStorage.deleteItem(USER_STORAGE_KEY);
+                await tokenStorage.deleteItem(ACCESS_TOKEN_KEY);
+                if (mounted) {
+                  setUser(null);
+                  setIsLoading(false);
+                }
+                return;
               }
-              return;
             }
           }
 
@@ -254,15 +191,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const response = await apiClient.post('/auth/login', { email, password });
       if (response.data?.success) {
+        clearQueryCache();
         const { user: rawUser, accessToken, refreshToken } = response.data.data;
         const normalizedUser: User = {
           ...rawUser,
           role: normalizeRole(rawUser.role || rawUser.role_name),
           lastName: rawUser.lastName || rawUser.last_name || ''
         };
-        await storage.setItem(ACCESS_TOKEN_KEY, accessToken);
-        await storage.setItem(REFRESH_TOKEN_KEY, refreshToken);
-        await storage.setItem(USER_STORAGE_KEY, JSON.stringify(normalizedUser));
+        await tokenStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+        await tokenStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+        await tokenStorage.setItem(USER_STORAGE_KEY, JSON.stringify(normalizedUser));
         setUser(normalizedUser);
         return { success: true };
       }
@@ -286,15 +224,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const resData = response.data.data;
         const { user: rawUser, tokens, linkedToExistingPatient, requiresVerification, emailSent } = resData;
         if (tokens?.accessToken) {
+          clearQueryCache();
           const normalizedUser: User = {
             ...rawUser,
             role: normalizeRole(rawUser.role || rawUser.role_name),
             lastName: rawUser.lastName || rawUser.last_name || '',
             patientId: resData.patientId
           };
-          await storage.setItem(ACCESS_TOKEN_KEY, tokens.accessToken);
-          await storage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
-          await storage.setItem(USER_STORAGE_KEY, JSON.stringify(normalizedUser));
+          await tokenStorage.setItem(ACCESS_TOKEN_KEY, tokens.accessToken);
+          await tokenStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
+          await tokenStorage.setItem(USER_STORAGE_KEY, JSON.stringify(normalizedUser));
           setUser(normalizedUser);
         }
         return {
@@ -416,9 +355,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           patientId
         };
         if (tokens?.accessToken) {
-          await storage.setItem(ACCESS_TOKEN_KEY, accessTokenOrFallback(tokens.accessToken));
-          await storage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
-          await storage.setItem(USER_STORAGE_KEY, JSON.stringify(normalizedUser));
+          clearQueryCache();
+          await tokenStorage.setItem(ACCESS_TOKEN_KEY, accessTokenOrFallback(tokens.accessToken));
+          await tokenStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
+          await tokenStorage.setItem(USER_STORAGE_KEY, JSON.stringify(normalizedUser));
           setUser(normalizedUser);
         }
         return { success: true };
@@ -441,16 +381,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
+    clearQueryCache();
     try {
-      const refreshToken = await storage.getItem(REFRESH_TOKEN_KEY);
+      const refreshToken = await tokenStorage.getItem(REFRESH_TOKEN_KEY);
       if (refreshToken) {
         await apiClient.post('/auth/logout', { refreshToken });
       }
     } catch (e) {
     } finally {
-      await storage.deleteItem(ACCESS_TOKEN_KEY);
-      await storage.deleteItem(REFRESH_TOKEN_KEY);
-      await storage.deleteItem(USER_STORAGE_KEY);
+      clearQueryCache();
+      await tokenStorage.deleteItem(ACCESS_TOKEN_KEY);
+      await tokenStorage.deleteItem(REFRESH_TOKEN_KEY);
+      await tokenStorage.deleteItem(USER_STORAGE_KEY);
       setUser(null);
     }
   };

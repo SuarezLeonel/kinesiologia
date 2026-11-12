@@ -3,11 +3,11 @@
  * @description Pantalla principal de resumen diario: turnos del día y bloque de caja modular según rol.
  * Adaptada responsive integral: Mobile First, métricas en 1, 2 o 4 columnas, y contenedor centrado.
  */
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { apiClient } from '../api/client';
+import { cachedPost, isRequestCanceled } from '../api/queryCache';
 import { useAuth } from '../context/AuthContext';
 import { useDataSync } from '../context/DataSyncContext';
 import { useAppTheme } from '../theme/ThemeContext';
@@ -28,16 +28,32 @@ export const DashboardScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [vacationAlerts, setVacationAlerts] = useState<any[]>([]);
 
-  const fetchDashboard = useCallback(async (silent = false) => {
+  const hasLoadedRef = useRef(false);
+  const isFocusedRef = useRef(false);
+  const needsRefreshRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const fetchDashboard = useCallback(async (silent = false, forceRefresh = false) => {
+    if (!user) return;
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       if (!silent) {
         setError(null);
       }
-      // REGLA HTTP ESTRICTA: POST para consultas con payload
+      // REGLA HTTP ESTRICTA: POST para consultas con payload, deduplicado y con caché
       const [response, alertsRes] = await Promise.all([
-        apiClient.post('/dashboard/summary', {}),
-        (isAdmin || isReceptionist) ? apiClient.post('/vacations/alerts', {}) : Promise.resolve({ data: { data: [] } })
+        cachedPost('/dashboard/summary', {}, { forceRefresh, signal: controller.signal }),
+        (isAdmin || isReceptionist)
+          ? cachedPost('/vacations/alerts', {}, { forceRefresh, signal: controller.signal })
+          : Promise.resolve({ data: { data: [] } })
       ]);
+
+      if (controller.signal.aborted) return;
 
       if (response.data?.success) {
         setData(response.data.data);
@@ -47,29 +63,45 @@ export const DashboardScreen = () => {
       if (alertsRes?.data?.data) {
         setVacationAlerts(Array.isArray(alertsRes.data.data) ? alertsRes.data.data : []);
       }
+      hasLoadedRef.current = true;
     } catch (err: any) {
+      if (isRequestCanceled(err) || controller.signal.aborted) return;
       if (!silent) {
         setError(err.response?.data?.error?.message || 'Error al conectar con la API');
       }
     } finally {
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+      }
       setLoading(false);
       setRefreshing(false);
     }
-  }, [isAdmin, isReceptionist]);
+  }, [user, isAdmin, isReceptionist]);
 
   useEffect(() => {
-    fetchDashboard(false);
-  }, [fetchDashboard]);
-
-  useEffect(() => {
-    if (scopeVersions.dashboard > 0) {
-      fetchDashboard(true);
+    if (!user) return;
+    if (scopeVersions.dashboard === 0 && scopeVersions.vacations === 0) return;
+    if (isFocusedRef.current) {
+      fetchDashboard(true, true);
+    } else {
+      needsRefreshRef.current = true;
     }
-  }, [scopeVersions.dashboard, fetchDashboard]);
+  }, [scopeVersions.dashboard, scopeVersions.vacations, user, fetchDashboard]);
 
   useFocusEffect(
     useCallback(() => {
-      fetchDashboard(true);
+      isFocusedRef.current = true;
+      const shouldForce = needsRefreshRef.current;
+      needsRefreshRef.current = false;
+      fetchDashboard(hasLoadedRef.current, shouldForce);
+
+      return () => {
+        isFocusedRef.current = false;
+        if (abortRef.current) {
+          abortRef.current.abort();
+          abortRef.current = null;
+        }
+      };
     }, [fetchDashboard])
   );
 
@@ -110,7 +142,7 @@ export const DashboardScreen = () => {
           refreshing={refreshing}
           onRefresh={() => {
             setRefreshing(true);
-            fetchDashboard();
+            fetchDashboard(true, true);
           }}
           tintColor={theme.primary}
         />
@@ -143,9 +175,11 @@ export const DashboardScreen = () => {
           <View style={styles.vacationAlertsContainer}>
             {vacationAlerts.map((al) => {
               const kineFullName = `Lic. ${al.kinesiologist_last_name || ''}, ${al.kinesiologist_name || ''}`.trim();
+              const kineNombreApellido = `${al.kinesiologist_name || ''} ${al.kinesiologist_last_name || ''}`.trim() || kineFullName;
               const startFmt = al.start_date || al.startDate;
               const endFmt = al.end_date || al.endDate;
               const pendingCount = al.pending_affected_count || al.pendingAffectedCount || 0;
+              const isCreatedByAdmin = al.created_by_role === 'admin' || al.createdByRole === 'admin';
 
               return (
                 <View
@@ -164,21 +198,36 @@ export const DashboardScreen = () => {
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.vacationAlertTitle, { color: theme.text }]}>
-                        Atención en agenda: Reorganización requerida ({pendingCount} {pendingCount === 1 ? 'turno' : 'turnos'})
+                        Notificaciones pendientes por vacaciones ({pendingCount} {pendingCount === 1 ? 'turno cancelado' : 'turnos cancelados'})
                       </Text>
                       <Text style={[styles.vacationAlertMessage, { color: theme.textSecondary }]}>
-                        El kinesiólogo <Text style={{ fontWeight: typography.fontWeight.bold, color: theme.text }}>{kineFullName}</Text> estará de vacaciones desde el <Text style={{ fontWeight: typography.fontWeight.semibold }}>{startFmt}</Text> hasta el <Text style={{ fontWeight: typography.fontWeight.semibold }}>{endFmt}</Text>. Tiene turnos asignados durante este período que necesitan ser reorganizados. Por favor, seleccioná nuevamente el horario y profesional correspondiente.
+                        {isCreatedByAdmin ? (
+                          <>
+                            Se registraron vacaciones para{' '}
+                            <Text style={{ fontWeight: typography.fontWeight.bold, color: theme.text }}>{kineNombreApellido}</Text>
+                            , desde el <Text style={{ fontWeight: typography.fontWeight.semibold }}>{startFmt}</Text> hasta el{' '}
+                            <Text style={{ fontWeight: typography.fontWeight.semibold }}>{endFmt}</Text>. Hay {pendingCount}{' '}
+                            {pendingCount === 1 ? 'turno cancelado automáticamente pendiente' : 'turnos cancelados automáticamente pendientes'} de notificar al paciente.
+                          </>
+                        ) : (
+                          <>
+                            El kinesiólogo <Text style={{ fontWeight: typography.fontWeight.bold, color: theme.text }}>{kineNombreApellido}</Text> estará de vacaciones desde el{' '}
+                            <Text style={{ fontWeight: typography.fontWeight.semibold }}>{startFmt}</Text> hasta el{' '}
+                            <Text style={{ fontWeight: typography.fontWeight.semibold }}>{endFmt}</Text>. Se cancelaron automáticamente {pendingCount}{' '}
+                            {pendingCount === 1 ? 'turno pendiente' : 'turnos pendientes'} de notificar al paciente.
+                          </>
+                        )}
                       </Text>
                     </View>
                   </View>
 
                   <View style={[styles.vacationAlertActionRow, { borderTopColor: theme.border }]}>
                     <Button
-                      title="Reorganizar turnos ahora"
+                      title="Gestionar notificaciones"
                       variant="primary"
                       size="sm"
-                      onPress={() => navigation.navigate('Vacations')}
-                      icon={<MaterialIcons name="shuffle" size={16} color="#FFFFFF" />}
+                      onPress={() => navigation.navigate('Vacations', { vacationId: al.id })}
+                      icon={<MaterialIcons name="notifications-active" size={16} color="#FFFFFF" />}
                     />
                   </View>
                 </View>
@@ -223,7 +272,7 @@ export const DashboardScreen = () => {
         </View>
 
         {/* Recaudación Financiera (si el usuario tiene permisos autorizados en el backend) */}
-        {data?.financial && (
+        {Boolean(data?.financial) && (
           <>
             <View style={styles.sectionHeaderRow}>
               <Text style={[styles.sectionTitle, { color: theme.textSecondary, marginTop: spacing.lg }]}>

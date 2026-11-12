@@ -8,14 +8,14 @@ import { Platform } from 'react-native';
 export const DEFAULT_CLOUD_API_URL = 'https://kinesiologia-backend.onrender.com/api/v1';
 
 const getApiUrl = () => {
-  // 1. Configuración explícita en app.json (extra.apiUrl)
-  if (Constants.expoConfig?.extra?.apiUrl) {
-    return Constants.expoConfig.extra.apiUrl;
-  }
-
-  // 2. Variable de entorno inyectada durante la compilación o en ejecución
+  // 1. Variable de entorno explícita (ej. .env local o build CI/EAS)
   if (process.env.EXPO_PUBLIC_API_URL) {
     return process.env.EXPO_PUBLIC_API_URL;
+  }
+
+  // 2. Configuración explícita en app.json (extra.apiUrl)
+  if (Constants.expoConfig?.extra?.apiUrl) {
+    return Constants.expoConfig.extra.apiUrl;
   }
 
   // 3. En builds nativos (APK standalone / producción), conectar siempre al servidor en la nube

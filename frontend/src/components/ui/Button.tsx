@@ -151,7 +151,7 @@ export const Button: React.FC<ButtonProps> = ({
         <ActivityIndicator size="small" color={v.text} />
       ) : (
         <>
-          {icon && <>{icon}</>}
+          {Boolean(icon) && <>{icon}</>}
           <Text
             style={[
               styles.text,

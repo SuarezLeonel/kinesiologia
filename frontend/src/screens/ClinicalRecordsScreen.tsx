@@ -2,7 +2,7 @@
  * @file ClinicalRecordsScreen.tsx
  * @description Pantalla de historias clínicas: motivo de consulta, escala EVA (0-10), evoluciones y exportación a PDF.
  */
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { MaterialIcons } from '@expo/vector-icons';
 import { apiClient } from '../api/client';
+import { cachedPost, isRequestCanceled } from '../api/queryCache';
 import { useDataSync } from '../context/DataSyncContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -110,34 +111,63 @@ export const ClinicalRecordsScreen = () => {
     });
   }, [patients, patientSearch]);
 
-  const fetchRecords = async (query = '', silent = false) => {
+  const recordsAbortRef = useRef<AbortController | null>(null);
+  const isFocusedRef = useRef(false);
+  const hasLoadedRef = useRef(false);
+  const needsRecordsRefreshRef = useRef(false);
+  const needsPatientsRefreshRef = useRef(false);
+  const hasMountedSearchRef = useRef(false);
+  const searchTermRef = useRef(searchTerm);
+  searchTermRef.current = searchTerm;
+
+  const fetchRecords = async (query = '', silent = false, forceRefresh = false) => {
     if (isReceptionist) return;
+    if (recordsAbortRef.current) {
+      recordsAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    recordsAbortRef.current = controller;
+
     try {
       if (!silent) {
         setError(null);
       }
       // REGLA HTTP ESTRICTA: POST para consultas
-      const response = await apiClient.post('/clinical-records/search', {
-        search: query || undefined,
-        limit: 50
-      });
+      const response = await cachedPost(
+        '/clinical-records/search',
+        {
+          search: query || undefined,
+          limit: 50
+        },
+        { forceRefresh, signal: controller.signal }
+      );
+      if (controller.signal.aborted) return;
       if (response.data?.success) {
         setRecords(response.data.data || []);
         setError(null);
+        hasLoadedRef.current = true;
       }
     } catch (err: any) {
+      if (isRequestCanceled(err) || controller.signal.aborted) return;
       if (!silent || records.length === 0) {
         setError(err.response?.data?.error?.message || 'Error al obtener historias clínicas');
       }
     } finally {
+      if (recordsAbortRef.current === controller) {
+        recordsAbortRef.current = null;
+      }
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  const fetchPatientsList = async () => {
+  const fetchPatientsList = async (forceRefresh = false) => {
     try {
-      const res = await apiClient.post('/patients/search', { page: 1, limit: 300 });
+      const res = await cachedPost(
+        '/patients/search',
+        { page: 1, limit: 300 },
+        { staleTimeMs: 30_000, forceRefresh }
+      );
       if (res.data?.success) {
         const list = res.data.data || [];
         setPatients(list);
@@ -148,41 +178,65 @@ export const ClinicalRecordsScreen = () => {
     } catch (e) {}
   };
 
-  // Búsqueda en tiempo real mientras escribe con debounce de 250ms
+  // Búsqueda en tiempo real mientras escribe con debounce de 250ms (sin duplicar carga inicial)
   useEffect(() => {
     if (isReceptionist) return;
+    if (!hasMountedSearchRef.current) {
+      hasMountedSearchRef.current = true;
+      return;
+    }
     const timeout = setTimeout(() => {
-      fetchRecords(searchTerm, true);
+      if (isFocusedRef.current) {
+        fetchRecords(searchTerm, true, false);
+      }
     }, 250);
     return () => clearTimeout(timeout);
   }, [searchTerm, isReceptionist]);
 
   useEffect(() => {
-    if (!isReceptionist) {
-      fetchRecords(searchTerm, false);
-      fetchPatientsList();
+    if (isReceptionist) return;
+    if (scopeVersions.clinicalRecords > 0 || scopeVersions.treatments > 0) {
+      if (isFocusedRef.current) {
+        fetchRecords(searchTermRef.current, true, true);
+      } else {
+        needsRecordsRefreshRef.current = true;
+      }
     }
-  }, [isReceptionist]);
+  }, [scopeVersions.clinicalRecords, scopeVersions.treatments, isReceptionist]);
 
   useEffect(() => {
     if (isReceptionist) return;
-    if (
-      scopeVersions.clinicalRecords > 0 ||
-      scopeVersions.patients > 0 ||
-      scopeVersions.treatments > 0
-    ) {
-      fetchRecords(searchTerm, true);
-      fetchPatientsList();
+    if (scopeVersions.patients > 0) {
+      if (isFocusedRef.current) {
+        fetchRecords(searchTermRef.current, true, true);
+        fetchPatientsList(true);
+      } else {
+        needsRecordsRefreshRef.current = true;
+        needsPatientsRefreshRef.current = true;
+      }
     }
-  }, [scopeVersions.clinicalRecords, scopeVersions.patients, scopeVersions.treatments, isReceptionist]);
+  }, [scopeVersions.patients, isReceptionist]);
 
   useFocusEffect(
     useCallback(() => {
-      if (!isReceptionist) {
-        fetchRecords(searchTerm, true);
-        fetchPatientsList();
-      }
-    }, [searchTerm, isReceptionist])
+      if (isReceptionist) return;
+      isFocusedRef.current = true;
+      const forceRecords = needsRecordsRefreshRef.current;
+      const forcePatients = needsPatientsRefreshRef.current;
+      needsRecordsRefreshRef.current = false;
+      needsPatientsRefreshRef.current = false;
+
+      fetchRecords(searchTermRef.current, hasLoadedRef.current, forceRecords);
+      fetchPatientsList(forcePatients);
+
+      return () => {
+        isFocusedRef.current = false;
+        if (recordsAbortRef.current) {
+          recordsAbortRef.current.abort();
+          recordsAbortRef.current = null;
+        }
+      };
+    }, [isReceptionist])
   );
 
   const onCreateRecord = async (data: ClinicalRecordFormData) => {
@@ -359,7 +413,7 @@ export const ClinicalRecordsScreen = () => {
       </View>
 
       {/* Banner de descarga de PDF */}
-      {downloadFeedback && (
+      {Boolean(downloadFeedback) && (
         <View style={[styles.downloadFeedbackBanner, { backgroundColor: theme.primaryLight + '35', borderColor: theme.primary + '60' }]}>
           <MaterialIcons name="picture-as-pdf" size={18} color={theme.primary} style={{ marginRight: spacing.xs }} />
           <Text style={[styles.downloadFeedbackText, { color: theme.text }]}>
@@ -379,7 +433,7 @@ export const ClinicalRecordsScreen = () => {
             refreshing={refreshing}
             onRefresh={() => {
               setRefreshing(true);
-              fetchRecords(searchTerm);
+              fetchRecords(searchTerm, true, true);
             }}
             tintColor={theme.primary}
           />

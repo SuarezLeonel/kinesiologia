@@ -2,7 +2,7 @@
  * @file PatientRoutinesModal.tsx
  * @description Modal clínico para visualización y asignación de rutinas de tratamiento al paciente.
  */
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { apiClient } from '../../api/client';
+import { cachedPost, isRequestCanceled } from '../../api/queryCache';
 import { useDataSync } from '../../context/DataSyncContext';
 import { useAppTheme } from '../../theme/ThemeContext';
 import { spacing, radii, typography } from '../../theme/tokens';
@@ -21,6 +22,7 @@ import { Card, Badge, Button, Input, DateInput, ModalWrapper, BadgeVariant } fro
 import { LoadingState, EmptyState } from '../FeedbackStates';
 
 export interface RoutineExerciseItem {
+  routineExerciseId?: number;
   exerciseId: number;
   name: string;
   category?: string;
@@ -158,93 +160,138 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
   const [addingIndividualExercise, setAddingIndividualExercise] = useState(false);
   const [reorderingExerciseId, setReorderingExerciseId] = useState<number | null>(null);
 
+  const catalogAbortRef = useRef<AbortController | null>(null);
+  const catalogLoadedOnceRef = useRef(false);
+
   // Cargar tratamientos del paciente
-  const fetchPatientTreatments = useCallback(async () => {
+  const fetchPatientTreatments = useCallback(async (forceRefresh = false) => {
     if (!patient?.id) return;
     setLoading(true);
     setErrorMsg(null);
     try {
-      const res = await apiClient.post('/treatments/search', {
-        patientId: patient.id
-      });
+      const res = await cachedPost(
+        '/treatments/search',
+        { patientId: patient.id },
+        { forceRefresh }
+      );
       if (res.data?.success) {
         const list = res.data.data || [];
         setTreatments(list);
         if (list.length > 0) {
           // Seleccionar el primer tratamiento activo o el primero disponible
           const activeT = list.find((t: any) => t.status === 'active') || list[0];
-          await fetchTreatmentDetail(activeT.id);
+          await fetchTreatmentDetail(activeT.id, forceRefresh);
         } else {
           setSelectedTreatment(null);
           setRoutines([]);
         }
       }
     } catch (err: any) {
+      if (isRequestCanceled(err)) return;
       setErrorMsg(err.response?.data?.error?.message || 'Error al cargar tratamientos');
     } finally {
       setLoading(false);
     }
   }, [patient?.id]);
 
+  // Sincronizar en memoria la rutina actualizada sin recargar la página
+  const syncRoutineInState = (updatedRoutine: any) => {
+    if (!updatedRoutine?.id) return;
+    setSelectedRoutine(updatedRoutine);
+    const exCount = Array.isArray(updatedRoutine.exercises) ? updatedRoutine.exercises.length : 0;
+    setRoutines((prev) =>
+      prev.map((r) =>
+        r.id === updatedRoutine.id
+          ? {
+              ...r,
+              ...updatedRoutine,
+              exercises_count: exCount
+            }
+          : r
+      )
+    );
+  };
+
   // Cargar detalle del tratamiento seleccionado y sus rutinas
-  const fetchTreatmentDetail = async (treatmentId: number) => {
+  const fetchTreatmentDetail = async (treatmentId: number, forceRefresh = false) => {
     try {
-      const res = await apiClient.post('/treatments/detail', { id: treatmentId });
+      const res = await cachedPost('/treatments/detail', { id: treatmentId }, { forceRefresh });
       if (res.data?.success) {
         const t = res.data.data;
         setSelectedTreatment(t);
 
         // Rutinas asociadas al tratamiento
-        const rRes = await apiClient.post('/treatments/routines/search', {
-          treatmentId: t.id,
-          includeHistory: true
-        });
+        const rRes = await cachedPost(
+          '/treatments/routines/search',
+          {
+            treatmentId: t.id,
+            includeHistory: true
+          },
+          { forceRefresh }
+        );
         if (rRes.data?.success) {
           const rList = rRes.data.data || [];
           setRoutines(rList);
           // Seleccionar por defecto la rutina vigente o la primera
           const currentR = rList.find((r: any) => r.is_current === 1) || rList[0] || null;
           if (currentR) {
-            fetchRoutineDetail(currentR.id);
+            await fetchRoutineDetail(currentR.id, forceRefresh);
           } else {
             setSelectedRoutine(null);
           }
         }
       }
     } catch (err: any) {
+      if (isRequestCanceled(err)) return;
       setErrorMsg(err.response?.data?.error?.message || 'Error al obtener detalle del tratamiento');
     }
   };
 
   // Cargar detalle de una rutina específica
-  const fetchRoutineDetail = async (routineId: number) => {
+  const fetchRoutineDetail = async (routineId: number, forceRefresh = false) => {
     try {
-      const res = await apiClient.post('/treatments/routines/detail', { id: routineId });
-      if (res.data?.success) {
-        setSelectedRoutine(res.data.data);
+      const res = await cachedPost('/treatments/routines/detail', { id: routineId }, { forceRefresh });
+      if (res.data?.success && res.data?.data) {
+        syncRoutineInState(res.data.data);
       }
     } catch (err: any) {
+      if (isRequestCanceled(err)) return;
       setErrorMsg(err.response?.data?.error?.message || 'Error al obtener rutina');
     }
   };
 
   // Cargar catálogo de ejercicios para seleccionar
-  const fetchCatalog = useCallback(async () => {
+  const fetchCatalog = useCallback(async (forceRefresh = false) => {
+    if (catalogAbortRef.current) {
+      catalogAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    catalogAbortRef.current = controller;
+
     setCatalogLoading(true);
     try {
-      const res = await apiClient.post('/exercises/search', {
-        search: catalogSearch.trim() || undefined,
-        bodyZone: catalogZone || undefined,
-        isActive: true,
-        limit: 15
-      });
+      const res = await cachedPost(
+        '/exercises/search',
+        {
+          search: catalogSearch.trim() || undefined,
+          bodyZone: catalogZone || undefined,
+          isActive: true,
+          limit: 15
+        },
+        { forceRefresh, signal: controller.signal }
+      );
+      if (controller.signal.aborted) return;
       if (res.data?.success) {
         const items = Array.isArray(res.data.data) ? res.data.data : (res.data.data?.items || []);
         setCatalogExercises(items);
       }
-    } catch {
+    } catch (err) {
+      if (isRequestCanceled(err) || controller.signal.aborted) return;
       // Ignorar error transitorio
     } finally {
+      if (catalogAbortRef.current === controller) {
+        catalogAbortRef.current = null;
+      }
       setCatalogLoading(false);
     }
   }, [catalogSearch, catalogZone]);
@@ -254,24 +301,35 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
       setViewMode('view_plan');
       setErrorMsg(null);
       setSuccessMsg(null);
+      catalogLoadedOnceRef.current = false;
       fetchPatientTreatments();
     }
   }, [visible, patient?.id, fetchPatientTreatments]);
 
   useEffect(() => {
-    if (viewMode === 'edit_routine' || addingExerciseToRoutineId !== null) {
-      fetchCatalog();
+    const needsCatalog = viewMode === 'edit_routine' || addingExerciseToRoutineId !== null;
+    if (!needsCatalog) {
+      catalogLoadedOnceRef.current = false;
+      return;
     }
-  }, [viewMode, addingExerciseToRoutineId, fetchCatalog, scopeVersions.exercises]);
 
-  // Debounce catálogo
-  useEffect(() => {
-    if (viewMode !== 'edit_routine' && addingExerciseToRoutineId === null) return;
+    if (!catalogLoadedOnceRef.current) {
+      catalogLoadedOnceRef.current = true;
+      fetchCatalog(false);
+      return;
+    }
+
     const t = setTimeout(() => {
-      fetchCatalog();
-    }, 200);
+      fetchCatalog(false);
+    }, 250);
     return () => clearTimeout(t);
   }, [catalogSearch, catalogZone, viewMode, addingExerciseToRoutineId, fetchCatalog]);
+
+  useEffect(() => {
+    if (scopeVersions.exercises > 0 && (viewMode === 'edit_routine' || addingExerciseToRoutineId !== null)) {
+      fetchCatalog(true);
+    }
+  }, [scopeVersions.exercises, viewMode, addingExerciseToRoutineId, fetchCatalog]);
 
   // Iniciar creación de nuevo plan
   const handleStartCreatePlan = () => {
@@ -316,6 +374,10 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
   // Iniciar prescripción de nueva rutina
   const handleStartCreateRoutine = () => {
     if (!selectedTreatment) return;
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    setCatalogSearch('');
+    setCatalogZone('');
     setRoutineIdToEdit(null);
     setRoutineName(`Rutina Fase ${routines.length + 1}`);
     setRoutineDescription('');
@@ -326,32 +388,65 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
     setViewMode('edit_routine');
   };
 
-  // Iniciar edición de rutina existente
-  const handleStartEditRoutine = (routine: any) => {
-    setRoutineIdToEdit(routine.id);
-    setRoutineName(routine.name);
-    setRoutineDescription(routine.description || '');
-    setRoutineStatus(routine.status === 'draft' ? 'draft' : 'active');
-    setChangeReason('');
-    setRoutineNotes(routine.notes || '');
+  // Iniciar edición de rutina existente (garantizando la carga completa de sus ejercicios prescritos)
+  const handleStartEditRoutine = async (routine: any) => {
+    if (!routine?.id) return;
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    setCatalogSearch('');
+    setCatalogZone('');
 
-    // Formatear ejercicios de la rutina
-    const formatted: RoutineExerciseItem[] = (routine.exercises || []).map((ex: any, idx: number) => ({
-      exerciseId: ex.exercise_id || ex.exerciseId,
-      name: ex.exercise_name || ex.name || 'Ejercicio',
-      category: ex.exercise_category || ex.category,
-      bodyZone: ex.body_zone || ex.bodyZone,
-      difficultyLevel: ex.difficulty_level || ex.difficultyLevel,
-      sets: ex.sets ?? 3,
-      repetitions: ex.repetitions ?? 10,
-      durationSeconds: ex.duration_seconds ?? ex.durationSeconds ?? null,
-      restSeconds: ex.rest_seconds ?? ex.restSeconds ?? 60,
-      weeklyFrequency: ex.weekly_frequency || ex.weeklyFrequency || '3 veces por semana',
-      bodySide: ex.body_side || ex.bodySide || 'Bilateral',
-      resistanceLoad: ex.resistance_load || ex.resistanceLoad || null,
-      customInstructions: ex.custom_instructions || ex.customInstructions || null,
-      executionOrder: ex.execution_order ?? idx + 1
-    }));
+    let sourceRoutine = routine;
+    if (!Array.isArray(sourceRoutine.exercises)) {
+      if (selectedRoutine?.id === routine.id && Array.isArray(selectedRoutine.exercises)) {
+        sourceRoutine = selectedRoutine;
+      } else {
+        setLoading(true);
+        try {
+          const res = await cachedPost('/treatments/routines/detail', { id: routine.id }, { forceRefresh: false });
+          if (res.data?.success && res.data?.data) {
+            sourceRoutine = res.data.data;
+            syncRoutineInState(res.data.data);
+          }
+        } catch (err: any) {
+          if (!isRequestCanceled(err)) {
+            setErrorMsg(err.response?.data?.error?.message || 'Error al cargar los ejercicios de la rutina');
+          }
+          setLoading(false);
+          return;
+        } finally {
+          setLoading(false);
+        }
+      }
+    }
+
+    setRoutineIdToEdit(sourceRoutine.id);
+    setRoutineName(sourceRoutine.name || '');
+    setRoutineDescription(sourceRoutine.description || '');
+    setRoutineStatus(sourceRoutine.status === 'draft' ? 'draft' : 'active');
+    setChangeReason('');
+    setRoutineNotes(sourceRoutine.notes || '');
+
+    // Formatear ejercicios prescritos de la rutina
+    const formatted: RoutineExerciseItem[] = (Array.isArray(sourceRoutine.exercises) ? sourceRoutine.exercises : []).map(
+      (ex: any, idx: number) => ({
+        routineExerciseId: ex.id,
+        exerciseId: ex.exercise_id || ex.exerciseId,
+        name: ex.exercise_name || ex.name || 'Ejercicio',
+        category: ex.exercise_category || ex.category,
+        bodyZone: ex.body_zone || ex.bodyZone,
+        difficultyLevel: ex.difficulty_level || ex.difficultyLevel,
+        sets: ex.sets ?? 3,
+        repetitions: ex.repetitions ?? 10,
+        durationSeconds: ex.duration_seconds ?? ex.durationSeconds ?? null,
+        restSeconds: ex.rest_seconds ?? ex.restSeconds ?? 60,
+        weeklyFrequency: ex.weekly_frequency || ex.weeklyFrequency || '3 veces por semana',
+        bodySide: ex.body_side || ex.bodySide || 'Bilateral',
+        resistanceLoad: ex.resistance_load || ex.resistanceLoad || null,
+        customInstructions: ex.custom_instructions || ex.customInstructions || null,
+        executionOrder: ex.execution_order ?? idx + 1
+      })
+    );
 
     setRoutineItems(formatted);
     setViewMode('edit_routine');
@@ -468,7 +563,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
 
         if (res.data?.success) {
           setSuccessMsg('Cambios guardados.');
-          await fetchTreatmentDetail(selectedTreatment.id);
+          await fetchTreatmentDetail(selectedTreatment.id, true);
           setViewMode('view_plan');
           if (onSuccess) onSuccess();
         }
@@ -485,7 +580,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
 
         if (res.data?.success) {
           setSuccessMsg('Rutina guardada.');
-          await fetchTreatmentDetail(selectedTreatment.id);
+          await fetchTreatmentDetail(selectedTreatment.id, true);
           setViewMode('view_plan');
           if (onSuccess) onSuccess();
         }
@@ -498,18 +593,23 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
   };
 
   // Cargar datos de seguimiento y evolución integral
-  const fetchTrackingData = useCallback(async () => {
+  const fetchTrackingData = useCallback(async (forceRefresh = false) => {
     if (!patient?.id) return;
     setLoadingTracking(true);
     try {
-      const res = await apiClient.post('/treatments/patient-tracking', {
-        patientId: patient.id,
-        treatmentId: selectedTreatment?.id || undefined
-      });
+      const res = await cachedPost(
+        '/treatments/patient-tracking',
+        {
+          patientId: patient.id,
+          treatmentId: selectedTreatment?.id || undefined
+        },
+        { forceRefresh }
+      );
       if (res.data?.success) {
         setTrackingData(res.data.data);
       }
     } catch (err: any) {
+      if (isRequestCanceled(err)) return;
       setErrorMsg(err.response?.data?.error?.message || 'Error al obtener seguimiento del paciente');
     } finally {
       setLoadingTracking(false);
@@ -633,30 +733,12 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
       });
       if (res.data?.success) {
         setSuccessMsg('Cambios guardados.');
-        await fetchTreatmentDetail(selectedTreatment.id);
+        await fetchTreatmentDetail(selectedTreatment.id, true);
         if (onSuccess) onSuccess();
       }
     } catch (err: any) {
       setErrorMsg(err.response?.data?.error?.message || 'Error al cambiar estado de la rutina');
     }
-  };
-
-  // Sincronizar en memoria la rutina actualizada sin recargar la página
-  const syncRoutineInState = (updatedRoutine: any) => {
-    if (!updatedRoutine?.id) return;
-    setSelectedRoutine(updatedRoutine);
-    const exCount = Array.isArray(updatedRoutine.exercises) ? updatedRoutine.exercises.length : 0;
-    setRoutines((prev) =>
-      prev.map((r) =>
-        r.id === updatedRoutine.id
-          ? {
-              ...r,
-              ...updatedRoutine,
-              exercises_count: exCount
-            }
-          : r
-      )
-    );
   };
 
   // 1. Iniciar edición individual de un ejercicio dentro de una rutina existente
@@ -979,7 +1061,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
         </Text>
       </TouchableOpacity>
 
-      {selectedTreatment && (
+      {Boolean(selectedTreatment) && (
         <TouchableOpacity
           style={[
             styles.modalSubNavItem,
@@ -1013,7 +1095,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
           {viewMode === 'view_plan' ? (
             <>
               <Button title="Cerrar" variant="secondary" size="md" onPress={onClose} />
-              {selectedTreatment && (
+              {Boolean(selectedTreatment) && (
                 <Button
                   title="+ Prescribir Rutina"
                   size="md"
@@ -1024,7 +1106,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
           ) : viewMode === 'tracking_evolution' ? (
             <>
               <Button title="Cerrar" variant="secondary" size="md" onPress={onClose} />
-              {selectedTreatment && (
+              {Boolean(selectedTreatment) && (
                 <Button
                   title="+ Registrar Sesión"
                   size="md"
@@ -1187,7 +1269,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
             required
           />
 
-          {routineIdToEdit && (
+          {Boolean(routineIdToEdit) && (
             <Input
               label="Motivo del cambio clínico / progresión (auditoría médica)"
               value={changeReason}
@@ -1223,7 +1305,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
           ) : (
             routineItems.map((item, index) => (
               <Card
-                key={`${item.exerciseId}-${index}`}
+                key={item.routineExerciseId ? `rx-${item.routineExerciseId}` : `ex-${item.exerciseId}`}
                 elevated
                 style={[styles.itemCard, { borderColor: theme.border }]}
                 padding="md"
@@ -1255,8 +1337,8 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
                   <View style={{ flex: 1, marginLeft: spacing.sm }}>
                     <Text style={[styles.itemName, { color: theme.text }]}>{item.name}</Text>
                     <View style={styles.itemBadges}>
-                      {item.category && <Badge label={item.category} variant="default" size="sm" />}
-                      {item.bodyZone && <Badge label={item.bodyZone} variant="info" size="sm" />}
+                      {item.category ? <Badge label={item.category} variant="default" size="sm" /> : null}
+                      {item.bodyZone ? <Badge label={item.bodyZone} variant="info" size="sm" /> : null}
                       <Badge label={`Nivel: ${item.difficultyLevel || 'Bajo'}`} variant={getDifficultyVariant(item.difficultyLevel)} size="sm" />
                     </View>
                   </View>
@@ -1437,8 +1519,8 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
                     <View style={{ flex: 1, marginRight: spacing.sm }}>
                       <Text style={[styles.catalogExName, { color: theme.text }]}>{ex.name}</Text>
                       <View style={styles.catalogExBadges}>
-                        {ex.category && <Badge label={ex.category} variant="default" size="sm" />}
-                        {(ex.bodyZone || ex.body_zone) && (
+                        {Boolean(ex.category) && <Badge label={ex.category} variant="default" size="sm" />}
+                        {Boolean(ex.bodyZone || ex.body_zone) && (
                           <Badge label={ex.bodyZone || ex.body_zone} variant="info" size="sm" />
                         )}
                         <Badge label={`Nivel: ${ex.difficultyLevel || ex.difficulty_level || 'Bajo'}`} variant={getDifficultyVariant(ex.difficultyLevel || ex.difficulty_level)} size="sm" />
@@ -1762,7 +1844,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
               </View>
             </View>
             <TouchableOpacity
-              onPress={fetchTrackingData}
+              onPress={() => fetchTrackingData(true)}
               style={[styles.refreshTrackingBtn, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
               accessibilityLabel="Refrescar seguimiento"
             >
@@ -1922,7 +2004,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
                       <Text style={[styles.emptyNoticeSubtitle, { color: theme.textSecondary }]}>
                         Presione "+ Registrar Sesión" para documentar la primera intervención clínica con ejercicios supervisados.
                       </Text>
-                      {selectedTreatment && (
+                      {Boolean(selectedTreatment) && (
                         <Button
                           title="+ Registrar Sesión Ahora"
                           size="sm"
@@ -2003,7 +2085,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
                         ) : null}
 
                         {/* Ejercicios ejecutados en esta sesión */}
-                        {session.executedExercises && session.executedExercises.length > 0 && (
+                        {Boolean(session.executedExercises && session.executedExercises.length > 0) && (
                           <View style={[styles.sessionExListWrap, { borderTopColor: theme.border }]}>
                             <View style={styles.sessionExListHeader}>
                               <MaterialIcons name="fitness-center" size={15} color={theme.primary} style={{ marginRight: 5 }} />
@@ -2279,7 +2361,7 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
               )}
 
               {/* Ficha Resumen del Plan */}
-              {selectedTreatment && (
+              {Boolean(selectedTreatment) && (
                 <Card elevated style={styles.planCard} padding="lg">
                   <View style={styles.planCardHeader}>
                     <View style={{ flex: 1 }}>
@@ -2360,16 +2442,6 @@ export const PatientRoutinesModal: React.FC<PatientRoutinesModalProps> = ({
                         </View>
 
                         <View style={styles.routineHeaderActions}>
-                          <TouchableOpacity
-                            style={[styles.smallActionBtn, { borderColor: theme.primary, backgroundColor: theme.primary + '12' }]}
-                            onPress={() => handleOpenAddExerciseToRoutine(routine)}
-                            accessibilityLabel="Agregar ejercicio a esta rutina"
-                          >
-                            <MaterialIcons name="add" size={18} color={theme.primary} />
-                            <Text style={{ fontSize: typography.fontSize.xs, color: theme.primary, fontWeight: '700', marginLeft: 4 }}>
-                              Ejercicio
-                            </Text>
-                          </TouchableOpacity>
                           <TouchableOpacity
                             style={[styles.smallActionBtn, { borderColor: theme.border, backgroundColor: theme.surface }]}
                             onPress={() => handleStartEditRoutine(routine)}

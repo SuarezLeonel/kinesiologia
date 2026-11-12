@@ -2,8 +2,8 @@
  * @file client.tsx
  * @description Cliente Axios centralizado para comunicación HTTP con el backend de KinesioGestión.
  * Implementa interceptores de solicitud para inyección de token JWT (Bearer),
- * renovación automática con Refresh Token vía Expo SecureStore, timeout extendido para cold starts
- * y notificación reactiva de mutaciones para actualización instantánea de la interfaz.
+ * renovación preventiva y atómica con Refresh Token vía Expo SecureStore / localStorage,
+ * y notificación reactiva de mutaciones para actualización instantánea sin bucles ni peticiones redundantes.
  */
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import * as SecureStore from 'expo-secure-store';
@@ -14,6 +14,7 @@ export type MutationScope =
   | 'patients'
   | 'users'
   | 'appointments'
+  | 'vacations'
   | 'clinicalRecords'
   | 'treatments'
   | 'exercises'
@@ -40,6 +41,7 @@ export const emitApiMutation = (scopes: MutationScope[] = ['all']): void => {
   });
 };
 
+// Endpoints POST que son estrictamente de lectura (no mutan datos y jamás deben emitir invalidaciones)
 const READ_ONLY_POST_PATTERNS = [
   '/search',
   '/detail',
@@ -57,7 +59,12 @@ const READ_ONLY_POST_PATTERNS = [
   '/my-exercise-logs',
   '/catalog',
   '/patient-portal/dashboard',
-  '/calendar-availability'
+  '/calendar-availability',
+  '/vacations/alerts',
+  '/vacations/active-alerts',
+  '/vacations/cancellation-notifications',
+  '/vacations/affected-appointments',
+  '/vacations/preview'
 ];
 
 const AUTH_SESSION_PATTERNS = [
@@ -84,11 +91,14 @@ function detectMutationScopes(url?: string, method?: string): MutationScope[] | 
   if (m === 'post' && READ_ONLY_POST_PATTERNS.some((pattern) => u.includes(pattern))) {
     return null;
   }
+  if (u.includes('/vacations')) {
+    return ['vacations', 'appointments', 'dashboard', 'patientPortal'];
+  }
   if (u.includes('/patients') || u.includes('/register-patient')) {
     return ['patients', 'appointments', 'clinicalRecords', 'payments', 'dashboard'];
   }
   if (u.includes('/users')) {
-    return ['users', 'patients', 'appointments', 'dashboard'];
+    return ['users', 'patients', 'appointments', 'vacations', 'dashboard'];
   }
   if (u.includes('/appointments') || u.includes('/book-appointment') || u.includes('/cancel-appointment')) {
     return ['appointments', 'payments', 'dashboard', 'patientPortal', 'patients'];
@@ -111,12 +121,15 @@ function detectMutationScopes(url?: string, method?: string): MutationScope[] | 
   if (u.includes('/patient-portal/update-profile')) {
     return ['patientPortal', 'patients'];
   }
+  if (u.includes('/patient-portal/change-password')) {
+    return null;
+  }
   return ['all'];
 }
 
-const ACCESS_TOKEN_KEY = 'kine_access_token';
-const REFRESH_TOKEN_KEY = 'kine_refresh_token';
-const USER_STORAGE_KEY = 'kine_current_user';
+export const ACCESS_TOKEN_KEY = 'kine_access_token';
+export const REFRESH_TOKEN_KEY = 'kine_refresh_token';
+export const USER_STORAGE_KEY = 'kine_current_user';
 
 type SessionExpiredListener = () => void;
 const sessionExpiredListeners = new Set<SessionExpiredListener>();
@@ -136,36 +149,74 @@ export const emitSessionExpired = (): void => {
   });
 };
 
-const getStorageItem = async (key: string): Promise<string | null> => {
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      return window.localStorage.getItem(key);
+export const tokenStorage = {
+  async getItem(key: string): Promise<string | null> {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        return window.localStorage.getItem(key);
+      }
+      return await SecureStore.getItemAsync(key);
+    } catch {
+      return null;
     }
-    return await SecureStore.getItemAsync(key);
-  } catch {
-    return null;
+  },
+  async setItem(key: string, value: string): Promise<void> {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(key, value);
+        return;
+      }
+      await SecureStore.setItemAsync(key, value);
+    } catch {}
+  },
+  async deleteItem(key: string): Promise<void> {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.removeItem(key);
+        return;
+      }
+      await SecureStore.deleteItemAsync(key);
+    } catch {}
   }
 };
 
-const setStorageItem = async (key: string, value: string): Promise<void> => {
+export function isTokenExpired(token: string | null, bufferMs = 30_000): boolean {
+  if (!token) return true;
   try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.setItem(key, value);
-      return;
+    const parts = token.split('.');
+    if (parts.length !== 3) return true;
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    let decoded = '';
+    if (typeof atob === 'function') {
+      decoded = atob(base64);
+    } else {
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+      const str = base64.replace(/=+$/, '');
+      let bs = 0;
+      let bc = 0;
+      for (let idx = 0; idx < str.length; idx++) {
+        const buffer = chars.indexOf(str.charAt(idx));
+        if (buffer === -1) continue;
+        bs = bc % 4 ? bs * 64 + buffer : buffer;
+        if (bc++ % 4) {
+          decoded += String.fromCharCode(255 & (bs >> ((-2 * bc) & 6)));
+        }
+      }
     }
-    await SecureStore.setItemAsync(key, value);
-  } catch {}
-};
-
-const deleteStorageItem = async (key: string): Promise<void> => {
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.removeItem(key);
-      return;
-    }
-    await SecureStore.deleteItemAsync(key);
-  } catch {}
-};
+    const jsonPayload = decodeURIComponent(
+      decoded
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    const payload = JSON.parse(jsonPayload);
+    if (!payload.exp) return false;
+    return Date.now() >= payload.exp * 1000 - bufferMs;
+  } catch {
+    return true;
+  }
+}
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -175,7 +226,31 @@ export const apiClient = axios.create({
   timeout: 30000
 });
 
-// Mecanismo centralizado y thread-safe para renovación de tokens
+const clearStoredSession = async (): Promise<void> => {
+  await tokenStorage.deleteItem(ACCESS_TOKEN_KEY);
+  await tokenStorage.deleteItem(REFRESH_TOKEN_KEY);
+  await tokenStorage.deleteItem(USER_STORAGE_KEY);
+  emitSessionExpired();
+};
+
+const setRequestAuthHeader = (headers: any, token: string) => {
+  if (!headers) return;
+  if (typeof headers.set === 'function') {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  headers.Authorization = `Bearer ${token}`;
+  delete headers['authorization'];
+};
+
+const extractRequestAuthHeader = (headers: any): string | undefined => {
+  if (!headers) return undefined;
+  if (typeof headers.get === 'function') {
+    return headers.get('Authorization') || headers.get('authorization');
+  }
+  return headers.Authorization || headers.authorization;
+};
+
+// Mecanismo centralizado y atómico para renovación de tokens
 let refreshPromise: Promise<string | null> | null = null;
 
 export async function refreshSessionTokens(): Promise<string | null> {
@@ -185,34 +260,31 @@ export async function refreshSessionTokens(): Promise<string | null> {
 
   refreshPromise = (async () => {
     try {
-      const refreshToken = await getStorageItem(REFRESH_TOKEN_KEY);
+      const refreshToken = await tokenStorage.getItem(REFRESH_TOKEN_KEY);
       if (!refreshToken) {
-        await deleteStorageItem(ACCESS_TOKEN_KEY);
-        await deleteStorageItem(REFRESH_TOKEN_KEY);
-        await deleteStorageItem(USER_STORAGE_KEY);
-        emitSessionExpired();
+        await clearStoredSession();
         return null;
       }
 
-      const res = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
+      const res = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken }, { timeout: 15000 });
       if (res.data?.success && res.data?.data?.accessToken) {
         const newAccessToken = res.data.data.accessToken;
-        await setStorageItem(ACCESS_TOKEN_KEY, newAccessToken);
+        await tokenStorage.setItem(ACCESS_TOKEN_KEY, newAccessToken);
         if (res.data.data.refreshToken) {
-          await setStorageItem(REFRESH_TOKEN_KEY, res.data.data.refreshToken);
+          await tokenStorage.setItem(REFRESH_TOKEN_KEY, res.data.data.refreshToken);
         }
         return newAccessToken;
       }
-      await deleteStorageItem(ACCESS_TOKEN_KEY);
-      await deleteStorageItem(REFRESH_TOKEN_KEY);
-      await deleteStorageItem(USER_STORAGE_KEY);
-      emitSessionExpired();
+
+      await clearStoredSession();
       return null;
-    } catch {
-      await deleteStorageItem(ACCESS_TOKEN_KEY);
-      await deleteStorageItem(REFRESH_TOKEN_KEY);
-      await deleteStorageItem(USER_STORAGE_KEY);
-      emitSessionExpired();
+    } catch (err: any) {
+      const status = err?.response?.status;
+      // Solo invalidar la sesión si el backend rechazó el refresh token por autenticación (401/403).
+      // Ante 429, 5xx o caída transitoria de red, conservar la sesión local sin provocar cierres ni 401 en cascada.
+      if (status === 401 || status === 403) {
+        await clearStoredSession();
+      }
       return null;
     } finally {
       refreshPromise = null;
@@ -222,32 +294,37 @@ export async function refreshSessionTokens(): Promise<string | null> {
   return refreshPromise;
 }
 
-// Interceptor para inyectar token de autorización Bearer
+// Interceptor para inyectar token Bearer y renovar preventivamente si está por expirar
 apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   try {
     const isAuthRoute = Boolean(config.url && config.url.includes('/auth/'));
-    // Si hay un refresco en curso y no es una ruta de auth, esperar a que culmine
-    if (refreshPromise && !isAuthRoute) {
+    if (isAuthRoute) {
+      return config;
+    }
+
+    if (refreshPromise) {
       const freshToken = await refreshPromise;
       if (freshToken && config.headers) {
-        if (typeof (config.headers as any).set === 'function') {
-          (config.headers as any).set('Authorization', `Bearer ${freshToken}`);
-        }
-        config.headers.Authorization = `Bearer ${freshToken}`;
-        delete (config.headers as any)['authorization'];
+        setRequestAuthHeader(config.headers, freshToken);
         return config;
       }
     }
 
-    const token = await getStorageItem(ACCESS_TOKEN_KEY);
-    if (token && config.headers) {
-      if (typeof (config.headers as any).set === 'function') {
-        (config.headers as any).set('Authorization', `Bearer ${token}`);
+    let token = await tokenStorage.getItem(ACCESS_TOKEN_KEY);
+    if (isTokenExpired(token, 20_000)) {
+      const refreshToken = await tokenStorage.getItem(REFRESH_TOKEN_KEY);
+      if (refreshToken) {
+        const renewed = await refreshSessionTokens();
+        if (renewed) {
+          token = renewed;
+        }
       }
-      config.headers.Authorization = `Bearer ${token}`;
-      delete (config.headers as any)['authorization'];
     }
-  } catch (e) {}
+
+    if (token && config.headers) {
+      setRequestAuthHeader(config.headers, token);
+    }
+  } catch {}
   return config;
 });
 
@@ -268,15 +345,21 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !isAuthRoute) {
       originalRequest._retry = true;
 
+      // Si otro request concurrente ya rotó el token en almacenamiento, reutilizarlo sin llamar otra vez a /auth/refresh
+      const sentAuth = extractRequestAuthHeader(originalRequest.headers);
+      const currentStoredToken = await tokenStorage.getItem(ACCESS_TOKEN_KEY);
+      if (
+        currentStoredToken &&
+        !isTokenExpired(currentStoredToken, 5_000) &&
+        sentAuth !== `Bearer ${currentStoredToken}`
+      ) {
+        setRequestAuthHeader(originalRequest.headers, currentStoredToken);
+        return apiClient(originalRequest);
+      }
+
       const newAccessToken = await refreshSessionTokens();
       if (newAccessToken) {
-        if (originalRequest.headers) {
-          if (typeof (originalRequest.headers as any).set === 'function') {
-            (originalRequest.headers as any).set('Authorization', `Bearer ${newAccessToken}`);
-          }
-          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-          delete (originalRequest.headers as any)['authorization'];
-        }
+        setRequestAuthHeader(originalRequest.headers, newAccessToken);
         return apiClient(originalRequest);
       }
     }

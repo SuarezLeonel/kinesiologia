@@ -41,7 +41,7 @@ export const ErrorState: React.FC<{
       >
         <Text style={[styles.errorTitle, { color: theme.error }]}>No se pudo completar la acción</Text>
         <Text style={[styles.errorDescription, { color: theme.text }]}>{message}</Text>
-        {onRetry && (
+        {typeof onRetry === 'function' && (
           <Button
             title="Reintentar"
             onPress={onRetry}
@@ -65,10 +65,10 @@ export const EmptyState: React.FC<{
   return (
     <View style={[styles.emptyContainer, { borderColor: theme.border, backgroundColor: theme.surface }, style]}>
       <Text style={[styles.emptyTitle, { color: theme.text }]}>{title}</Text>
-      {subtitle && (
+      {Boolean(subtitle) && (
         <Text style={[styles.emptySubtitle, { color: theme.textSecondary }]}>{subtitle}</Text>
       )}
-      {action && (
+      {action ? (
         <Button
           title={action.label}
           onPress={action.onPress}
@@ -76,7 +76,7 @@ export const EmptyState: React.FC<{
           size="md"
           style={{ marginTop: spacing.lg }}
         />
-      )}
+      ) : null}
     </View>
   );
 };

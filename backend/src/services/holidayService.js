@@ -613,7 +613,8 @@ export class HolidayService {
     while (cursor <= endStr && safetyCounter < 90) {
       const evalResult = await this.evaluateDate(cursor, {
         referenceDate: minDate,
-        enforceWindow: true
+        enforceWindow: true,
+        kinesiologistId: params.kinesiologistId
       });
       days.push(evalResult);
       if (evalResult.available && !firstAvailableDate) {
@@ -627,7 +628,11 @@ export class HolidayService {
     if (!firstAvailableDate) {
       let winCursor = minDate;
       for (let i = 0; i <= maxDays; i++) {
-        const ev = await this.evaluateDate(winCursor, { referenceDate: minDate, enforceWindow: true });
+        const ev = await this.evaluateDate(winCursor, {
+          referenceDate: minDate,
+          enforceWindow: true,
+          kinesiologistId: params.kinesiologistId
+        });
         if (ev.available) {
           firstAvailableDate = winCursor;
           break;

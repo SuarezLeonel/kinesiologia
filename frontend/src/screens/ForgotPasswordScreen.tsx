@@ -282,7 +282,7 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                 </TouchableOpacity>
               </View>
 
-              {previewEmailUrl && step === 'reset' && (
+              {previewEmailUrl && step === 'reset' ? (
                 <TouchableOpacity
                   style={[
                     styles.previewEmailBox,
@@ -301,9 +301,9 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                     Ver correo enviado en bandeja de prueba (Ethereal)
                   </Text>
                 </TouchableOpacity>
-              )}
+              ) : null}
 
-              {previewCode && step === 'reset' && (
+              {Boolean(previewCode && step === 'reset') && (
                 <View
                   style={[
                     styles.previewCodeBox,
@@ -366,7 +366,7 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                     style={{ marginTop: spacing.md }}
                   />
 
-                  {serverError && (
+                  {Boolean(serverError) && (
                     <View
                       style={[
                         styles.banner,
@@ -383,7 +383,7 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                     </View>
                   )}
 
-                  {serverMessage && (
+                  {Boolean(serverMessage) && (
                     <View
                       style={[
                         styles.banner,
@@ -475,7 +475,7 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                     style={{ marginTop: spacing.md }}
                   />
 
-                  {serverError && (
+                  {Boolean(serverError) && (
                     <View
                       style={[
                         styles.banner,
@@ -492,7 +492,7 @@ export const ForgotPasswordScreen: React.FC<{ navigation: any }> = ({ navigation
                     </View>
                   )}
 
-                  {serverMessage && (
+                  {Boolean(serverMessage) && (
                     <View
                       style={[
                         styles.banner,

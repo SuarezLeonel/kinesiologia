@@ -19,6 +19,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { MaterialIcons } from '@expo/vector-icons';
 import { apiClient } from '../api/client';
+import { cachedPost, isRequestCanceled } from '../api/queryCache';
 import { useAuth } from '../context/AuthContext';
 import { useDataSync } from '../context/DataSyncContext';
 import { useAppTheme } from '../theme/ThemeContext';
@@ -184,10 +185,10 @@ export const AppointmentsScreen = () => {
     }
   };
 
-  const fetchHolidaysForYear = async (year = new Date().getFullYear()) => {
+  const fetchHolidaysForYear = async (year = new Date().getFullYear(), forceRefresh = false) => {
     try {
       setHolidayError(null);
-      const res = await apiClient.post('/appointments/holidays/search', { year });
+      const res = await cachedPost('/appointments/holidays/search', { year }, { staleTimeMs: 60_000, forceRefresh });
       if (res.data?.success) {
         const payload = res.data.data;
         setHolidaysList(Array.isArray(payload) ? payload : payload?.holidays || []);
@@ -207,7 +208,7 @@ export const AppointmentsScreen = () => {
       });
       if (res.data?.success) {
         invalidateBookingCalendarCache();
-        await Promise.all([loadCalendarAndHolidays(true), fetchHolidaysForYear()]);
+        await Promise.all([loadCalendarAndHolidays(true), fetchHolidaysForYear(new Date().getFullYear(), true)]);
         if (modalVisible && apptDate === dateStr) {
           fetchAgendaSlots(dateStr);
         }
@@ -219,9 +220,9 @@ export const AppointmentsScreen = () => {
     }
   };
 
-  const fetchProfessionalsList = async () => {
+  const fetchProfessionalsList = async (forceRefresh = false) => {
     try {
-      const res = await apiClient.post('/appointments/professionals', {});
+      const res = await cachedPost('/appointments/professionals', {}, { staleTimeMs: 60_000, forceRefresh });
       if (res.data?.success) {
         setProfessionalsList(res.data.data || []);
       }
@@ -230,7 +231,18 @@ export const AppointmentsScreen = () => {
     }
   };
 
-  const fetchAppointments = async (silent = false) => {
+  const appointmentsAbortRef = useRef<AbortController | null>(null);
+  const isFocusedRef = useRef(false);
+  const needsApptsRefreshRef = useRef(false);
+  const hasMountedFilterRef = useRef(false);
+
+  const fetchAppointments = async (silent = false, forceRefresh = false) => {
+    if (appointmentsAbortRef.current) {
+      appointmentsAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    appointmentsAbortRef.current = controller;
+
     try {
       if (!silent) {
         setError(null);
@@ -251,24 +263,37 @@ export const AppointmentsScreen = () => {
         payload.search = searchTerm.trim();
       }
 
-      const response = await apiClient.post('/appointments/search', payload);
+      const response = await cachedPost('/appointments/search', payload, {
+        forceRefresh,
+        signal: controller.signal
+      });
+      if (controller.signal.aborted) return;
+
       if (response.data?.success) {
         setAppointments(response.data.data || []);
         setError(null);
       }
     } catch (err: any) {
+      if (isRequestCanceled(err) || controller.signal.aborted) return;
       if (!silent || appointments.length === 0) {
         setError(err.response?.data?.error?.message || 'Error al obtener la agenda de turnos');
       }
     } finally {
+      if (appointmentsAbortRef.current === controller) {
+        appointmentsAbortRef.current = null;
+      }
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  const fetchPatientsList = async () => {
+  const fetchPatientsList = async (forceRefresh = false) => {
     try {
-      const res = await apiClient.post('/patients/search', { page: 1, limit: 300 });
+      const res = await cachedPost(
+        '/patients/search',
+        { page: 1, limit: 300 },
+        { staleTimeMs: 30_000, forceRefresh }
+      );
       if (res.data?.success) {
         const list = res.data.data || [];
         setPatients(list);
@@ -279,29 +304,64 @@ export const AppointmentsScreen = () => {
     } catch (e) {}
   };
 
-  useEffect(() => {
-    fetchAppointments(false);
-    fetchPatientsList();
-    fetchProfessionalsList();
-    loadCalendarAndHolidays(false);
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      isFocusedRef.current = true;
+      const shouldForce = needsApptsRefreshRef.current;
+      needsApptsRefreshRef.current = false;
+      fetchAppointments(hasMountedFilterRef.current, shouldForce);
+      fetchPatientsList(false);
+      fetchProfessionalsList(false);
+      loadCalendarAndHolidays(false);
+
+      return () => {
+        isFocusedRef.current = false;
+        if (appointmentsAbortRef.current) {
+          appointmentsAbortRef.current.abort();
+          appointmentsAbortRef.current = null;
+        }
+      };
+    }, [selectedKineFilter])
+  );
 
   useEffect(() => {
-    fetchAppointments(false);
+    if (!hasMountedFilterRef.current) {
+      hasMountedFilterRef.current = true;
+      return;
+    }
+    fetchAppointments(true, false);
   }, [selectedKineFilter]);
 
   useEffect(() => {
     if (
       scopeVersions.appointments > 0 ||
-      scopeVersions.patients > 0 ||
-      scopeVersions.services > 0
+      scopeVersions.vacations > 0
     ) {
-      fetchAppointments(true);
-      fetchPatientsList();
-      fetchProfessionalsList();
+      if (isFocusedRef.current) {
+        fetchAppointments(true, true);
+      } else {
+        needsApptsRefreshRef.current = true;
+      }
+    }
+  }, [scopeVersions.appointments, scopeVersions.vacations]);
+
+  useEffect(() => {
+    if (scopeVersions.patients > 0 && isFocusedRef.current) {
+      fetchPatientsList(true);
+    }
+  }, [scopeVersions.patients]);
+
+  useEffect(() => {
+    if (scopeVersions.users > 0 && isFocusedRef.current) {
+      fetchProfessionalsList(true);
+    }
+  }, [scopeVersions.users]);
+
+  useEffect(() => {
+    if ((scopeVersions.services > 0 || scopeVersions.vacations > 0) && isFocusedRef.current) {
       loadCalendarAndHolidays(true);
     }
-  }, [scopeVersions.appointments, scopeVersions.patients, scopeVersions.services]);
+  }, [scopeVersions.services, scopeVersions.vacations]);
 
   const fetchAgendaSlots = async (dateStr: string, customMap?: Record<string, CalendarDayStatus>, targetKineId?: number | null) => {
     if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return;
@@ -524,8 +584,6 @@ export const AppointmentsScreen = () => {
 
   useFocusEffect(
     useCallback(() => {
-      fetchAppointments(true);
-      fetchPatientsList();
       const timer = setTimeout(() => {
         centerOnToday(false);
       }, 60);
@@ -851,6 +909,12 @@ export const AppointmentsScreen = () => {
                     {item.notes || item.reason ? (
                       <Text style={[styles.itemReasonText, { color: theme.textSecondary }]} numberOfLines={2}>
                         {item.notes || item.reason}
+                      </Text>
+                    ) : null}
+
+                    {item.status === 'cancelled' && item.cancellation_reason ? (
+                      <Text style={[styles.itemReasonText, { color: theme.error, fontWeight: '600' }]} numberOfLines={2}>
+                        Motivo: {item.cancellation_reason}
                       </Text>
                     ) : null}
 
@@ -1275,7 +1339,7 @@ export const AppointmentsScreen = () => {
               refreshing={refreshing}
               onRefresh={() => {
                 setRefreshing(true);
-                fetchAppointments();
+                fetchAppointments(true, true);
               }}
               tintColor={theme.primary}
             />
@@ -1292,7 +1356,7 @@ export const AppointmentsScreen = () => {
               refreshing={refreshing}
               onRefresh={() => {
                 setRefreshing(true);
-                fetchAppointments();
+                fetchAppointments(true, true);
               }}
               tintColor={theme.primary}
             />
@@ -1310,7 +1374,7 @@ export const AppointmentsScreen = () => {
               refreshing={refreshing}
               onRefresh={() => {
                 setRefreshing(true);
-                fetchAppointments();
+                fetchAppointments(true, true);
               }}
               tintColor={theme.primary}
             />
@@ -1753,7 +1817,7 @@ export const AppointmentsScreen = () => {
               onPress={() => setDetailModalAppt(null)}
               style={{ flex: 1 }}
             />
-            {detailModalAppt && (detailModalAppt.status === 'pending' || detailModalAppt.status === 'scheduled') && (
+            {Boolean(detailModalAppt) && (detailModalAppt.status === 'pending' || detailModalAppt.status === 'scheduled') && (
               <Button
                 title="Confirmar"
                 size="md"
@@ -1765,7 +1829,7 @@ export const AppointmentsScreen = () => {
                 style={{ flex: 1 }}
               />
             )}
-            {detailModalAppt && detailModalAppt.status === 'confirmed' && (
+            {Boolean(detailModalAppt) && detailModalAppt.status === 'confirmed' && (
               <Button
                 title="Atendido"
                 size="md"
@@ -1777,7 +1841,7 @@ export const AppointmentsScreen = () => {
                 style={{ flex: 1 }}
               />
             )}
-            {detailModalAppt && (detailModalAppt.status === 'cancelled' || detailModalAppt.status === 'absent') && (
+            {Boolean(detailModalAppt) && (detailModalAppt.status === 'cancelled' || detailModalAppt.status === 'absent') && (
               <Button
                 title="Reactivar"
                 size="md"
@@ -1792,7 +1856,7 @@ export const AppointmentsScreen = () => {
           </View>
         }
       >
-        {detailModalAppt && (
+        {Boolean(detailModalAppt) && (
           <ScrollView style={{ maxHeight: 480 }} showsVerticalScrollIndicator={false}>
             <View style={{ gap: spacing.md }}>
               {/* Información del Paciente */}
@@ -1808,7 +1872,7 @@ export const AppointmentsScreen = () => {
                   <Text style={[styles.detailLabelText, { color: theme.textSecondary }]}>DNI:</Text>
                   <Text style={[styles.detailValText, { color: theme.text }]}>{detailModalAppt.patient_dni || 'Sin registrar'}</Text>
                 </View>
-                {detailModalAppt.patient_phone && (
+                {Boolean(detailModalAppt.patient_phone) && (
                   <View style={styles.detailInfoRow}>
                     <Text style={[styles.detailLabelText, { color: theme.textSecondary }]}>Teléfono:</Text>
                     <Text style={[styles.detailValText, { color: theme.text }]}>{detailModalAppt.patient_phone}</Text>
@@ -1861,6 +1925,14 @@ export const AppointmentsScreen = () => {
                     size="sm"
                   />
                 </View>
+                {Boolean(detailModalAppt.status === 'cancelled' && detailModalAppt.cancellation_reason) && (
+                  <View style={styles.detailInfoRow}>
+                    <Text style={[styles.detailLabelText, { color: theme.textSecondary }]}>Motivo:</Text>
+                    <Text style={[styles.detailValText, { color: theme.error, fontWeight: '600', flex: 1 }]}>
+                      {detailModalAppt.cancellation_reason}
+                    </Text>
+                  </View>
+                )}
                 <View style={styles.detailInfoRow}>
                   <Text style={[styles.detailLabelText, { color: theme.textSecondary }]}>Servicio:</Text>
                   <Text style={[styles.detailValText, { color: theme.text }]}>{detailModalAppt.service_name || 'Kinesiología'}</Text>
@@ -1890,7 +1962,7 @@ export const AppointmentsScreen = () => {
               </View>
 
               {/* Motivo de consulta / Observaciones */}
-              {(detailModalAppt.notes || detailModalAppt.reason) && (
+              {Boolean(detailModalAppt.notes || detailModalAppt.reason) && (
                 <View style={[styles.detailSectionCard, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
                   <View style={styles.detailSectionHeader}>
                     <MaterialIcons name="notes" size={20} color={theme.primary} />

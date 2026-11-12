@@ -2,7 +2,7 @@
  * @file ExercisesScreen.tsx
  * @description Pantalla de catálogo de más de 90 ejercicios kinésicos y prescripción de rutinas terapéuticas.
  */
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { MaterialIcons } from '@expo/vector-icons';
 import { apiClient } from '../api/client';
+import { cachedPost, isRequestCanceled } from '../api/queryCache';
 import { useDataSync } from '../context/DataSyncContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -167,9 +168,17 @@ export const ExercisesScreen = () => {
   const currentDiffInForm = watch('difficultyLevel');
 
   // Cargar opciones dinámicas de filtros desde backend
-  const fetchFilterOptions = useCallback(async () => {
+  const exercisesAbortRef = useRef<AbortController | null>(null);
+  const isFocusedRef = useRef(false);
+  const hasLoadedRef = useRef(false);
+  const needsRefreshRef = useRef(false);
+  const hasMountedFiltersRef = useRef(false);
+  const currentPageRef = useRef(currentPage);
+  currentPageRef.current = currentPage;
+
+  const fetchFilterOptions = useCallback(async (forceRefresh = false) => {
     try {
-      const res = await apiClient.post('/exercises/filter-options', {});
+      const res = await cachedPost('/exercises/filter-options', {}, { staleTimeMs: 60_000, forceRefresh });
       if (res.data?.success && res.data?.data) {
         setFilterOptions(res.data.data);
       }
@@ -179,7 +188,13 @@ export const ExercisesScreen = () => {
   }, []);
 
   // Cargar ejercicios paginados y filtrados
-  const fetchExercises = useCallback(async (page = 1, silent = false) => {
+  const fetchExercises = useCallback(async (page = 1, silent = false, forceRefresh = false) => {
+    if (exercisesAbortRef.current) {
+      exercisesAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    exercisesAbortRef.current = controller;
+
     try {
       if (!silent) {
         setError(null);
@@ -200,7 +215,11 @@ export const ExercisesScreen = () => {
       else if (statusFilter === 'inactive') payload.isActive = false;
       // 'all' no envía isActive para traer ambos
 
-      const res = await apiClient.post('/exercises/search', payload);
+      const res = await cachedPost('/exercises/search', payload, {
+        forceRefresh,
+        signal: controller.signal
+      });
+      if (controller.signal.aborted) return;
 
       if (res.data?.success) {
         const data = res.data.data;
@@ -210,45 +229,69 @@ export const ExercisesScreen = () => {
         setCurrentPage(data?.page ?? page);
         setTotalPages(data?.totalPages ?? 1);
         setError(null);
+        hasLoadedRef.current = true;
       }
     } catch (err: any) {
+      if (isRequestCanceled(err) || controller.signal.aborted) return;
       if (!silent) {
         setError(err.response?.data?.error?.message || 'Error al obtener catálogo de ejercicios clínicos');
       }
     } finally {
+      if (exercisesAbortRef.current === controller) {
+        exercisesAbortRef.current = null;
+      }
       setLoading(false);
       setRefreshing(false);
     }
   }, [searchTerm, selectedBodyZone, selectedObjective, selectedDifficulty, selectedEquipment, statusFilter]);
 
-  // Cargar inicial
-  useEffect(() => {
-    fetchFilterOptions();
-  }, [fetchFilterOptions]);
+  const fetchExercisesRef = useRef(fetchExercises);
+  fetchExercisesRef.current = fetchExercises;
 
-  // Debounce de búsqueda y filtros
+  // Debounce de búsqueda y filtros (omite montaje inicial; useFocusEffect realiza la carga inicial)
   useEffect(() => {
+    if (isReceptionist) return;
+    if (!hasMountedFiltersRef.current) {
+      hasMountedFiltersRef.current = true;
+      return;
+    }
     setCurrentPage(1);
     const timeout = setTimeout(() => {
-      fetchExercises(1, true);
+      if (isFocusedRef.current) {
+        fetchExercises(1, true, false);
+      }
     }, 250);
     return () => clearTimeout(timeout);
-  }, [searchTerm, selectedBodyZone, selectedObjective, selectedDifficulty, selectedEquipment, statusFilter, fetchExercises]);
+  }, [searchTerm, selectedBodyZone, selectedObjective, selectedDifficulty, selectedEquipment, statusFilter, fetchExercises, isReceptionist]);
 
   useEffect(() => {
     if (!isReceptionist && scopeVersions.exercises > 0) {
-      fetchExercises(currentPage, true);
-      fetchFilterOptions();
+      if (isFocusedRef.current) {
+        fetchExercisesRef.current(currentPageRef.current, true, true);
+        fetchFilterOptions(true);
+      } else {
+        needsRefreshRef.current = true;
+      }
     }
-  }, [scopeVersions.exercises, isReceptionist]);
+  }, [scopeVersions.exercises, isReceptionist, fetchFilterOptions]);
 
   useFocusEffect(
     useCallback(() => {
-      if (!isReceptionist) {
-        fetchExercises(currentPage, true);
-        fetchFilterOptions();
-      }
-    }, [currentPage, fetchExercises, fetchFilterOptions, isReceptionist])
+      if (isReceptionist) return;
+      isFocusedRef.current = true;
+      const shouldForce = needsRefreshRef.current;
+      needsRefreshRef.current = false;
+      fetchExercisesRef.current(currentPageRef.current, hasLoadedRef.current, shouldForce);
+      fetchFilterOptions(shouldForce);
+
+      return () => {
+        isFocusedRef.current = false;
+        if (exercisesAbortRef.current) {
+          exercisesAbortRef.current.abort();
+          exercisesAbortRef.current = null;
+        }
+      };
+    }, [fetchFilterOptions, isReceptionist])
   );
 
   // Limpiar banner de éxito tras 4 segundos
@@ -525,7 +568,7 @@ export const ExercisesScreen = () => {
       />
 
       {/* Banner de confirmación / feedback */}
-      {successBanner && (
+      {Boolean(successBanner) && (
         <View style={[styles.successBanner, { backgroundColor: theme.successBg, borderColor: theme.success + '40' }]}>
           <MaterialIcons name="check-circle" size={18} color={theme.success} style={{ marginRight: spacing.xs }} />
           <Text style={[styles.successBannerText, { color: theme.success }]}>{successBanner}</Text>
@@ -761,7 +804,7 @@ export const ExercisesScreen = () => {
             refreshing={refreshing}
             onRefresh={() => {
               setRefreshing(true);
-              fetchExercises(currentPage);
+              fetchExercises(currentPage, true, true);
             }}
             tintColor={theme.primary}
           />
@@ -809,14 +852,14 @@ export const ExercisesScreen = () => {
                     )}
                   </View>
                   <View style={styles.badgeRow}>
-                    {item.category && (
+                    {Boolean(item.category) && (
                       <Badge
                         label={item.category}
                         variant="default"
                         size="sm"
                       />
                     )}
-                    {bodyZone && (
+                    {Boolean(bodyZone) && (
                       <Badge
                         label={`Zona: ${bodyZone}`}
                         variant="info"
@@ -828,13 +871,13 @@ export const ExercisesScreen = () => {
                       variant={getDifficultyVariant(difficulty)}
                       size="sm"
                     />
-                    {objective && (
+                    {objective ? (
                       <Badge
                         label={objective}
                         variant="neutral"
                         size="sm"
                       />
-                    )}
+                    ) : null}
                     {item.inUseCount !== undefined && item.inUseCount > 0 && (
                       <Badge
                         label={`En ${item.inUseCount} tratamiento${item.inUseCount > 1 ? 's' : ''}`}
@@ -1118,11 +1161,11 @@ export const ExercisesScreen = () => {
               <Text style={[styles.auditText, { color: theme.textMuted }]}>
                 Uso en tratamientos activos / históricos: <Text style={{ color: theme.text, fontWeight: '600' }}>{selectedExercise.inUseCount ?? 0}</Text>
               </Text>
-              {selectedExercise.createdAt && (
+              {selectedExercise.createdAt ? (
                 <Text style={[styles.auditText, { color: theme.textMuted }]}>
                   Fecha de alta: {new Date(selectedExercise.createdAt).toLocaleDateString('es-AR')}
                 </Text>
-              )}
+              ) : null}
             </View>
           </ScrollView>
         )}

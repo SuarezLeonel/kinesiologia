@@ -1,13 +1,12 @@
 /**
  * @file DataSyncContext.tsx
  * @description Contexto reactivo global de sincronización e invalidación automática de datos.
- * Garantiza que cualquier operación CRUD (pacientes, turnos, historias clínicas, tratamientos,
- * sesiones, ejercicios, servicios, tarifas y pagos) actualice de forma instantánea todas las
- * vistas activas sin requerir recargas manuales de página.
+ * Garantiza que las mutaciones actualicen vistas activas sin generar ráfagas ni llamadas redundantes al recuperar foco.
  */
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { Platform, AppState, AppStateStatus } from 'react-native';
 import { MutationScope, subscribeToApiMutations, emitApiMutation } from '../api/client';
+import { useAuth } from './AuthContext';
 
 export type ScopeVersions = Record<MutationScope, number>;
 
@@ -16,6 +15,7 @@ const INITIAL_SCOPE_VERSIONS: ScopeVersions = {
   patients: 0,
   users: 0,
   appointments: 0,
+  vacations: 0,
   clinicalRecords: 0,
   treatments: 0,
   exercises: 0,
@@ -24,6 +24,8 @@ const INITIAL_SCOPE_VERSIONS: ScopeVersions = {
   dashboard: 0,
   patientPortal: 0
 };
+
+const FOCUS_SYNC_COOLDOWN_MS = 30_000;
 
 interface DataSyncContextType {
   syncVersion: number;
@@ -38,9 +40,11 @@ const DataSyncContext = createContext<DataSyncContextType>({
 });
 
 export const DataSyncProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
   const [syncVersion, setSyncVersion] = useState<number>(0);
   const [scopeVersions, setScopeVersions] = useState<ScopeVersions>(INITIAL_SCOPE_VERSIONS);
-  const lastFocusSyncRef = useRef<number>(0);
+  const lastFocusSyncRef = useRef<number>(Date.now());
+  const wasBackgroundedRef = useRef<boolean>(false);
 
   const applyScopesIncrement = useCallback((scopes: MutationScope[]) => {
     setSyncVersion((prev) => prev + 1);
@@ -71,40 +75,53 @@ export const DataSyncProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return unsubscribe;
   }, [applyScopesIncrement]);
 
-  // Sincronización automática al recuperar el foco de la ventana (Web) o volver al primer plano (Móvil)
+  // Reiniciar contadores cuando el usuario cierra sesión para evitar disparos residuales
   useEffect(() => {
+    if (!user) {
+      setSyncVersion(0);
+      setScopeVersions(INITIAL_SCOPE_VERSIONS);
+      wasBackgroundedRef.current = false;
+    }
+  }, [user]);
+
+  // Sincronización automática únicamente al volver desde segundo plano / pestaña oculta tras al menos 30s
+  useEffect(() => {
+    if (!user) return;
+
     const triggerFocusRefresh = () => {
       const now = Date.now();
-      if (now - lastFocusSyncRef.current < 2500) return;
+      if (now - lastFocusSyncRef.current < FOCUS_SYNC_COOLDOWN_MS) return;
       lastFocusSyncRef.current = now;
       applyScopesIncrement(['all']);
     };
 
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
       const onVisibilityChange = () => {
-        if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        if (document.visibilityState === 'hidden') {
+          wasBackgroundedRef.current = true;
+          return;
+        }
+        if (document.visibilityState === 'visible' && wasBackgroundedRef.current) {
+          wasBackgroundedRef.current = false;
           triggerFocusRefresh();
         }
       };
-      window.addEventListener('focus', triggerFocusRefresh);
-      if (typeof document !== 'undefined') {
-        document.addEventListener('visibilitychange', onVisibilityChange);
-      }
+      document.addEventListener('visibilitychange', onVisibilityChange);
       return () => {
-        window.removeEventListener('focus', triggerFocusRefresh);
-        if (typeof document !== 'undefined') {
-          document.removeEventListener('visibilitychange', onVisibilityChange);
-        }
+        document.removeEventListener('visibilitychange', onVisibilityChange);
       };
-    } else {
-      const sub = AppState.addEventListener('change', (nextState: AppStateStatus) => {
-        if (nextState === 'active') {
-          triggerFocusRefresh();
-        }
-      });
-      return () => sub.remove();
     }
-  }, [applyScopesIncrement]);
+
+    let previousState: AppStateStatus = (AppState.currentState || 'active') as AppStateStatus;
+    const sub = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+      const wasInBackground = previousState === 'background' || previousState === 'inactive';
+      previousState = nextState;
+      if (wasInBackground && nextState === 'active') {
+        triggerFocusRefresh();
+      }
+    });
+    return () => sub.remove();
+  }, [user, applyScopesIncrement]);
 
   const notifyMutation = useCallback((scopes: MutationScope | MutationScope[] = 'all') => {
     const scopeArray = Array.isArray(scopes) ? scopes : [scopes];
@@ -119,4 +136,3 @@ export const DataSyncProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 };
 
 export const useDataSync = () => useContext(DataSyncContext);
-

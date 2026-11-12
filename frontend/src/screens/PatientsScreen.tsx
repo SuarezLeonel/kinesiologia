@@ -2,7 +2,7 @@
  * @file PatientsScreen.tsx
  * @description Pantalla del padrón de pacientes: búsqueda en tiempo real, alta y asignación de kinesiólogo.
  */
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -19,6 +19,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { MaterialIcons } from '@expo/vector-icons';
 import { apiClient } from '../api/client';
+import { cachedPost, isRequestCanceled } from '../api/queryCache';
 import { useAuth } from '../context/AuthContext';
 import { useDataSync } from '../context/DataSyncContext';
 import { useAppTheme } from '../theme/ThemeContext';
@@ -187,30 +188,54 @@ export const PatientsScreen = () => {
     setCreatedPersonSuccess(null);
   };
 
-  const fetchPeopleData = async (query = '', silent = false) => {
+  const peopleAbortRef = useRef<AbortController | null>(null);
+  const isFocusedRef = useRef(false);
+  const hasLoadedRef = useRef(false);
+  const needsPeopleRefreshRef = useRef(false);
+  const needsDepsRefreshRef = useRef(false);
+  const hasMountedSearchRef = useRef(false);
+  const searchTermRef = useRef(searchTerm);
+  searchTermRef.current = searchTerm;
+
+  const fetchPeopleData = async (query = '', silent = false, forceRefresh = false) => {
+    if (peopleAbortRef.current) {
+      peopleAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    peopleAbortRef.current = controller;
+
     try {
       if (!silent) {
         setError(null);
       }
       const requests: Promise<any>[] = [
-        apiClient.post('/patients/search', {
-          search: query || undefined,
-          page: 1,
-          limit: 50
-        })
+        cachedPost(
+          '/patients/search',
+          {
+            search: query || undefined,
+            page: 1,
+            limit: 50
+          },
+          { forceRefresh, signal: controller.signal }
+        )
       ];
 
       if (isAdmin) {
         requests.push(
-          apiClient.post('/users/search', {
-            search: query || undefined,
-            page: 1,
-            limit: 50
-          })
+          cachedPost(
+            '/users/search',
+            {
+              search: query || undefined,
+              page: 1,
+              limit: 50
+            },
+            { forceRefresh, signal: controller.signal }
+          )
         );
       }
 
       const [patientsRes, usersRes] = await Promise.all(requests);
+      if (controller.signal.aborted) return;
 
       if (patientsRes?.data?.success) {
         setPatients(
@@ -231,23 +256,28 @@ export const PatientsScreen = () => {
           }));
         setStaffUsers(staffOnly);
       }
+      hasLoadedRef.current = true;
       setError(null);
     } catch (err: any) {
+      if (isRequestCanceled(err) || controller.signal.aborted) return;
       if (!silent || (patients.length === 0 && staffUsers.length === 0)) {
         setError(err.response?.data?.error?.message || 'Error al obtener registros');
       }
     } finally {
+      if (peopleAbortRef.current === controller) {
+        peopleAbortRef.current = null;
+      }
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  const loadBookingDependencies = async () => {
+  const loadBookingDependencies = async (forceRefresh = false) => {
     try {
       const [servRes, userRes, cal] = await Promise.all([
-        apiClient.post('/services/search', { limit: 50 }),
-        apiClient.post('/appointments/professionals', {}),
-        fetchBookingCalendarAvailability('staff')
+        cachedPost('/services/search', { limit: 50 }, { staleTimeMs: 60_000, forceRefresh }),
+        cachedPost('/appointments/professionals', {}, { staleTimeMs: 60_000, forceRefresh }),
+        fetchBookingCalendarAvailability('staff', forceRefresh)
       ]);
       if (servRes.data?.success) setServicesList(servRes.data.data);
       if (userRes.data?.success) setKinesiologistsList(userRes.data.data);
@@ -262,24 +292,57 @@ export const PatientsScreen = () => {
   };
 
   useEffect(() => {
+    if (!hasMountedSearchRef.current) {
+      hasMountedSearchRef.current = true;
+      return;
+    }
     const timeout = setTimeout(() => {
-      fetchPeopleData(searchTerm, true);
+      if (isFocusedRef.current) {
+        fetchPeopleData(searchTerm, true, false);
+      }
     }, 250);
     return () => clearTimeout(timeout);
   }, [searchTerm, isAdmin]);
 
   useEffect(() => {
-    if (scopeVersions.patients > 0 || scopeVersions.users > 0 || scopeVersions.services > 0) {
-      fetchPeopleData(searchTerm, true);
-      loadBookingDependencies();
+    if (scopeVersions.patients > 0 || scopeVersions.users > 0) {
+      if (isFocusedRef.current) {
+        fetchPeopleData(searchTermRef.current, true, true);
+      } else {
+        needsPeopleRefreshRef.current = true;
+      }
     }
-  }, [scopeVersions.patients, scopeVersions.users, scopeVersions.services]);
+  }, [scopeVersions.patients, scopeVersions.users]);
+
+  useEffect(() => {
+    if (scopeVersions.users > 0 || scopeVersions.services > 0 || scopeVersions.vacations > 0) {
+      if (isFocusedRef.current) {
+        loadBookingDependencies(true);
+      } else {
+        needsDepsRefreshRef.current = true;
+      }
+    }
+  }, [scopeVersions.users, scopeVersions.services, scopeVersions.vacations]);
 
   useFocusEffect(
     useCallback(() => {
-      fetchPeopleData(searchTerm, true);
-      loadBookingDependencies();
-    }, [searchTerm, isAdmin])
+      isFocusedRef.current = true;
+      const forcePeople = needsPeopleRefreshRef.current;
+      const forceDeps = needsDepsRefreshRef.current;
+      needsPeopleRefreshRef.current = false;
+      needsDepsRefreshRef.current = false;
+
+      fetchPeopleData(searchTermRef.current, hasLoadedRef.current, forcePeople);
+      loadBookingDependencies(forceDeps);
+
+      return () => {
+        isFocusedRef.current = false;
+        if (peopleAbortRef.current) {
+          peopleAbortRef.current.abort();
+          peopleAbortRef.current = null;
+        }
+      };
+    }, [isAdmin])
   );
 
   // Comprobar duplicados en tiempo real al registrar paciente
@@ -647,7 +710,7 @@ export const PatientsScreen = () => {
             refreshing={refreshing}
             onRefresh={() => {
               setRefreshing(true);
-              fetchPeopleData(searchTerm);
+              fetchPeopleData(searchTerm, true, true);
             }}
             tintColor={theme.primary}
           />
@@ -869,7 +932,7 @@ export const PatientsScreen = () => {
         )}
 
         {/* Advertencia de duplicado seguro */}
-        {duplicateWarning && !createdPersonSuccess && selectedRoleToCreate === 'paciente' && (
+        {Boolean(duplicateWarning && !createdPersonSuccess && selectedRoleToCreate === 'paciente') && (
           <View style={[styles.warningBox, { backgroundColor: theme.warningBg || '#FEF3C7', borderColor: theme.warning }]}>
             <MaterialIcons name="warning" size={20} color={theme.warning} style={{ marginRight: spacing.xs }} />
             <View style={{ flex: 1 }}>
@@ -1052,7 +1115,7 @@ export const PatientsScreen = () => {
               )}
             />
 
-            {watchedInsuranceProvider && watchedInsuranceProvider !== 'Particular' && (
+            {Boolean(watchedInsuranceProvider && watchedInsuranceProvider !== 'Particular') && (
               <Controller
                 control={patientControl}
                 name="insurance_number"

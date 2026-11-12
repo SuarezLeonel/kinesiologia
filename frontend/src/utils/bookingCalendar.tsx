@@ -66,12 +66,25 @@ export function getWeekdayIndex(dateStr: string): number {
   return new Date(y, m - 1, d, 12, 0, 0).getDay();
 }
 
-// Caché en memoria en el cliente para no consultar en cada apertura del calendario
+// Caché en memoria en el cliente y deduplicación in-flight para no consultar en cada apertura del calendario
 let cachedAvailability: {
+  mode: 'staff' | 'patient';
   loadedAt: number;
   data: CalendarAvailabilityResponse;
   byDate: Record<string, CalendarDayEvaluation>;
 } | null = null;
+
+const inFlightAvailability: Partial<
+  Record<
+    'staff' | 'patient',
+    Promise<{
+      minDate: string;
+      maxDate: string;
+      firstAvailableDate: string;
+      byDate: Record<string, CalendarDayEvaluation>;
+    }>
+  >
+> = {};
 
 const CLIENT_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
 
@@ -91,7 +104,12 @@ export async function fetchBookingCalendarAvailability(
   byDate: Record<string, CalendarDayEvaluation>;
 }> {
   const now = Date.now();
-  if (!forceRefresh && cachedAvailability && now - cachedAvailability.loadedAt < CLIENT_CACHE_TTL_MS) {
+  if (
+    !forceRefresh &&
+    cachedAvailability &&
+    cachedAvailability.mode === mode &&
+    now - cachedAvailability.loadedAt < CLIENT_CACHE_TTL_MS
+  ) {
     const { minDate, maxDate, firstAvailableDate } = cachedAvailability.data;
     return {
       minDate,
@@ -99,6 +117,10 @@ export async function fetchBookingCalendarAvailability(
       firstAvailableDate: firstAvailableDate || minDate,
       byDate: cachedAvailability.byDate
     };
+  }
+
+  if (!forceRefresh && inFlightAvailability[mode]) {
+    return inFlightAvailability[mode]!;
   }
 
   const { minDate: localMin, maxDate: localMax } = getBookingWindow();
@@ -111,57 +133,65 @@ export async function fetchBookingCalendarAvailability(
       ? '/patient-portal/calendar-availability'
       : '/appointments/calendar-availability';
 
-  try {
-    const res = await apiClient.post(endpoint, {
-      fromDate: fromMonthStart,
-      toDate: toExtended
-    });
-    if (res.data?.success && res.data?.data) {
-      const payload: CalendarAvailabilityResponse = res.data.data;
-      const byDate: Record<string, CalendarDayEvaluation> = {};
-      for (const d of payload.days || []) {
-        byDate[d.date] = d;
+  const reqPromise = (async () => {
+    try {
+      const res = await apiClient.post(endpoint, {
+        fromDate: fromMonthStart,
+        toDate: toExtended
+      });
+      if (res.data?.success && res.data?.data) {
+        const payload: CalendarAvailabilityResponse = res.data.data;
+        const byDate: Record<string, CalendarDayEvaluation> = {};
+        for (const d of payload.days || []) {
+          byDate[d.date] = d;
+        }
+        cachedAvailability = {
+          mode,
+          loadedAt: Date.now(),
+          data: payload,
+          byDate
+        };
+        return {
+          minDate: payload.minDate || localMin,
+          maxDate: payload.maxDate || localMax,
+          firstAvailableDate:
+            payload.firstAvailableDate || findFirstAvailableLocal(localMin, localMax, byDate),
+          byDate
+        };
       }
-      cachedAvailability = {
-        loadedAt: Date.now(),
-        data: payload,
-        byDate
-      };
-      return {
-        minDate: payload.minDate || localMin,
-        maxDate: payload.maxDate || localMax,
-        firstAvailableDate:
-          payload.firstAvailableDate || findFirstAvailableLocal(localMin, localMax, byDate),
-        byDate
-      };
+    } catch {
+      // Si falla la red y teníamos caché previa, usar caché previa
+      if (cachedAvailability && cachedAvailability.mode === mode) {
+        return {
+          minDate: cachedAvailability.data.minDate,
+          maxDate: cachedAvailability.data.maxDate,
+          firstAvailableDate: cachedAvailability.data.firstAvailableDate || localMin,
+          byDate: cachedAvailability.byDate
+        };
+      }
     }
-  } catch {
-    // Si falla la red y teníamos caché previa, usar caché previa
-    if (cachedAvailability) {
-      return {
-        minDate: cachedAvailability.data.minDate,
-        maxDate: cachedAvailability.data.maxDate,
-        firstAvailableDate: cachedAvailability.data.firstAvailableDate || localMin,
-        byDate: cachedAvailability.byDate
-      };
-    }
-  }
 
-  // Si todavía no existen datos almacenados ni respuesta del servidor, evitar habilitar fechas cuya condición de feriado no pudo verificarse
-  const fallbackByDate: Record<string, CalendarDayEvaluation> = {
-    __unverified__: {
-      date: '__unverified__',
-      available: false,
-      reasonCode: 'UNVERIFIED_HOLIDAYS',
-      reason: 'No se pudo verificar la condición de feriado para esta fecha.'
-    }
-  };
-  return {
-    minDate: localMin,
-    maxDate: localMax,
-    firstAvailableDate: localMin,
-    byDate: fallbackByDate
-  };
+    // Si todavía no existen datos almacenados ni respuesta del servidor, evitar habilitar fechas cuya condición de feriado no pudo verificarse
+    const fallbackByDate: Record<string, CalendarDayEvaluation> = {
+      __unverified__: {
+        date: '__unverified__',
+        available: false,
+        reasonCode: 'UNVERIFIED_HOLIDAYS',
+        reason: 'No se pudo verificar la condición de feriado para esta fecha.'
+      }
+    };
+    return {
+      minDate: localMin,
+      maxDate: localMax,
+      firstAvailableDate: localMin,
+      byDate: fallbackByDate
+    };
+  })().finally(() => {
+    delete inFlightAvailability[mode];
+  });
+
+  inFlightAvailability[mode] = reqPromise;
+  return reqPromise;
 }
 
 export function evaluateDateClient(

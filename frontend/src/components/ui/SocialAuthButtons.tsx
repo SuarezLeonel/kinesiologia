@@ -851,7 +851,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
               </View>
             </View>
 
-            {linkingState.error && (
+            {Boolean(linkingState.error) && (
               <View style={[styles.errorBanner, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
                 <Text style={[styles.errorText, { color: theme.error }]}>{linkingState.error}</Text>
               </View>
@@ -905,7 +905,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
               </View>
             </View>
 
-            {missingEmailState.error && (
+            {Boolean(missingEmailState.error) && (
               <View style={[styles.errorBanner, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
                 <Text style={[styles.errorText, { color: theme.error }]}>{missingEmailState.error}</Text>
               </View>
@@ -967,7 +967,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
               </View>
             </View>
 
-            {profileCompletionState.error && (
+            {Boolean(profileCompletionState.error) && (
               <View style={[styles.errorBanner, { backgroundColor: theme.errorBg, borderColor: theme.error + '40' }]}>
                 <Text style={[styles.errorText, { color: theme.error }]}>{profileCompletionState.error}</Text>
               </View>
@@ -1023,7 +1023,7 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
               />
             </View>
 
-            {profileCompletionState.insuranceProvider && profileCompletionState.insuranceProvider !== 'Particular' && (
+            {Boolean(profileCompletionState.insuranceProvider && profileCompletionState.insuranceProvider !== 'Particular') && (
               <Input
                 label="N° de afiliado / Credencial (opcional)"
                 placeholder="Ej: 1234567801"
