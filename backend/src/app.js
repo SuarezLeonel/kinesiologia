@@ -9,7 +9,6 @@
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
-import rateLimit from 'express-rate-limit';
 import swaggerUi from 'swagger-ui-express';
 import yaml from 'yamljs';
 import path from 'path';
@@ -17,6 +16,7 @@ import { fileURLToPath } from 'url';
 
 import { config } from './config/env.js';
 import { errorHandler } from './middlewares/errorHandler.js';
+import { createRateLimiter } from './middlewares/rateLimit.js';
 import { authRouter } from './modules/auth/routes.js';
 import { usersRouter } from './modules/users/routes.js';
 import { patientsRouter } from './modules/patients/routes.js';
@@ -63,20 +63,12 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Rate limiting global
-const limiter = rateLimit({
+// Rate limiting global (desactivado en NODE_ENV=development para operaciones habituales; activo en producción o si NODE_ENV no está definido)
+const limiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
   max: 5000,
-  standardHeaders: true,
-  legacyHeaders: false,
-  validate: { trustProxy: false },
-  message: {
-    success: false,
-    error: {
-      code: 'TOO_MANY_REQUESTS',
-      message: 'Demasiadas solicitudes desde esta IP, por favor intente nuevamente en 15 minutos'
-    }
-  }
+  preserveInDevelopment: false,
+  message: 'Demasiadas solicitudes desde esta IP, por favor intente nuevamente en 15 minutos'
 });
 app.use(limiter);
 

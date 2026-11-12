@@ -5,9 +5,9 @@
  * Configura rate limiters específicos por IP/Email y endpoints de OAuth y recuperación.
  */
 import { Router } from 'express';
-import rateLimit from 'express-rate-limit';
 import { authController } from './controller.js';
 import { validate } from '../../middlewares/validate.js';
+import { createRateLimiter } from '../../middlewares/rateLimit.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { config } from '../../config/env.js';
 import {
@@ -28,36 +28,62 @@ export const authRouter = Router();
 
 const isTest = config.nodeEnv === 'test' || Boolean(process.env.NODE_TEST_CONTEXT);
 
-const createLimiter = (max, windowMinutes, message, useEmailKey = false) => rateLimit({
-  windowMs: windowMinutes * 60 * 1000,
-  max: isTest ? 1000 : max,
-  standardHeaders: true,
-  legacyHeaders: false,
-  validate: { trustProxy: false },
-  keyGenerator: (req) => {
-    const cfIp = req.headers['cf-connecting-ip'];
-    const xff = req.headers['x-forwarded-for'];
-    const ip = cfIp ? String(cfIp).trim() : (xff ? String(xff).split(',')[0].trim() : (req.ip || '127.0.0.1'));
-    if (useEmailKey && req.body?.email) {
-      return `${ip}_${String(req.body.email).toLowerCase().trim()}`;
-    }
-    return ip;
-  },
-  message: {
-    success: false,
-    error: {
-      code: 'TOO_MANY_REQUESTS',
-      message
-    }
+const buildAuthKeyGenerator = (useEmailKey) => (req) => {
+  const cfIp = req.headers['cf-connecting-ip'];
+  const xff = req.headers['x-forwarded-for'];
+  const ip = cfIp ? String(cfIp).trim() : (xff ? String(xff).split(',')[0].trim() : (req.ip || '127.0.0.1'));
+  if (useEmailKey && req.body?.email) {
+    return `${ip}_${String(req.body.email).toLowerCase().trim()}`;
   }
-});
+  return ip;
+};
+
+const createAuthLimiter = (
+  max,
+  windowMinutes,
+  message,
+  { useEmailKey = false, preserveInDevelopment = false } = {}
+) =>
+  createRateLimiter({
+    windowMs: windowMinutes * 60 * 1000,
+    max: isTest ? 1000 : max,
+    preserveInDevelopment,
+    keyGenerator: buildAuthKeyGenerator(useEmailKey),
+    message
+  });
 
 // Limitadores específicos para mitigación de ataques de fuerza bruta y credential stuffing (OWASP A07 / API4)
-const loginLimiter = createLimiter(10, 15, 'Demasiados intentos de inicio de sesión. Por motivos de seguridad, reintente en 15 minutos.', true);
-const registerLimiter = createLimiter(20, 60, 'Demasiadas solicitudes de registro desde esta conexión. Reintente en una hora.');
-const forgotPasswordLimiter = createLimiter(20, 15, 'Demasiadas solicitudes de recuperación de contraseña. Reintente en 15 minutos.', true);
-const resetPasswordLimiter = createLimiter(15, 15, 'Demasiados intentos de restablecimiento de contraseña. Reintente en 15 minutos.', true);
-const resendVerificationLimiter = createLimiter(5, 15, 'Demasiadas solicitudes de reenvío de correo de verificación. Por motivos de seguridad, reintente en 15 minutos.', true);
+// Login y recuperación de contraseña mantienen su protección incluso cuando NODE_ENV=development.
+const loginLimiter = createAuthLimiter(
+  10,
+  15,
+  'Demasiados intentos de inicio de sesión. Por motivos de seguridad, reintente en 15 minutos.',
+  { useEmailKey: true, preserveInDevelopment: true }
+);
+const registerLimiter = createAuthLimiter(
+  20,
+  60,
+  'Demasiadas solicitudes de registro desde esta conexión. Reintente en una hora.',
+  { preserveInDevelopment: false }
+);
+const forgotPasswordLimiter = createAuthLimiter(
+  20,
+  15,
+  'Demasiadas solicitudes de recuperación de contraseña. Reintente en 15 minutos.',
+  { useEmailKey: true, preserveInDevelopment: true }
+);
+const resetPasswordLimiter = createAuthLimiter(
+  15,
+  15,
+  'Demasiados intentos de restablecimiento de contraseña. Reintente en 15 minutos.',
+  { useEmailKey: true, preserveInDevelopment: true }
+);
+const resendVerificationLimiter = createAuthLimiter(
+  5,
+  15,
+  'Demasiadas solicitudes de reenvío de correo de verificación. Por motivos de seguridad, reintente en 15 minutos.',
+  { useEmailKey: true, preserveInDevelopment: false }
+);
 
 // Todos los endpoints usan POST según AGENTS.md y REQUISITOS.md
 authRouter.post('/register', registerLimiter, validate(registerSchema), asyncHandler((req, res, next) => authController.register(req, res, next)));
