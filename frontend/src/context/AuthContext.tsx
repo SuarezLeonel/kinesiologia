@@ -380,6 +380,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
+  const clearTransientOAuthState = () => {
+    if (typeof window === 'undefined') return;
+    try {
+      if (window.localStorage) {
+        const localKeysToRemove: string[] = [];
+        for (let i = 0; i < window.localStorage.length; i += 1) {
+          const key = window.localStorage.key(i);
+          if (
+            key &&
+            (key === 'ExpoWebBrowserRedirectHandle' ||
+              key.startsWith('ExpoWebBrowser_OriginUrl_') ||
+              key.startsWith('ExpoWebBrowser_RedirectUrl_'))
+          ) {
+            localKeysToRemove.push(key);
+          }
+        }
+        localKeysToRemove.forEach((key) => window.localStorage.removeItem(key));
+      }
+      if (window.sessionStorage) {
+        const sessionKeysToRemove: string[] = [];
+        for (let i = 0; i < window.sessionStorage.length; i += 1) {
+          const key = window.sessionStorage.key(i);
+          if (key && key.startsWith('oauth_processed_code_')) {
+            sessionKeysToRemove.push(key);
+          }
+        }
+        sessionKeysToRemove.forEach((key) => window.sessionStorage.removeItem(key));
+      }
+    } catch {}
+  };
+
   const logout = async () => {
     clearQueryCache();
     try {
@@ -390,6 +421,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (e) {
     } finally {
       clearQueryCache();
+      clearTransientOAuthState();
       await tokenStorage.deleteItem(ACCESS_TOKEN_KEY);
       await tokenStorage.deleteItem(REFRESH_TOKEN_KEY);
       await tokenStorage.deleteItem(USER_STORAGE_KEY);

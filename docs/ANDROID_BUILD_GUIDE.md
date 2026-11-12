@@ -49,10 +49,17 @@ Este comando vinculará el proyecto con tu cuenta de Expo y asignará el `projec
 
 ## 4. Ejecutar la Compilación de la APK
 
-Para generar un archivo APK instalable directamente en cualquier dispositivo Android (perfil `preview` configurado en `frontend/eas.json`):
+Para generar un archivo APK de **producción** instalable directamente en cualquier dispositivo Android (perfil `production` configurado en `frontend/eas.json` con `"buildType": "apk"` y `autoIncrement: true`):
 
 ```powershell
-eas build -p android --profile preview
+cd frontend
+npx eas-cli build -p android --profile production
+```
+
+Si necesitás una compilación de prueba interna (`preview`), podés ejecutar:
+
+```powershell
+npx eas-cli build -p android --profile preview
 ```
 
 ### Flujo de la compilación:

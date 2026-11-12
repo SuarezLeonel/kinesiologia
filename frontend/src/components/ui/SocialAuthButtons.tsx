@@ -296,6 +296,29 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
             setLoadingProvider(null);
           });
         }
+      } else if (searchParams.get('error') && mode === 'login') {
+        const rawState = searchParams.get('state');
+        let resolvedProvider: SocialProvider | null = null;
+        if (rawState) {
+          try {
+            const parsedStr = typeof atob === 'function'
+              ? atob(rawState.replace(/-/g, '+').replace(/_/g, '/'))
+              : rawState;
+            const decoded = JSON.parse(parsedStr);
+            if (decoded?.provider) {
+              resolvedProvider = decoded.provider;
+            }
+          } catch {}
+        }
+        if (resolvedProvider === 'google') {
+          window.history.replaceState({}, document.title, window.location.pathname);
+          const oauthError = searchParams.get('error');
+          onError?.(
+            oauthError === 'access_denied'
+              ? 'Inicio de sesión con Google cancelado.'
+              : (searchParams.get('error_description') || 'Error en la autorización con Google.')
+          );
+        }
       }
     }
 
@@ -349,18 +372,24 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
           scopes: ['openid', 'profile', 'email'],
           responseType: AuthSession.ResponseType.Code,
           state: statePayload,
+          ...(mode === 'login' ? { prompt: AuthSession.Prompt.SelectAccount } : {}),
           usePKCE: false
         });
 
         const result = await executeAuthSession(authRequest, discovery);
 
-        if (result.type === 'cancel' || result.type === 'dismiss') {
+        if (result.type === 'cancel' || result.type === 'dismiss' || result.type === 'locked') {
           onError?.('Inicio de sesión con Google cancelado.');
           return;
         }
 
         if (result.type === 'error') {
-          onError?.(result.error?.message || 'Error en la autorización con Google.');
+          const isAccessDenied = result.error?.code === 'access_denied' || result.params?.error === 'access_denied';
+          onError?.(
+            isAccessDenied
+              ? 'Inicio de sesión con Google cancelado.'
+              : (result.error?.message || 'Error en la autorización con Google.')
+          );
           return;
         }
 
@@ -368,6 +397,10 @@ export const SocialAuthButtons: React.FC<SocialAuthButtonsProps> = ({
           const code = result.params.code;
           const idToken = result.params.id_token;
           const accessToken = result.params.access_token;
+          if (!code && !idToken && !accessToken) {
+            onError?.('No se recibió autorización válida de Google.');
+            return;
+          }
           await processSocialAuthResponse(provider, {
             code,
             idToken,
