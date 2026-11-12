@@ -23,6 +23,7 @@ import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { spacing, radii } from '../theme/tokens';
+import { useResponsive } from '../theme/useResponsive';
 import { SocialAuthButtons } from '../components/ui';
 
 const loginSchema = z.object({
@@ -35,6 +36,7 @@ type LoginFormData = z.infer<typeof loginSchema>;
 export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   const { login } = useAuth();
   const { theme } = useAppTheme();
+  const { isSmallPhone } = useResponsive();
   const insets = useSafeAreaInsets();
   const [serverError, setServerError] = useState<string | null>(null);
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
@@ -87,7 +89,7 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           {
             paddingTop: Math.max(insets.top, 24) + spacing.md,
             paddingBottom: Math.max(insets.bottom, 24) + spacing.xl,
-            paddingHorizontal: Platform.OS === 'web' ? spacing.xl : spacing.md
+            paddingHorizontal: Platform.OS === 'web' ? spacing.xl : isSmallPhone ? spacing.sm : spacing.md
           }
         ]}
         keyboardShouldPersistTaps="handled"
@@ -112,7 +114,7 @@ export const LoginScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           </View>
 
           {/* Tarjeta de Autenticación Principal */}
-          <View style={styles.card}>
+          <View style={[styles.card, isSmallPhone && { paddingHorizontal: 16, paddingVertical: 20 }]}>
           <Text style={[styles.cardTitle, { marginBottom: 16 }]}>Iniciar sesión</Text>
 
           {/* Campo Correo Electrónico */}

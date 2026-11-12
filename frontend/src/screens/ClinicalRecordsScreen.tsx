@@ -47,7 +47,7 @@ type ClinicalRecordFormData = z.infer<typeof clinicalRecordSchema>;
 export const ClinicalRecordsScreen = () => {
   const { isReceptionist } = useAuth();
   const { theme } = useAppTheme();
-  const { isPhone, isSmallPhone, isDesktop, contentMaxWidth } = useResponsive();
+  const { isPhone, isSmallPhone, isDesktop, width, contentMaxWidth } = useResponsive();
   const { scopeVersions } = useDataSync();
   const [searchTerm, setSearchTerm] = useState('');
   const [records, setRecords] = useState<any[]>([]);
@@ -423,9 +423,9 @@ export const ClinicalRecordsScreen = () => {
       )}
 
       <FlatList
-        key={isDesktop ? 'clinical-grid-2' : 'clinical-list-1'}
-        numColumns={isDesktop ? 2 : 1}
-        columnWrapperStyle={isDesktop ? styles.columnWrapper : undefined}
+        key={`clinical-grid-${isPhone ? 1 : width >= 1280 ? 3 : 2}`}
+        numColumns={isPhone ? 1 : width >= 1280 ? 3 : 2}
+        columnWrapperStyle={!isPhone ? styles.columnWrapper : undefined}
         data={records}
         keyExtractor={(item) => item.id.toString()}
         refreshControl={

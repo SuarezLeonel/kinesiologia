@@ -13,19 +13,22 @@ const getApiUrl = () => {
     return process.env.EXPO_PUBLIC_API_URL;
   }
 
-  // 2. Configuración explícita en app.json (extra.apiUrl)
-  if (Constants.expoConfig?.extra?.apiUrl) {
-    return Constants.expoConfig.extra.apiUrl;
-  }
-
-  // 3. En builds nativos (APK standalone / producción), conectar siempre al servidor en la nube
+  // 2. En builds nativos (APK standalone / producción), conectar siempre al servidor en la nube
   if (!__DEV__) {
     return DEFAULT_CLOUD_API_URL;
   }
 
-  // 4. En desarrollo Web local
+  // 3. En desarrollo Web local en localhost, conectar al backend local
   if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+      return 'http://localhost:3000/api/v1';
+    }
     return DEFAULT_CLOUD_API_URL;
+  }
+
+  // 4. Configuración explícita en app.json (extra.apiUrl)
+  if (Constants.expoConfig?.extra?.apiUrl) {
+    return Constants.expoConfig.extra.apiUrl;
   }
 
   // 5. En desarrollo con Expo Go si Metro reporta host local

@@ -27,6 +27,7 @@ export function getPool() {
       connectionLimit: config.db.connectionLimit,
       queueLimit: 0,
       decimalNumbers: true,
+      dateStrings: true,
       ssl: config.db.ssl,
       enableKeepAlive: true,
       keepAliveInitialDelay: 10000

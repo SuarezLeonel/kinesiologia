@@ -12,6 +12,7 @@ import { holidayService } from '../../services/holidayService.js';
 import { vacationsService } from '../vacations/service.js';
 import { NotFoundError, ConflictError } from '../../utils/errors.js';
 import { logAudit } from '../../utils/auditLogger.js';
+import { getClinicDateString, getClinicDateTimeString } from '../../utils/date.js';
 
 export class AppointmentsService {
   async search(filters, currentUser) {
@@ -123,7 +124,31 @@ export class AppointmentsService {
       details: fields
     });
 
-    return await appointmentsRepository.findById(id);
+    const updatedApp = await appointmentsRepository.findById(id);
+    const patient = await patientsRepository.findById(updatedApp.patient_id);
+    if (patient && patient.user_id) {
+      if (fields.status === 'cancelled') {
+        await notificationsService.notify({
+          userId: patient.user_id,
+          patientId: patient.id,
+          type: 'APPOINTMENT_CANCELLED',
+          title: 'Turno cancelado',
+          message: `El turno del ${String(updatedApp.start_time).slice(0, 16)} ha sido cancelado. Motivo: ${fields.reason || 'Modificación administrativa'}`,
+          metadata: { appointmentId: id, reason: fields.reason }
+        });
+      } else if (fields.startTime) {
+        await notificationsService.notify({
+          userId: patient.user_id,
+          patientId: patient.id,
+          type: 'APPOINTMENT_RESCHEDULED',
+          title: 'Turno reprogramado',
+          message: `Tu turno ha sido reprogramado para el ${String(updatedApp.start_time).slice(0, 16)}.`,
+          metadata: { appointmentId: id, startTime: updatedApp.start_time }
+        });
+      }
+    }
+
+    return updatedApp;
   }
 
   async cancel(id, reason, currentUser) {
@@ -250,24 +275,25 @@ export class AppointmentsService {
     const slots = [];
     const startHour = 8;
     const endHour = 18;
-    const now = new Date();
+    const todayStr = getClinicDateString();
+    const clinicNowStr = getClinicDateTimeString();
     const pad = (n) => String(n).padStart(2, '0');
-    const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 
     for (let h = startHour; h <= endHour; h++) {
       const timeStr = `${String(h).padStart(2, '0')}:00`;
       const slotTimeStr = `${targetDate} ${timeStr}:00`;
       const slotStart = new Date(slotTimeStr.replace(' ', 'T'));
       const slotEnd = new Date(slotStart.getTime() + durationMinutes * 60000);
+      const slotEndTimeStr = `${targetDate} ${pad(slotEnd.getHours())}:${pad(slotEnd.getMinutes())}:${pad(slotEnd.getSeconds())}`;
 
-      if (targetDate === todayStr && now.getHours() < endHour && slotStart.getTime() <= now.getTime()) {
+      if (targetDate === todayStr && slotTimeStr <= clinicNowStr) {
         continue;
       }
 
       const hasConflict = activeAppointments.some((app) => {
-        const appStart = new Date(app.start_time);
-        const appEnd = new Date(app.end_time);
-        return (slotStart < appEnd && slotEnd > appStart);
+        const appStart = String(app.start_time).slice(0, 19).replace('T', ' ');
+        const appEnd = String(app.end_time).slice(0, 19).replace('T', ' ');
+        return (slotTimeStr < appEnd && slotEndTimeStr > appStart);
       });
 
       if (!hasConflict) {

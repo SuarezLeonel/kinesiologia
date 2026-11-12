@@ -10,6 +10,7 @@ import { notificationsService } from '../notifications/service.js';
 import { holidayService } from '../../services/holidayService.js';
 import { NotFoundError, UnauthorizedError, ForbiddenError, ConflictError } from '../../utils/errors.js';
 import { logAudit } from '../../utils/auditLogger.js';
+import { getClinicDateTimeString, getClinicDateString } from '../../utils/date.js';
 import bcrypt from 'bcryptjs';
 
 export class PatientPortalService {
@@ -52,45 +53,45 @@ export class PatientPortalService {
 
   async dashboard(userId) {
     const patient = await this.getPatientByUserId(userId);
+    const clinicNow = getClinicDateTimeString();
+    const clinicDate = getClinicDateString();
 
-    // Próximo turno activo
-    const nextRows = await query(`
-      SELECT a.id, a.start_time, a.end_time, a.status, a.notes, a.agreed_price, a.currency,
-             s.name as service_name, s.duration_minutes,
-             u.name as kinesiologist_name, u.last_name as kinesiologist_last_name
-      FROM appointments a
-      JOIN services s ON a.service_id = s.id
-      LEFT JOIN users u ON a.kinesiologist_id = u.id
-      WHERE a.patient_id = ?
-        AND a.start_time >= NOW()
-        AND a.status IN ('pending', 'confirmed')
-      ORDER BY a.start_time ASC
-      LIMIT 1
-    `, [patient.id]);
-
-    // Estadísticas
-    const countRows = await query(`
-      SELECT
-        COUNT(*) as total_appointments,
-        SUM(CASE WHEN status = 'attended' THEN 1 ELSE 0 END) as attended_count,
-        SUM(CASE WHEN start_time >= NOW() AND status IN ('pending', 'confirmed') THEN 1 ELSE 0 END) as upcoming_count
-      FROM appointments
-      WHERE patient_id = ?
-    `, [patient.id]);
-
-    // Rutina terapéutica activa vigente
-    const activeRoutineRows = await query(`
-      SELECT r.id, r.name, r.version, r.valid_from, r.valid_until, r.notes,
-             u.name as kinesiologist_name, u.last_name as kinesiologist_last_name,
-             (SELECT COUNT(*) FROM routine_exercises re WHERE re.routine_id = r.id) as exercises_count,
-             (SELECT COUNT(DISTINCT pel.routine_exercise_id)
-              FROM patient_exercise_logs pel
-              WHERE pel.routine_id = r.id AND pel.patient_id = ? AND pel.completed_date = CURRENT_DATE) as completed_today_count
-      FROM treatment_routines r
-      JOIN users u ON r.kinesiologist_id = u.id
-      WHERE r.patient_id = ? AND r.is_current = 1 AND r.status = 'active'
-      LIMIT 1
-    `, [patient.id, patient.id]);
+    // Ejecutar consultas de próximo turno, métricas y rutina en paralelo
+    const [nextRows, countRows, activeRoutineRows] = await Promise.all([
+      query(`
+        SELECT a.id, a.start_time, a.end_time, a.status, a.notes, a.agreed_price, a.currency,
+               s.name as service_name, s.duration_minutes,
+               u.name as kinesiologist_name, u.last_name as kinesiologist_last_name
+        FROM appointments a
+        JOIN services s ON a.service_id = s.id
+        LEFT JOIN users u ON a.kinesiologist_id = u.id
+        WHERE a.patient_id = ?
+          AND a.start_time >= ?
+          AND a.status IN ('pending', 'confirmed')
+        ORDER BY a.start_time ASC
+        LIMIT 1
+      `, [patient.id, clinicNow]),
+      query(`
+        SELECT
+          COUNT(*) as total_appointments,
+          SUM(CASE WHEN status = 'attended' THEN 1 ELSE 0 END) as attended_count,
+          SUM(CASE WHEN start_time >= ? AND status IN ('pending', 'confirmed') THEN 1 ELSE 0 END) as upcoming_count
+        FROM appointments
+        WHERE patient_id = ?
+      `, [clinicNow, patient.id]),
+      query(`
+        SELECT r.id, r.name, r.version, r.valid_from, r.valid_until, r.notes,
+               u.name as kinesiologist_name, u.last_name as kinesiologist_last_name,
+               (SELECT COUNT(*) FROM routine_exercises re WHERE re.routine_id = r.id) as exercises_count,
+               (SELECT COUNT(DISTINCT pel.routine_exercise_id)
+                FROM patient_exercise_logs pel
+                WHERE pel.routine_id = r.id AND pel.patient_id = ? AND pel.completed_date = ?) as completed_today_count
+        FROM treatment_routines r
+        JOIN users u ON r.kinesiologist_id = u.id
+        WHERE r.patient_id = ? AND r.is_current = 1 AND r.status = 'active'
+        LIMIT 1
+      `, [patient.id, clinicDate, patient.id])
+    ]);
 
     return {
       patient: {
@@ -202,28 +203,30 @@ export class PatientPortalService {
     const slots = [];
     const startHour = 8;
     const endHour = 18;
-    const now = new Date();
-    const todayStr = this._formatLocalDateTime(now).slice(0, 10);
+    const todayStr = getClinicDateString();
+    const clinicNowStr = getClinicDateTimeString();
+    const pad = (n) => String(n).padStart(2, '0');
 
     for (let h = startHour; h <= endHour; h++) {
-      const slotTimeStr = `${targetDate} ${String(h).padStart(2, '0')}:00:00`;
+      const timeStr = `${String(h).padStart(2, '0')}:00`;
+      const slotTimeStr = `${targetDate} ${timeStr}:00`;
       const slotStart = new Date(slotTimeStr.replace(' ', 'T'));
       const slotEnd = new Date(slotStart.getTime() + durationMinutes * 60000);
+      const slotEndTimeStr = `${targetDate} ${pad(slotEnd.getHours())}:${pad(slotEnd.getMinutes())}:${pad(slotEnd.getSeconds())}`;
 
       // Si es hoy dentro del horario laboral, descartar slots de hoy que ya pasaron
-      if (targetDate === todayStr && now.getHours() < endHour && slotStart.getTime() <= now.getTime()) {
+      if (targetDate === todayStr && slotTimeStr <= clinicNowStr) {
         continue;
       }
 
       // Verificar superposición con turnos existentes
       const hasConflict = existingAppointments.some((app) => {
-        const appStart = new Date(app.start_time);
-        const appEnd = new Date(app.end_time);
-        return (slotStart < appEnd && slotEnd > appStart);
+        const appStart = String(app.start_time).slice(0, 19).replace('T', ' ');
+        const appEnd = String(app.end_time).slice(0, 19).replace('T', ' ');
+        return (slotTimeStr < appEnd && slotEndTimeStr > appStart);
       });
 
       if (!hasConflict) {
-        const timeStr = `${String(h).padStart(2, '0')}:00`;
         slots.push({
           startTime: slotTimeStr,
           time: timeStr,
@@ -238,8 +241,7 @@ export class PatientPortalService {
   }
 
   _formatLocalDateTime(d) {
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    return getClinicDateTimeString(d);
   }
 
   async bookAppointment({ kinesiologistId, serviceId, startTime, notes }, userId) {
@@ -457,6 +459,7 @@ export class PatientPortalService {
     `, [patient.id]);
 
     // Para cada rutina, cargar los ejercicios en orden con su estado de cumplimiento
+    const clinicDate = getClinicDateString();
     for (const r of routines) {
       r.exercises = await query(`
         SELECT re.id as routine_exercise_id, re.routine_id, re.exercise_id, re.custom_name,
@@ -470,14 +473,14 @@ export class PatientPortalService {
                e.therapeutic_objective, e.difficulty_level, e.instructions,
                e.contraindications, e.media_url,
                (SELECT COUNT(*) FROM patient_exercise_logs pel
-                WHERE pel.routine_exercise_id = re.id AND pel.patient_id = ? AND pel.completed_date = CURRENT_DATE) as completed_today,
+                WHERE pel.routine_exercise_id = re.id AND pel.patient_id = ? AND pel.completed_date = ?) as completed_today,
                (SELECT MAX(completed_at) FROM patient_exercise_logs pel
                 WHERE pel.routine_exercise_id = re.id AND pel.patient_id = ?) as last_completed_at
         FROM routine_exercises re
         JOIN exercises e ON re.exercise_id = e.id
         WHERE re.routine_id = ?
         ORDER BY re.execution_order ASC, re.id ASC
-      `, [patient.id, patient.id, r.id]);
+      `, [patient.id, clinicDate, patient.id, r.id]);
     }
 
     return routines;

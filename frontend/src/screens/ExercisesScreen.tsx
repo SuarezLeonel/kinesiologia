@@ -91,7 +91,7 @@ const PAGE_SIZE = 10;
 
 export const ExercisesScreen = () => {
   const { theme } = useAppTheme();
-  const { isPhone, isSmallPhone, isDesktop, contentMaxWidth } = useResponsive();
+  const { width, isPhone, isSmallPhone, isDesktop, contentMaxWidth } = useResponsive();
   const { isAdmin, isReceptionist } = useAuth();
   const { scopeVersions } = useDataSync();
 
@@ -794,9 +794,9 @@ export const ExercisesScreen = () => {
 
       {/* Lista de ejercicios */}
       <FlatList
-        key={isDesktop ? 'exercises-grid-2' : 'exercises-list-1'}
-        numColumns={isDesktop ? 2 : 1}
-        columnWrapperStyle={isDesktop ? styles.columnWrapper : undefined}
+        key={`exercises-grid-${isPhone ? 1 : width >= 1280 ? 3 : 2}`}
+        numColumns={isPhone ? 1 : width >= 1280 ? 3 : 2}
+        columnWrapperStyle={!isPhone ? styles.columnWrapper : undefined}
         data={exercises}
         keyExtractor={(item) => item.id.toString()}
         refreshControl={

@@ -30,6 +30,7 @@ import { spacing, radii, typography } from '../theme/tokens';
 import { useResponsive } from '../theme/useResponsive';
 import { Card, Badge, Button, Input, ScreenHeader, ModalWrapper } from '../components/ui';
 import { LoadingState, ErrorState, EmptyState, AccessDeniedState } from '../components/FeedbackStates';
+import { formatAppointmentDateTime } from '../utils/date';
 
 const paymentSchema = z.object({
   patient_id: z.coerce.number().positive('Seleccioná un paciente.'),
@@ -58,7 +59,7 @@ interface CajaSummary {
 
 export const PaymentsScreen = () => {
   const { theme } = useAppTheme();
-  const { isPhone, isSmallPhone, isDesktop, contentMaxWidth } = useResponsive();
+  const { width, isPhone, isSmallPhone, isDesktop, contentMaxWidth } = useResponsive();
   const { isKinesiologist } = useAuth();
   const { scopeVersions } = useDataSync();
   const [payments, setPayments] = useState<any[]>([]);
@@ -255,16 +256,7 @@ export const PaymentsScreen = () => {
 
   const formatAppointmentDate = (dateStr: string) => {
     if (!dateStr) return '';
-    const d = new Date(dateStr.replace(' ', 'T'));
-    if (isNaN(d.getTime())) return dateStr;
-    return d.toLocaleDateString('es-AR', {
-      weekday: 'short',
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    return formatAppointmentDateTime(dateStr);
   };
 
   useEffect(() => {
@@ -502,9 +494,9 @@ export const PaymentsScreen = () => {
       />
 
       <FlatList
-        key={isDesktop ? 'pay-grid-2' : 'pay-list-1'}
-        numColumns={isDesktop ? 2 : 1}
-        columnWrapperStyle={isDesktop ? styles.columnWrapper : undefined}
+        key={`pay-grid-${isPhone ? 1 : 2}`}
+        numColumns={isPhone ? 1 : 2}
+        columnWrapperStyle={!isPhone ? styles.columnWrapper : undefined}
         data={payments}
         keyExtractor={(item) => item.id.toString()}
         refreshControl={

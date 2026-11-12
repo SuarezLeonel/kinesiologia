@@ -23,6 +23,7 @@ import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useAppTheme } from '../theme/ThemeContext';
 import { spacing, radii } from '../theme/tokens';
+import { useResponsive } from '../theme/useResponsive';
 import { DateInput, InsuranceSelector, SocialAuthButtons } from '../components/ui';
 
 const registerSchema = z.object({
@@ -43,6 +44,7 @@ type RegisterFormData = z.infer<typeof registerSchema>;
 export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   const { registerPatient } = useAuth();
   const { theme } = useAppTheme();
+  const { isSmallPhone } = useResponsive();
   const insets = useSafeAreaInsets();
   const [serverError, setServerError] = useState<string | null>(null);
   const [successInfo, setSuccessInfo] = useState<string | null>(null);
@@ -134,7 +136,7 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
           {
             paddingTop: Math.max(insets.top, 24) + spacing.md,
             paddingBottom: Math.max(insets.bottom, 24) + spacing.xxl,
-            paddingHorizontal: Platform.OS === 'web' ? spacing.xl : spacing.md
+            paddingHorizontal: Platform.OS === 'web' ? spacing.xl : isSmallPhone ? spacing.sm : spacing.md
           }
         ]}
         keyboardShouldPersistTaps="handled"
@@ -156,7 +158,7 @@ export const RegisterScreen: React.FC<{ navigation?: any }> = ({ navigation }) =
           </View>
 
           {/* Tarjeta de Registro Principal */}
-          <View style={styles.card}>
+          <View style={[styles.card, isSmallPhone && { paddingHorizontal: 16, paddingVertical: 20 }]}>
           <Text style={[styles.cardTitle, { marginBottom: 14 }]}>Crear cuenta</Text>
 
           {/* Banner Informativo de Vinculación Automática */}

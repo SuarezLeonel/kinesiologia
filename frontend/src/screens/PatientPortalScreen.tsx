@@ -2,7 +2,8 @@
  * @file PatientPortalScreen.tsx
  * @description Pantalla del portal del paciente: ejercicios de Home Care y registro de cumplimiento con escala EVA.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -32,6 +33,7 @@ import {
   getBookingWindow,
   CalendarDayStatus
 } from '../utils/bookingCalendar';
+import { getClinicDateStr, getClinicTimeStr, formatFullSpanishDate } from '../utils/date';
 
 type PortalTab = 'inicio' | 'ejercicios' | 'turnos' | 'servicios' | 'perfil';
 type BookingStep = 1 | 2 | 3 | 4 | 5 | 6;
@@ -48,25 +50,6 @@ const BOOKING_STEPS: { step: BookingStep; title: string }[] = [
 const formatLocalDateISO = (d: Date = new Date()): string => {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-};
-
-const formatFullSpanishDate = (dateInput: string | Date): string => {
-  if (!dateInput) return '';
-  let d: Date;
-  if (typeof dateInput === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
-    const [y, m, day] = dateInput.split('-').map(Number);
-    d = new Date(y, m - 1, day, 12, 0, 0);
-  } else {
-    d = new Date(dateInput);
-  }
-  if (isNaN(d.getTime())) return String(dateInput);
-  const formatted = d.toLocaleDateString('es-AR', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric'
-  });
-  return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 };
 
 const buildFallbackSlots = (dateStr: string, durationMinutes = 45) => {
@@ -214,6 +197,12 @@ export const PatientPortalScreen: React.FC = () => {
     }
   };
 
+  useFocusEffect(
+    useCallback(() => {
+      loadData(true, false);
+    }, [])
+  );
+
   useEffect(() => {
     loadData(false, false);
     return () => {
@@ -224,13 +213,24 @@ export const PatientPortalScreen: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (scopeVersions.patientPortal > 0) {
+    if (scopeVersions.patientPortal > 0 || scopeVersions.appointments > 0 || scopeVersions.all > 0) {
       loadData(true, true);
       if (selectedRoutineId) {
         fetchComplianceLogs(selectedRoutineId, true);
       }
     }
-  }, [scopeVersions.patientPortal]);
+  }, [scopeVersions.patientPortal, scopeVersions.appointments, scopeVersions.all]);
+
+  // Sincronización periódica en segundo plano cada 20s para que cualquier turno
+  // asignado por administración o recepción aparezca de inmediato sin cerrar sesión
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (!loading && activeTab === 'inicio') {
+        loadData(true, false);
+      }
+    }, 20000);
+    return () => clearInterval(timer);
+  }, [loading, activeTab]);
 
   useEffect(() => {
     if (!loading) {
@@ -732,7 +732,7 @@ export const PatientPortalScreen: React.FC = () => {
                 {Boolean(nextAppt) && (
                   <Badge
                     label={nextAppt.status === 'confirmed' ? 'Confirmado' : 'Programado'}
-                    variant={nextAppt.status === 'confirmed' ? 'success' : 'info'}
+                    variant={nextAppt.status === 'confirmed' ? 'success' : 'warning'}
                     size="md"
                   />
                 )}
@@ -747,12 +747,7 @@ export const PatientPortalScreen: React.FC = () => {
                         {nextAppt.service_name}
                       </Text>
                       <Text style={[styles.highlightTime, { color: theme.text }]}>
-                        {formatFullSpanishDate(nextAppt.start_time)} a las{' '}
-                        {new Date(nextAppt.start_time).toLocaleTimeString('es-AR', {
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}{' '}
-                        hs
+                        {formatFullSpanishDate(nextAppt.start_time)} a las {getClinicTimeStr(nextAppt.start_time)} hs
                       </Text>
                     </View>
                   </View>
@@ -767,6 +762,12 @@ export const PatientPortalScreen: React.FC = () => {
                       </Text>
                     </View>
                     <View style={styles.detailItem}>
+                      <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Tipo de consulta</Text>
+                      <Text style={[styles.detailValue, { color: theme.text }]}>
+                        {nextAppt.service_category ? `${nextAppt.service_category} • ` : ''}{nextAppt.service_name}
+                      </Text>
+                    </View>
+                    <View style={styles.detailItem}>
                       <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Valor de la consulta</Text>
                       <Text style={[styles.detailValue, { color: theme.text }]}>
                         ${Number(nextAppt.agreed_price).toLocaleString('es-AR')} {nextAppt.currency || 'ARS'}
@@ -774,13 +775,13 @@ export const PatientPortalScreen: React.FC = () => {
                     </View>
                   </View>
 
-                  <View style={styles.apptActionsRow}>
+                  <View style={[styles.apptActionsRow, isSmallPhone && { flexDirection: 'column', gap: spacing.sm }]}>
                     <Button
                       title="Ver todos mis turnos"
                       variant="outline"
                       size="md"
                       onPress={() => setActiveTab('turnos')}
-                      style={{ flex: 1 }}
+                      style={{ flex: isSmallPhone ? undefined : 1 }}
                     />
                     <Button
                       title="Cancelar turno"
@@ -790,7 +791,7 @@ export const PatientPortalScreen: React.FC = () => {
                         setAppointmentToCancel(nextAppt);
                         setCancelModalVisible(true);
                       }}
-                      style={{ flex: 1 }}
+                      style={{ flex: isSmallPhone ? undefined : 1 }}
                     />
                   </View>
                 </View>
@@ -1347,61 +1348,63 @@ export const PatientPortalScreen: React.FC = () => {
                       </Text>
                     </Card>
                   ) : (
-                    upcomingAppointments.map((appt) => (
-                      <Card key={appt.id} elevated style={styles.apptCard} padding="lg">
-                        <View style={styles.cardHeaderRow}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.apptService, { color: theme.text }]}>{appt.service_name}</Text>
-                            <Text style={[styles.apptKine, { color: theme.textSecondary }]}>
-                              Profesional: {appt.kinesiologist_last_name
-                                ? `Lic. ${appt.kinesiologist_last_name}${appt.kinesiologist_name ? `, ${appt.kinesiologist_name}` : ''}`
-                                : 'Sin asignar'}
-                            </Text>
-                          </View>
-                          <Badge
-                            label={appt.status === 'confirmed' ? 'Confirmado' : 'Programado'}
-                            variant={appt.status === 'confirmed' ? 'success' : 'warning'}
-                            size="md"
-                          />
-                        </View>
-
-                        <View style={[styles.divider, { backgroundColor: theme.border }]} />
-
-                        <View style={styles.apptDetailsGrid}>
-                          <View style={styles.apptGridItem}>
-                            <MaterialIcons name="event" size={22} color={theme.primary} />
-                            <Text style={[styles.gridText, { color: theme.text }]}>
-                              {formatFullSpanishDate(appt.start_time)} a las{' '}
-                              {new Date(appt.start_time).toLocaleTimeString('es-AR', {
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}{' '}
-                              hs
-                            </Text>
+                    <View style={!isPhone ? { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md } : { gap: spacing.md }}>
+                      {upcomingAppointments.map((appt) => (
+                        <Card
+                          key={appt.id}
+                          elevated
+                          style={[styles.apptCard, !isPhone && { width: '48.8%', flexGrow: 1, minWidth: 320 }]}
+                          padding="lg"
+                        >
+                          <View style={styles.cardHeaderRow}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.apptService, { color: theme.text }]}>{appt.service_name}</Text>
+                              <Text style={[styles.apptKine, { color: theme.textSecondary }]}>
+                                Profesional: {appt.kinesiologist_last_name
+                                  ? `Lic. ${appt.kinesiologist_last_name}${appt.kinesiologist_name ? `, ${appt.kinesiologist_name}` : ''}`
+                                  : 'Sin asignar'}
+                              </Text>
+                            </View>
+                            <Badge
+                              label={appt.status === 'confirmed' ? 'Confirmado' : 'Pendiente'}
+                              variant={appt.status === 'confirmed' ? 'success' : 'warning'}
+                              size="md"
+                            />
                           </View>
 
-                          <View style={styles.apptGridItem}>
-                            <MaterialIcons name="payments" size={22} color={theme.textSecondary} />
-                            <Text style={[styles.gridText, { color: theme.text }]}>
-                              Valor: ${Number(appt.agreed_price).toLocaleString('es-AR')} {appt.currency || 'ARS'}
-                            </Text>
-                          </View>
-                        </View>
+                          <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
-                        <View style={styles.apptActionsFooter}>
-                          <Button
-                            title="Cancelar turno"
-                            variant="danger"
-                            size="md"
-                            onPress={() => {
-                              setAppointmentToCancel(appt);
-                              setCancelModalVisible(true);
-                            }}
-                            style={{ flex: 1 }}
-                          />
-                        </View>
-                      </Card>
-                    ))
+                          <View style={styles.apptDetailsGrid}>
+                            <View style={styles.apptGridItem}>
+                              <MaterialIcons name="event" size={22} color={theme.primary} />
+                              <Text style={[styles.gridText, { color: theme.text }]}>
+                                {formatFullSpanishDate(appt.start_time)} a las {getClinicTimeStr(appt.start_time)} hs
+                              </Text>
+                            </View>
+
+                            <View style={styles.apptGridItem}>
+                              <MaterialIcons name="payments" size={22} color={theme.textSecondary} />
+                              <Text style={[styles.gridText, { color: theme.text }]}>
+                                Valor: ${Number(appt.agreed_price).toLocaleString('es-AR')} {appt.currency || 'ARS'}
+                              </Text>
+                            </View>
+                          </View>
+
+                          <View style={styles.apptActionsFooter}>
+                            <Button
+                              title="Cancelar turno"
+                              variant="danger"
+                              size="md"
+                              onPress={() => {
+                                setAppointmentToCancel(appt);
+                                setCancelModalVisible(true);
+                              }}
+                              style={{ flex: 1 }}
+                            />
+                          </View>
+                        </Card>
+                      ))}
+                    </View>
                   )}
                 </View>
 
@@ -1412,57 +1415,59 @@ export const PatientPortalScreen: React.FC = () => {
                       Turnos anteriores ({pastAppointments.length})
                     </Text>
 
-                    {pastAppointments.map((appt) => (
-                      <Card key={appt.id} elevated style={styles.apptCard} padding="lg">
-                        <View style={styles.cardHeaderRow}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.apptService, { color: theme.text }]}>{appt.service_name}</Text>
-                            <Text style={[styles.apptKine, { color: theme.textSecondary }]}>
-                              Profesional: {appt.kinesiologist_last_name
-                                ? `Lic. ${appt.kinesiologist_last_name}${appt.kinesiologist_name ? `, ${appt.kinesiologist_name}` : ''}`
-                                : 'Sin asignar'}
-                            </Text>
-                          </View>
-                          <Badge
-                            label={appt.status === 'attended' ? 'Atendido' : 'Cancelado'}
-                            variant={appt.status === 'attended' ? 'info' : 'error'}
-                            size="md"
-                          />
-                        </View>
-
-                        <View style={[styles.divider, { backgroundColor: theme.border }]} />
-
-                        <View style={styles.apptDetailsGrid}>
-                          <View style={styles.apptGridItem}>
-                            <MaterialIcons name="event" size={22} color={theme.textSecondary} />
-                            <Text style={[styles.gridText, { color: theme.textSecondary }]}>
-                              {formatFullSpanishDate(appt.start_time)} a las{' '}
-                              {new Date(appt.start_time).toLocaleTimeString('es-AR', {
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}{' '}
-                              hs
-                            </Text>
-                          </View>
-
-                          <View style={styles.apptGridItem}>
-                            <MaterialIcons name="payments" size={22} color={theme.textSecondary} />
-                            <Text style={[styles.gridText, { color: theme.textSecondary }]}>
-                              ${Number(appt.agreed_price).toLocaleString('es-AR')} {appt.currency || 'ARS'}
-                            </Text>
-                          </View>
-
-                          {appt.status === 'cancelled' && appt.cancellation_reason ? (
-                            <View style={styles.apptGridItem}>
-                              <MaterialIcons name="info-outline" size={22} color={theme.error} />
-                              <Text style={[styles.gridText, { color: theme.error, fontWeight: '600' }]}>
-                                Motivo: {appt.cancellation_reason}
+                    <View style={!isPhone ? { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md } : { gap: spacing.md }}>
+                      {pastAppointments.map((appt) => (
+                        <Card
+                          key={appt.id}
+                          elevated
+                          style={[styles.apptCard, !isPhone && { width: '48.8%', flexGrow: 1, minWidth: 320 }]}
+                          padding="lg"
+                        >
+                          <View style={styles.cardHeaderRow}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.apptService, { color: theme.text }]}>{appt.service_name}</Text>
+                              <Text style={[styles.apptKine, { color: theme.textSecondary }]}>
+                                Profesional: {appt.kinesiologist_last_name
+                                  ? `Lic. ${appt.kinesiologist_last_name}${appt.kinesiologist_name ? `, ${appt.kinesiologist_name}` : ''}`
+                                  : 'Sin asignar'}
                               </Text>
                             </View>
-                          ) : null}
-                        </View>
-                      </Card>
-                    ))}
+                            <Badge
+                              label={appt.status === 'attended' ? 'Atendido' : 'Cancelado'}
+                              variant={appt.status === 'attended' ? 'info' : 'error'}
+                              size="md"
+                            />
+                          </View>
+
+                          <View style={[styles.divider, { backgroundColor: theme.border }]} />
+
+                          <View style={styles.apptDetailsGrid}>
+                            <View style={styles.apptGridItem}>
+                              <MaterialIcons name="event" size={22} color={theme.textSecondary} />
+                              <Text style={[styles.gridText, { color: theme.textSecondary }]}>
+                                {formatFullSpanishDate(appt.start_time)} a las {getClinicTimeStr(appt.start_time)} hs
+                              </Text>
+                            </View>
+
+                            <View style={styles.apptGridItem}>
+                              <MaterialIcons name="payments" size={22} color={theme.textSecondary} />
+                              <Text style={[styles.gridText, { color: theme.textSecondary }]}>
+                                ${Number(appt.agreed_price).toLocaleString('es-AR')} {appt.currency || 'ARS'}
+                              </Text>
+                            </View>
+
+                            {appt.status === 'cancelled' && appt.cancellation_reason ? (
+                              <View style={styles.apptGridItem}>
+                                <MaterialIcons name="info-outline" size={22} color={theme.error} />
+                                <Text style={[styles.gridText, { color: theme.error, fontWeight: '600' }]}>
+                                  Motivo: {appt.cancellation_reason}
+                                </Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        </Card>
+                      ))}
+                    </View>
                   </View>
                 )}
               </View>
@@ -2095,12 +2100,7 @@ export const PatientPortalScreen: React.FC = () => {
               {appointmentToCancel.service_name}
             </Text>
             <Text style={[styles.summaryText, { color: theme.textSecondary }]}>
-              {formatFullSpanishDate(appointmentToCancel.start_time)} a las{' '}
-              {new Date(appointmentToCancel.start_time).toLocaleTimeString('es-AR', {
-                hour: '2-digit',
-                minute: '2-digit'
-              })}{' '}
-              hs
+              {formatFullSpanishDate(appointmentToCancel.start_time)} a las {getClinicTimeStr(appointmentToCancel.start_time)} hs
             </Text>
           </View>
         )}

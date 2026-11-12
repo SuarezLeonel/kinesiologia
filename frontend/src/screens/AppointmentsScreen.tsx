@@ -34,6 +34,7 @@ import {
   invalidateBookingCalendarCache,
   CalendarDayStatus
 } from '../utils/bookingCalendar';
+import { getClinicDateStr, getClinicTimeStr } from '../utils/date';
 
 const appointmentSchema = z.object({
   patient_id: z.coerce.number().positive('Seleccioná un paciente.'),
@@ -69,31 +70,20 @@ function formatDateISO(d: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-function getAppointmentDate(item: any): Date | null {
-  const raw = item.start_time || item.scheduled_at;
-  if (!raw) return null;
-  const d = new Date(raw);
-  return isNaN(d.getTime()) ? null : d;
-}
-
 function getAppointmentDateStr(item: any): string {
-  const d = getAppointmentDate(item);
-  if (!d) return '';
-  return formatDateISO(d);
+  const raw = item.start_time || item.scheduled_at;
+  return getClinicDateStr(raw);
 }
 
 function getAppointmentTimeStr(item: any): string {
-  const d = getAppointmentDate(item);
-  if (!d) return '10:00';
-  const hours = String(d.getHours()).padStart(2, '0');
-  const minutes = String(d.getMinutes()).padStart(2, '0');
-  return `${hours}:${minutes}`;
+  const raw = item.start_time || item.scheduled_at;
+  return getClinicTimeStr(raw, '10:00');
 }
 
 export const AppointmentsScreen = () => {
   const { theme } = useAppTheme();
-  const { isPhone, isSmallPhone, isDesktop, contentMaxWidth } = useResponsive();
-  const { scopeVersions } = useDataSync();
+  const { isPhone, isSmallPhone, isDesktop, width, contentMaxWidth } = useResponsive();
+  const { scopeVersions, notifyMutation } = useDataSync();
   const { user, isAdmin, isReceptionist, isKinesiologist } = useAuth();
   const canManageAll = isAdmin || isReceptionist;
 
@@ -487,6 +477,7 @@ export const AppointmentsScreen = () => {
         setModalVisible(false);
         reset();
         await fetchAppointments(true);
+        notifyMutation(['appointments', 'patientPortal', 'dashboard']);
       }
     } catch (err: any) {
       setFormError(err.response?.data?.error?.message || 'Error al agendar el turno');
@@ -505,6 +496,7 @@ export const AppointmentsScreen = () => {
       });
       if (res.data?.success) {
         await fetchAppointments(true);
+        notifyMutation(['appointments', 'patientPortal', 'dashboard']);
       }
     } catch (err: any) {
       setAppointments(previousList);
@@ -732,9 +724,9 @@ export const AppointmentsScreen = () => {
 
     Object.keys(map).forEach((key) => {
       map[key].sort((a, b) => {
-        const timeA = new Date(a.start_time || a.scheduled_at).getTime();
-        const timeB = new Date(b.start_time || b.scheduled_at).getTime();
-        return timeA - timeB;
+        const timeA = getAppointmentTimeStr(a);
+        const timeB = getAppointmentTimeStr(b);
+        return timeA.localeCompare(timeB);
       });
     });
 
@@ -1362,9 +1354,19 @@ export const AppointmentsScreen = () => {
             />
           }
         >
-          <View style={styles.desktopColumnsContainer}>
-            {weekDays.map((day) => renderDayColumn(day, false))}
-          </View>
+          {width < 1024 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={true}
+              contentContainerStyle={[styles.columnsContainer, { minWidth: '100%', paddingBottom: spacing.lg }]}
+            >
+              {weekDays.map((day) => renderDayColumn(day, false))}
+            </ScrollView>
+          ) : (
+            <View style={styles.desktopColumnsContainer}>
+              {weekDays.map((day) => renderDayColumn(day, false))}
+            </View>
+          )}
         </ScrollView>
       ) : (
         <ScrollView

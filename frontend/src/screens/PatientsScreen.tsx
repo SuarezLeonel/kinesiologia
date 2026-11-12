@@ -79,7 +79,7 @@ const SPECIALTY_SUGGESTIONS = [
 
 export const PatientsScreen = () => {
   const { theme } = useAppTheme();
-  const { isPhone, isSmallPhone, isDesktop, contentMaxWidth } = useResponsive();
+  const { isPhone, isSmallPhone, isDesktop, width, contentMaxWidth } = useResponsive();
   const { isAdmin, isReceptionist } = useAuth();
   const { scopeVersions } = useDataSync();
   const [patients, setPatients] = useState<any[]>([]);
@@ -698,10 +698,11 @@ export const PatientsScreen = () => {
         />
       </View>
 
+      {/* FlatList Responsiva: 1 columna en móvil, 2 en tablets/laptops y 3 en monitores grandes */}
       <FlatList
-        key={isDesktop ? 'grid-2' : 'list-1'}
-        numColumns={isDesktop ? 2 : 1}
-        columnWrapperStyle={isDesktop ? styles.columnWrapper : undefined}
+        key={`patients-grid-${isPhone ? 1 : width >= 1280 ? 3 : 2}`}
+        numColumns={isPhone ? 1 : width >= 1280 ? 3 : 2}
+        columnWrapperStyle={!isPhone ? styles.columnWrapper : undefined}
         data={displayedList}
         keyExtractor={(item) => `${item._personType || 'pat'}-${item.id}`}
         contentContainerStyle={styles.listContent}
@@ -826,12 +827,13 @@ export const PatientsScreen = () => {
               </View>
 
               {/* Botones de Acción para la Ficha Clínica y Gestión de Turnos */}
-              <View style={[styles.cardActionRow, { borderTopColor: theme.borderSubtle }]}>
+              <View style={[styles.cardActionRow, isSmallPhone && { flexDirection: 'column', alignItems: 'stretch' }, { borderTopColor: theme.borderSubtle }]}>
                 {personType === 'paciente' && !isReceptionist && (
                   <Button
                     title="🏋️ Plan y Rutinas"
                     variant="primary"
                     size="sm"
+                    fullWidth={isSmallPhone}
                     onPress={() => handleOpenRoutinesModal(item)}
                   />
                 )}
@@ -839,6 +841,7 @@ export const PatientsScreen = () => {
                   title="📅 Registrar turno"
                   variant="outline"
                   size="sm"
+                  fullWidth={isSmallPhone}
                   onPress={() => handleOpenBookingModal(item)}
                 />
               </View>
